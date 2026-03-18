@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.python-version
+.venv/
+venv/
+ENV/
+.env
+*.log
+.DS_Store
+
+# Qt / IDE
+*.qrc
+*.ui
+*.qm
+*.qrc.depends
+
+# ACUS runtime/cache
+ACUS/.cache/
+ACUS/.config.json
