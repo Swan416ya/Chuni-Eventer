@@ -4,209 +4,142 @@ from pathlib import Path
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QFileDialog,
-    QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QPushButton,
-    QTabWidget,
-    QTextEdit,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
 
-from ..chuni_formats import ChuniCharaId
 from ..acus_workspace import AcusConfig, ensure_acus_layout
-from ..dds_convert import DdsToolError, convert_to_bc3_dds
-from ..xml_writer import write_chara_xml, write_ddsimage_xml
 from .manager_widget import ManagerWidget
+from .settings_dialog import SettingsDialog
+from .chara_add_dialog import CharaAddDialog
 
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("chuni eventer desktop (ACUS)")
-        self.resize(900, 560)
+        self.resize(1100, 650)
 
         self._acus_root = ensure_acus_layout()
         self._cfg = AcusConfig.load()
 
-        self.tool_path = QLineEdit()
-        self.tool_path.setPlaceholderText("compressonatorcli 可执行文件路径（用于 BC3 生成 & DDS 预览）")
-        if self._cfg.compressonatorcli_path:
-            self.tool_path.setText(self._cfg.compressonatorcli_path)
+        # Left nav
+        self.nav = QListWidget()
+        self.nav.setFixedWidth(180)
+        self.nav.addItem(QListWidgetItem("角色"))
+        self.nav.addItem(QListWidgetItem("地图"))
+        self.nav.addItem(QListWidgetItem("宣传event"))
+        self.nav.addItem(QListWidgetItem("歌曲"))
+        self.nav.currentRowChanged.connect(self._on_nav_changed)
 
-        self.chara_base = QLineEdit()
-        self.chara_base.setPlaceholderText("角色基ID（= 角色ID//10，例如：2469）")
+        self.settings_btn = QPushButton("设置")
+        self.settings_btn.clicked.connect(self._open_settings)
+        self.settings_btn.setStyleSheet("background: #FFFFFF; color: #111827; border: 1px solid #E5E7EB;")
 
-        self.chara_variant = QLineEdit()
-        self.chara_variant.setPlaceholderText("变体 0-9（= 角色ID%10，例如：0）")
+        left = QWidget()
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(12, 12, 12, 12)
+        left_layout.addWidget(QLabel("导航"))
+        left_layout.addWidget(self.nav, stretch=1)
+        left_layout.addStretch(1)
+        left_layout.addWidget(self.settings_btn)
 
-        self.chara_id_preview = QLineEdit()
-        self.chara_id_preview.setReadOnly(True)
-        self.chara_id_preview.setPlaceholderText("最终角色ID（自动计算）")
+        # Right header
+        self.title = QLabel("角色")
+        self.title.setStyleSheet("font-size: 18px; font-weight: 700;")
 
-        self.chara_name = QLineEdit()
-        self.chara_name.setPlaceholderText("角色显示名（写入 Chara.xml 的 name.str）")
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("搜索当前列表…")
 
-        self.head_img = QLineEdit()
-        self.half_img = QLineEdit()
-        self.full_img = QLineEdit()
-        for e in (self.head_img, self.half_img, self.full_img):
-            e.setPlaceholderText("选择图片文件（png/jpg/webp…）")
+        self.refresh_btn = QPushButton("刷新")
+        self.refresh_btn.clicked.connect(self._on_refresh)
+        self.refresh_btn.setStyleSheet("background: #FFFFFF; color: #111827; border: 1px solid #E5E7EB;")
 
-        self.log = QTextEdit()
-        self.log.setReadOnly(True)
+        self.add_btn = QPushButton("新增")
+        self.add_btn.clicked.connect(self._on_add)
 
-        tabs = QTabWidget()
-        tabs.addTab(self._build_generator_tab(), "生成器")
-        tabs.addTab(
-            ManagerWidget(acus_root=self._acus_root, get_tool_path=self._get_tool_path_or_none),
-            "ACUS 管理",
-        )
+        header = QHBoxLayout()
+        header.addWidget(self.title)
+        header.addStretch(1)
+        header.addWidget(self.search, stretch=1)
+        header.addWidget(self.refresh_btn)
+        header.addWidget(self.add_btn)
+
+        self.manager = ManagerWidget(acus_root=self._acus_root, get_tool_path=self._get_tool_path_or_none, embedded=True)
+        self.search.textChanged.connect(self.manager.set_search_text)
+
+        right = QWidget()
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(12, 12, 12, 12)
+        right_layout.addLayout(header)
+        right_layout.addWidget(self.manager, stretch=1)
+
+        split = QSplitter()
+        split.setOrientation(Qt.Orientation.Horizontal)
+        split.addWidget(left)
+        split.addWidget(right)
+        split.setStretchFactor(0, 0)
+        split.setStretchFactor(1, 1)
 
         root = QWidget()
         layout = QVBoxLayout(root)
-        layout.addWidget(tabs)
-
+        layout.addWidget(split)
         self.setCentralWidget(root)
 
-    def _build_generator_tab(self) -> QWidget:
-        w = QWidget()
-        layout = QVBoxLayout(w)
-
-        form = QFormLayout()
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-
-        form.addRow("ACUS 根目录", QLabel(str(self._acus_root)))
-        form.addRow("DDS 工具", self._row_with_browse_file(self.tool_path, "选择 compressonatorcli"))
-        form.addRow("角色基ID", self.chara_base)
-        form.addRow("角色变体", self.chara_variant)
-        form.addRow("最终角色ID", self.chara_id_preview)
-        form.addRow("角色名", self.chara_name)
-        form.addRow("大头", self._row_with_browse_image(self.head_img, "选择大头图"))
-        form.addRow("半身", self._row_with_browse_image(self.half_img, "选择半身图"))
-        form.addRow("全身", self._row_with_browse_image(self.full_img, "选择全身图"))
-
-        layout.addLayout(form)
-
-        btns = QHBoxLayout()
-        run_btn = QPushButton("生成 DDS + XML（写入 ACUS）")
-        run_btn.clicked.connect(self.on_run)
-        btns.addStretch(1)
-        btns.addWidget(run_btn)
-        layout.addLayout(btns)
-
-        layout.addWidget(QLabel("日志"))
-        layout.addWidget(self.log, stretch=1)
-
-        # live update id preview
-        self.chara_base.textChanged.connect(self._update_chara_id_preview)
-        self.chara_variant.textChanged.connect(self._update_chara_id_preview)
-        self._update_chara_id_preview()
-        return w
-
-    def _update_chara_id_preview(self) -> None:
-        base_txt = self.chara_base.text().strip()
-        var_txt = self.chara_variant.text().strip()
-        try:
-            base = int(base_txt)
-            var = int(var_txt)
-            if var < 0 or var > 9:
-                raise ValueError()
-            cid = base * 10 + var
-            self.chara_id_preview.setText(str(cid))
-        except Exception:
-            self.chara_id_preview.setText("")
+        self.nav.setCurrentRow(0)
 
     def _get_tool_path_or_none(self) -> Path | None:
-        p = Path(self.tool_path.text().strip()).expanduser()
-        return p if p.exists() else None
+        p = Path(self._cfg.compressonatorcli_path).expanduser() if self._cfg.compressonatorcli_path else Path("")
+        return p if str(p) and p.exists() else None
 
-    def _row_with_browse_file(self, edit: QLineEdit, button_text: str) -> QWidget:
-        w = QWidget()
-        h = QHBoxLayout(w)
-        h.setContentsMargins(0, 0, 0, 0)
-        h.addWidget(edit, stretch=1)
-        b = QPushButton("浏览…")
-        b.clicked.connect(lambda: self._pick_file_into(edit, button_text))
-        h.addWidget(b)
-        return w
+    def _open_settings(self) -> None:
+        dlg = SettingsDialog(cfg=self._cfg, parent=self)
+        if dlg.exec() == dlg.DialogCode.Accepted:
+            dlg.apply()
+            QMessageBox.information(self, "已保存", "设置已保存。")
+            self._on_refresh()
 
-    def _row_with_browse_image(self, edit: QLineEdit, button_text: str) -> QWidget:
-        return self._row_with_browse_file(edit, button_text)
+    def _on_refresh(self) -> None:
+        self.manager.reload()
 
-    def _pick_file_into(self, edit: QLineEdit, title: str) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, title)
-        if path:
-            edit.setText(path)
+    def _on_nav_changed(self, idx: int) -> None:
+        self.search.setText("")
+        if idx == 0:
+            self.title.setText("角色")
+            self.manager.set_kind("Chara")
+        elif idx == 1:
+            self.title.setText("地图")
+            self.manager.set_kind("Map")
+        elif idx == 2:
+            self.title.setText("宣传event")
+            self.manager.set_kind("EventPromo")
+        elif idx == 3:
+            self.title.setText("歌曲")
+            self.manager.set_kind("Music")
+        else:
+            self.title.setText("角色")
+            self.manager.set_kind("Chara")
 
-    def _append_log(self, msg: str) -> None:
-        self.log.append(msg)
+    def _on_add(self) -> None:
+        idx = self.nav.currentRow()
+        tool = self._get_tool_path_or_none()
+        if tool is None:
+            QMessageBox.critical(self, "缺少设置", "请先点左下角【设置】配置 compressonatorcli 路径。")
+            return
 
-    def _save_cfg(self) -> None:
-        self._cfg.compressonatorcli_path = self.tool_path.text().strip()
-        self._cfg.save()
-
-    def _get_inputs(self) -> tuple[Path, int, str, Path, Path, Path]:
-        try:
-            base = int(self.chara_base.text().strip())
-            var = int(self.chara_variant.text().strip())
-        except Exception as e:
-            raise ValueError("角色基ID与变体必须是整数") from e
-        if var < 0 or var > 9:
-            raise ValueError("变体必须在 0-9 之间")
-        cid = base * 10 + var
-
-        tool = Path(self.tool_path.text().strip()).expanduser()
-
-        head = Path(self.head_img.text().strip()).expanduser()
-        half = Path(self.half_img.text().strip()).expanduser()
-        full = Path(self.full_img.text().strip()).expanduser()
-
-        if not tool.exists():
-            raise ValueError("DDS 工具路径不存在（请安装并选择 compressonatorcli）")
-        for p, label in ((head, "大头"), (half, "半身"), (full, "全身")):
-            if not p.exists():
-                raise ValueError(f"{label} 图片路径不存在")
-
-        return tool, cid, self.chara_name.text().strip(), head, half, full
-
-    def on_run(self) -> None:
-        try:
-            tool, chara_id, chara_name, head, half, full = self._get_inputs()
-            self._save_cfg()
-
-            cid = ChuniCharaId(chara_id)
-            out_dir = self._acus_root
-            dds_dir = out_dir / "ddsImage" / f"ddsImage{cid.raw6}"
-
-            self._append_log(f"角色ID: {cid.raw} => {cid.chara_key}")
-            self._append_log(f"输出(ACUS): {out_dir}")
-            self._append_log(f"DDS 目录: {dds_dir}")
-
-            # 1) convert images
-            targets = [
-                (head, dds_dir / cid.dds_filename(0)),
-                (half, dds_dir / cid.dds_filename(1)),
-                (full, dds_dir / cid.dds_filename(2)),
-            ]
-            for src, dst in targets:
-                self._append_log(f"转换: {src.name} -> {dst.name} (BC3)")
-                convert_to_bc3_dds(tool_path=tool, input_image=src, output_dds=dst)
-
-            # 2) write xml
-            dds_xml = write_ddsimage_xml(out_dir=out_dir, chara_id=cid.raw)
-            chara_xml = write_chara_xml(out_dir=out_dir, chara_id=cid.raw, chara_name=chara_name)
-
-            self._append_log(f"写入: {dds_xml}")
-            self._append_log(f"写入: {chara_xml}")
-            QMessageBox.information(self, "完成", "已生成 DDS + XML。")
-        except DdsToolError as e:
-            QMessageBox.critical(self, "DDS 转换失败", str(e))
-        except Exception as e:
-            QMessageBox.critical(self, "错误", str(e))
+        if idx == 0:
+            dlg = CharaAddDialog(acus_root=self._acus_root, tool_path=tool, parent=self)
+            if dlg.exec() == dlg.DialogCode.Accepted:
+                self._on_refresh()
+        else:
+            QMessageBox.information(self, "未实现", "当前仅实现了【新增角色】。其它类型稍后补齐。")
 

@@ -36,13 +36,21 @@ from ..dds_preview import dds_to_pixmap
 
 
 class ManagerWidget(QWidget):
-    def __init__(self, *, acus_root: Path, get_tool_path) -> None:
+    """
+    ACUS 浏览器组件（表格 + 详情 + DDS 预览）。
+
+    - 可作为独立页面使用（带顶部类型/搜索/刷新）
+    - 也可作为“嵌入式”使用（由外层导航控制类型/搜索/刷新）
+    """
+
+    def __init__(self, *, acus_root: Path, get_tool_path, embedded: bool = False) -> None:
         super().__init__()
         self._acus_root = acus_root
         self._get_tool_path = get_tool_path  # callable returning Path|None
+        self._embedded = embedded
 
         self.kind = QComboBox()
-        self.kind.addItems(["Event", "Map", "Music", "Chara", "DDSImage"])
+        self.kind.addItems(["Event", "EventPromo", "Map", "Music", "Chara", "DDSImage"])
         self.kind.currentTextChanged.connect(self.reload)
 
         self.search = QLineEdit()
@@ -107,11 +115,29 @@ class ManagerWidget(QWidget):
         split.setStretchFactor(1, 4)
 
         layout = QVBoxLayout(self)
-        layout.addLayout(top)
+        if not self._embedded:
+            layout.addLayout(top)
         layout.addWidget(split, stretch=1)
 
         self._items: list[object] = []
         self.reload()
+
+    def set_kind(self, kind: str) -> None:
+        """
+        kind: Event / EventPromo / Map / Music / Chara / DDSImage
+        """
+        idx = self.kind.findText(kind)
+        if idx >= 0 and idx != self.kind.currentIndex():
+            self.kind.setCurrentIndex(idx)
+        else:
+            # still reload if same kind (e.g. external refresh)
+            self.reload()
+
+    def set_search_text(self, text: str) -> None:
+        if self.search.text() != text:
+            self.search.setText(text)
+        else:
+            self._apply_filter()
 
     def reload(self) -> None:
         self.model.removeRows(0, self.model.rowCount())
@@ -120,10 +146,15 @@ class ManagerWidget(QWidget):
         self.preview.clear()
 
         k = self.kind.currentText()
-        if k == "Event":
+        if k in ("Event", "EventPromo"):
             items = scan_events(self._acus_root)
             self._items = items
             for it in items:
+                if k == "EventPromo" and it.kind != "宣传/其他":
+                    continue
+                if k == "Event" and it.kind == "宣传/其他":
+                    # keep both in Event view
+                    pass
                 self._append_row(it.name.id, it.name.str, it.kind, it.xml_path, it)
         elif k == "Map":
             items = scan_maps(self._acus_root)
