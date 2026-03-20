@@ -168,6 +168,8 @@ class ManagerWidget(QWidget):
 
         if k == "Music":
             self.model.setHorizontalHeaderLabels(["ID", "曲名", "艺术家", "流派", "发布日期", "难度", "CueFile", "来源(XML)"])
+        elif k == "Trophy":
+            self.model.setHorizontalHeaderLabels(["ID", "名称", "稀有度", "来源(XML)"])
         else:
             self.model.setHorizontalHeaderLabels(["ID", "名称", "分类", "来源(XML)"])
 
@@ -204,7 +206,8 @@ class ManagerWidget(QWidget):
             items = scan_trophies(self._acus_root)
             self._items = items
             for it in items:
-                self._append_row(it.name.id, it.name.str, "Trophy", it.xml_path, it)
+                rare = str(it.rare_type) if it.rare_type is not None else ""
+                self._append_row(it.name.id, it.name.str, rare, it.xml_path, it)
         elif k == "NamePlate":
             items = scan_nameplates(self._acus_root)
             self._items = items

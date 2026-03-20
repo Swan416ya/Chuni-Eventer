@@ -376,6 +376,9 @@ class CellEditDialog(QDialog):
 
         layout = QVBoxLayout(self)
         layout.addLayout(form)
+        glyph_warn = QLabel("提示：所有名称字段请尽量使用日语字库内字符；超出字库的汉字在游戏内可能无法显示。")
+        glyph_warn.setStyleSheet("color:#B45309;")
+        layout.addWidget(glyph_warn)
         layout.addLayout(btns)
 
         self._load_from_data()
@@ -574,6 +577,9 @@ class AreaExtrasDialog(QDialog):
 
         lay = QVBoxLayout(self)
         lay.addLayout(form)
+        glyph_warn = QLabel("提示：reward 名称/乐曲名称请尽量使用日语字库内字符；超出字库的汉字在游戏内可能无法显示。")
+        glyph_warn.setStyleSheet("color:#B45309;")
+        lay.addWidget(glyph_warn)
         lay.addLayout(btns)
 
     def _on_ok(self) -> None:
@@ -913,6 +919,8 @@ class MapAddDialog(QDialog):
 
         hint = QLabel("每个 MapPage 为 3x3 九宫格（9个最终奖励位）。点击格子编辑最终奖励与对应 MapArea 过程设置。")
         hint.setStyleSheet("color:#374151;")
+        glyph_warn = QLabel("提示：Map 名称、奖励名称、乐曲名称等文本请尽量使用日语字库内字符；否则游戏内可能显示异常。")
+        glyph_warn.setStyleSheet("color:#B45309;")
 
         ok = QPushButton("保存修改" if self._edit_mode else "生成 Map + MapArea + Reward (+Event)")
         ok.clicked.connect(self._generate)
@@ -927,6 +935,7 @@ class MapAddDialog(QDialog):
         layout.addLayout(top)
         layout.addLayout(area_btns)
         layout.addWidget(hint)
+        layout.addWidget(glyph_warn)
         layout.addWidget(self.tabs, stretch=1)
         layout.addLayout(btns)
 
@@ -1399,6 +1408,11 @@ class MapAddDialog(QDialog):
             music_pick.setEnabled(pick_mode)
             music_id.setEnabled(has_reward and on and not pick_mode)
             music_name.setEnabled(has_reward and on and not pick_mode)
+            # 不生效时同步清空，避免误解“填了但没保存”
+            if not (has_reward and on):
+                music_pick.setCurrentIndex(0)
+                music_id.clear()
+                music_name.clear()
 
         music_on.toggled.connect(_sync_music)
         music_mode.currentTextChanged.connect(_sync_music)
@@ -1462,10 +1476,17 @@ class MapAddDialog(QDialog):
 
         def _sync_advanced() -> None:
             on = adv.isChecked()
-            add_step.setEnabled(on)
-            add_reward.setEnabled(on)
-            add_btn.setEnabled(on)
+            has_choices = add_reward.count() > 1
+            add_step.setEnabled(on and has_choices)
+            add_reward.setEnabled(on and has_choices)
+            add_btn.setEnabled(on and has_choices)
             extra_lines.setEnabled(on)
+            if not has_choices:
+                add_step.clear()
+            # 高级设置关闭时，过程奖励不生效，直接灰显并清空输入区
+            if not on:
+                add_step.clear()
+                extra_lines.clear()
 
         adv.toggled.connect(_sync_advanced)
         _sync_advanced()

@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
@@ -63,6 +64,9 @@ class TrophyAddDialog(QDialog):
 
         layout = QVBoxLayout(self)
         layout.addLayout(form)
+        warn = QLabel("提示：名称/说明请尽量使用日语字库内可显示字符；超出字库的汉字在游戏内可能显示为方块。")
+        warn.setStyleSheet("color:#B45309;")
+        layout.addWidget(warn)
         layout.addLayout(btns)
 
     def _file_row(self, edit: QLineEdit, title: str) -> QWidget:
