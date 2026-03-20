@@ -89,6 +89,17 @@ class EventItem:
     info_image_path: str
 
     @property
+    def is_ult_we_unlock(self) -> bool:
+        """
+        ULT/WE 曲开锁事件（合并分类）。
+        经验规则：substances/type=3 且标题包含 ULT 或 WE。
+        """
+        if self.event_type != 3:
+            return False
+        t = self.name.str.upper()
+        return ("ULT" in t) or ("WE" in t)
+
+    @property
     def is_map_unlock(self) -> bool:
         return self.map_name is not None and self.map_name.id != -1
 
@@ -108,6 +119,8 @@ class EventItem:
     @property
     def category_label(self) -> str:
         parts: list[str] = []
+        if self.is_ult_we_unlock:
+            parts.append("ULT/WE解锁")
         if self.is_map_unlock:
             parts.append("MapUnlock")
         if self.is_promo_with_dds:
@@ -120,7 +133,9 @@ class EventItem:
 
     @property
     def filter_bucket(self) -> str:
-        """与列表筛选下拉框对应：map_unlock / promo / other"""
+        """与列表筛选下拉框对应：ult_we / map_unlock / promo / other"""
+        if self.is_ult_we_unlock:
+            return "ult_we"
         if self.is_map_unlock:
             return "map_unlock"
         if self.is_promo_with_dds:

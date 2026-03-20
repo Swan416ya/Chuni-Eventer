@@ -60,7 +60,7 @@ class ManagerWidget(QWidget):
         self.kind.currentTextChanged.connect(self.reload)
 
         self.event_filter = QComboBox()
-        self.event_filter.addItems(["全部", "地图解禁", "宣传(含DDS)", "其它"])
+        self.event_filter.addItems(["全部", "ULT/WE曲解锁", "地图解禁", "宣传(含DDS)", "其它"])
         self.event_filter.currentIndexChanged.connect(self.reload)
         self.event_bar = QWidget()
         ev_row = QHBoxLayout(self.event_bar)
@@ -178,6 +178,8 @@ class ManagerWidget(QWidget):
             self._items = []
             bucket_label = self.event_filter.currentText()
             for it in items:
+                if bucket_label == "ULT/WE曲解锁" and it.filter_bucket != "ult_we":
+                    continue
                 if bucket_label == "地图解禁" and it.filter_bucket != "map_unlock":
                     continue
                 if bucket_label == "宣传(含DDS)" and it.filter_bucket != "promo":
