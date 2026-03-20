@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
 )
@@ -57,6 +58,22 @@ class SettingsDialog(QDialog):
             self.compressonator.setText(path)
 
     def apply(self) -> None:
-        self._cfg.compressonatorcli_path = self.compressonator.text().strip()
+        raw = self.compressonator.text().strip()
+        if raw:
+            p = Path(raw).expanduser()
+            try:
+                p = p.resolve(strict=False)
+            except OSError:
+                QMessageBox.warning(self, "路径无效", "无法解析该路径，请检查拼写。")
+                return
+            if not p.is_file():
+                QMessageBox.warning(
+                    self,
+                    "路径无效",
+                    "DDS 工具必须指向 compressonatorcli 的「可执行文件」本体。\n"
+                    "不要填「.」、不要选文件夹；请用「浏览…」选择实际程序文件。",
+                )
+                return
+        self._cfg.compressonatorcli_path = raw
         self._cfg.save()
 

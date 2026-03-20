@@ -1,6 +1,8 @@
 # chuni eventer desktop（保姆级环境配置 & 首次启动）
 
-这是一个 Python 桌面端工具（**PyQt6**），用于把你的自制资源按 **CHUNITHM A001** 的目录结构写入程序自带的 **`ACUS/` 工作区**，并提供“管理页”快速查看已存在的 XML 内容与 DDS 预览（依赖外部工具）。
+这是一个 Python 桌面端工具（**PyQt6**），用于把你的自制资源按 **CHUNITHM A001** 的目录结构写入程序自带的 **`ACUS/` 工作区**，并提供“管理页”快速查看已存在的 XML 内容与 DDS 预览。
+
+**DDS 预览与 BC3 生成**：默认随依赖安装 **quicktex**（纯 Python 包，内置 C++ 编码器），**可以不装 compressonator**。仍可在【设置】里配置 `compressonatorcli` 作为备选或对照。
 
 ---
 
@@ -24,10 +26,8 @@
 
 - **macOS**
 - **Python 3.12+**（建议）
-- **DDS 转换工具（必需）**：推荐 `compressonatorcli`
-  - 用于：
-    - 图片 → **BC3(DXT5)** DDS（生成器）
-    - DDS → PNG（管理页预览）
+- **quicktex（随 requirements 安装，推荐）**：BC3(DXT5) 的解码/编码
+- **compressonatorcli（可选）**：若 quicktex 解码失败（如个别 DDS 变体）或未安装 quicktex 时作为回退
 
 ---
 
@@ -42,23 +42,25 @@ cd "/Users/mac/code/chuni eventer/desktop"
 python3 -m pip install -r requirements.txt
 ```
 
-> 依赖清单见 `requirements.txt`（PyQt6、Pillow）。
+> 依赖清单见 `requirements.txt`（PyQt6、Pillow、**quicktex**）。
 
-### 1.2 安装 DDS 工具：Compressonator CLI（必需）
+### 1.2（可选）安装 Compressonator CLI
 
-本项目**默认使用 `compressonatorcli`**。你用任意方式安装都可以，只要最终能拿到一个可执行文件路径即可（例如 `/usr/local/bin/compressonatorcli`）。
+**不装也可以**：已安装 `quicktex` 时，角色/名牌等 **BC3 生成** 与管理页 **DDS 预览** 会优先走 quicktex。
 
-生成 DDS 的命令大致长这样：
+若你希望与官方工具链完全一致，或 quicktex 无法解码某种 DDS，可再安装 `compressonatorcli`，并在【设置】里填写路径。命令示例：
 
 ```bash
 compressonatorcli -fd BC3 input.png output.dds
 ```
 
-#### 为什么不能“纯 Python 内置 BC3 压缩”？
+#### quicktex 在 macOS 上的说明
 
-- **BC3(DXT5) 是块压缩纹理格式**，编码器实现复杂且性能敏感。
-- 纯 Python 实现/集成成熟编码器通常不现实（速度/依赖/授权/跨平台）。
-- 所以当前方案是：**编码/预览都走外部工具**（稳定可控）。
+官方文档建议 macOS 用户安装 OpenMP 以提升多线程性能（非必须）：
+
+```bash
+brew install libomp
+```
 
 ---
 
@@ -93,12 +95,11 @@ desktop/ACUS/
 
 > 以后所有生成/管理都围绕这个 `ACUS/` 进行。
 
-### 2.3 第一次使用必须做的配置：DDS 工具路径
+### 2.3（可选）配置 compressonatorcli 路径
 
-打开程序 → **生成器** 页：
+若已 `pip install -r requirements.txt`（含 quicktex），**可直接使用新增角色/预览等功能**，不必配置此项。
 
-- 在 **DDS 工具** 一栏选择 `compressonatorcli` 可执行文件
-- 程序会把路径保存到：`ACUS/.config.json`（不会提交到 git）
+需要时：左下角 **【设置】** → 选择 `compressonatorcli` 可执行文件 → 保存到 `ACUS/.config.json`（不会提交到 git）。
 
 ---
 
@@ -145,17 +146,19 @@ ACUS/
 
 ## 5. 常见问题（排查）
 
-### 5.1 “DDS 工具路径不存在”
-- 说明你还没选到 `compressonatorcli`，或路径填错。
+### 5.1 “DDS 工具路径不存在 / 路径无效”
+- 仅在使用 **compressonatorcli 回退** 时需要有效路径；若已安装 **quicktex**，可不必配置。
 
-### 5.2 “预览失败 / 未配置 compressonatorcli”
-- 预览同样依赖 `compressonatorcli`。
-- 确认：
-  - 工具路径已配置
-  - 对应 `.dds` 文件确实存在于 `ACUS/` 目录里
+### 5.2 “预览失败”
+- 默认用 **quicktex** 解码；失败时会自动尝试 **compressonatorcli**（若已配置）。
+- 确认对应 `.dds` 文件存在于 `ACUS/` 内。
+- **DX10 头等特殊 DDS**：quicktex 当前不支持，可改配 compressonator 尝试转换。
 
 ### 5.3 “变体必须在 0-9”
 - 这是这套 ID/命名规则约定的变体范围限制。
+
+### 5.4 `pip install quicktex` 失败
+- 查看 PyPI 是否提供你当前 Python 版本与系统的 wheel；必要时升级 pip，或使用与项目一致的 Python 3.12。
 
 ---
 

@@ -37,6 +37,7 @@ from ..acus_scan import (
     scan_trophies,
 )
 from ..dds_preview import dds_to_pixmap
+from ..dds_quicktex import quicktex_available
 
 
 class ManagerWidget(QWidget):
@@ -277,8 +278,11 @@ class ManagerWidget(QWidget):
 
     def _update_preview(self, it: object) -> None:
         tool = self._get_tool_path()
-        if tool is None or not tool.exists():
-            self.preview.setText("未配置 compressonatorcli，无法预览 DDS")
+        if tool is None and not quicktex_available():
+            self.preview.setText(
+                "无法预览 DDS：未安装 quicktex，且未在【设置】中配置有效的 compressonatorcli。\n"
+                "推荐：pip install quicktex；或选择 compressonator 可执行文件（不要填「.」或文件夹）。"
+            )
             self.preview.clear()
             return
 

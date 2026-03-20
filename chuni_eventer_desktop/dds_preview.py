@@ -6,6 +6,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
 
 from .dds_convert import DdsToolError, convert_dds_to_png
+from .dds_quicktex import quicktex_available
 
 
 def preview_cache_dir(acus_root: Path) -> Path:
@@ -15,13 +16,14 @@ def preview_cache_dir(acus_root: Path) -> Path:
 def dds_to_pixmap(
     *,
     acus_root: Path,
-    compressonatorcli_path: Path,
+    compressonatorcli_path: Path | None,
     dds_path: Path,
     max_w: int = 320,
     max_h: int = 320,
 ) -> QPixmap | None:
     """
     Convert DDS -> PNG (cached) -> QPixmap for UI display.
+    优先 quicktex；否则使用已配置的 compressonatorcli。
     """
     if not dds_path.exists():
         return None
@@ -31,9 +33,11 @@ def dds_to_pixmap(
     png_path = cache / (dds_path.name + ".png")
 
     if not png_path.exists():
+        if compressonatorcli_path is None and not quicktex_available():
+            return None
         try:
             convert_dds_to_png(tool_path=compressonatorcli_path, input_dds=dds_path, output_png=png_path)
-        except DdsToolError:
+        except (DdsToolError, OSError, PermissionError):
             return None
 
     pm = QPixmap(str(png_path))

@@ -22,7 +22,7 @@ from ..xml_writer import write_chara_xml, write_ddsimage_xml
 
 
 class CharaAddDialog(QDialog):
-    def __init__(self, *, acus_root: Path, tool_path: Path, parent=None) -> None:
+    def __init__(self, *, acus_root: Path, tool_path: Path | None, parent=None) -> None:
         super().__init__(parent=parent)
         self.setWindowTitle("新增角色")
         self.setModal(True)

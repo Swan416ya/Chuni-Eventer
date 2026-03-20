@@ -1,2 +1,4 @@
 PyQt6>=6.10.0
 Pillow>=12.0.0
+# 纯 Python 侧 BC3(DXT5) DDS 解码/编码（预览与生成均可不依赖 compressonatorcli）
+quicktex>=0.3.0

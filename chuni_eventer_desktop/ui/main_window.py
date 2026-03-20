@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..acus_workspace import AcusConfig, ensure_acus_layout
+from ..dds_quicktex import quicktex_available
 from .manager_widget import ManagerWidget
 from .settings_dialog import SettingsDialog
 from .chara_add_dialog import CharaAddDialog
@@ -103,8 +104,16 @@ class MainWindow(QMainWindow):
         self.nav.setCurrentRow(0)
 
     def _get_tool_path_or_none(self) -> Path | None:
-        p = Path(self._cfg.compressonatorcli_path).expanduser() if self._cfg.compressonatorcli_path else Path("")
-        return p if str(p) and p.exists() else None
+        raw = (self._cfg.compressonatorcli_path or "").strip()
+        if not raw:
+            return None
+        p = Path(raw).expanduser()
+        try:
+            p = p.resolve(strict=False)
+        except OSError:
+            return None
+        # 误填「.」或目录时 exists 为真但不可执行，预览会崩；必须指向普通文件
+        return p if p.is_file() else None
 
     def _open_settings(self) -> None:
         dlg = SettingsDialog(cfg=self._cfg, parent=self)
@@ -143,8 +152,14 @@ class MainWindow(QMainWindow):
     def _on_add(self) -> None:
         idx = self.nav.currentRow()
         tool = self._get_tool_path_or_none()
-        if tool is None:
-            QMessageBox.critical(self, "缺少设置", "请先点左下角【设置】配置 compressonatorcli 路径。")
+        if tool is None and not quicktex_available():
+            QMessageBox.critical(
+                self,
+                "无法生成 DDS",
+                "请任选其一：\n"
+                "• 运行 pip install quicktex（推荐，可不装 compressonator）\n"
+                "• 或在左下角【设置】里配置 compressonatorcli 可执行文件路径",
+            )
             return
 
         if idx == 0:
