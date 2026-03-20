@@ -40,6 +40,11 @@ class MusicItem:
     xml_path: Path
     name: IdStr
     artist: IdStr | None
+    genres: tuple[str, ...]
+    release_date: str
+    stage: IdStr | None
+    cue_file: IdStr | None
+    levels: tuple[str, ...]
     jacket_path: str
 
 
@@ -55,6 +60,22 @@ class CharaItem:
     xml_path: Path
     name: IdStr
     default_image_key: str
+
+
+@dataclass(frozen=True)
+class NamePlateItem:
+    xml_path: Path
+    name: IdStr
+    image_path: str
+
+
+@dataclass(frozen=True)
+class TrophyItem:
+    xml_path: Path
+    name: IdStr
+    explain_text: str
+    rare_type: int | None
+    image_path: str
 
 
 @dataclass(frozen=True)
@@ -103,8 +124,45 @@ def scan_music(acus_root: Path) -> list[MusicItem]:
             if not name:
                 continue
             artist = _get_idstr(r.find("artistName"))
+            genre_names: list[str] = []
+            for g in r.findall("genreNames/list/StringID/str"):
+                s = (g.text or "").strip()
+                if s:
+                    genre_names.append(s)
+            release_date = (r.findtext("releaseDate") or "").strip()
+            stage = _get_idstr(r.find("stageName"))
+            cue_file = _get_idstr(r.find("cueFileName"))
+            levels: list[str] = []
+            for f in r.findall("fumens/MusicFumenData"):
+                enabled = (f.findtext("enable") or "").strip().lower()
+                if enabled != "true":
+                    continue
+                diff = (f.findtext("type/str") or "").strip()
+                lv = (f.findtext("level") or "").strip()
+                dec_raw = (f.findtext("levelDecimal") or "").strip()
+                # 13 + 50 -> 13.5; 10 + 20 -> 10.2
+                lv_text = lv
+                if lv and dec_raw.isdigit():
+                    dec_num = int(dec_raw)
+                    if dec_num > 0:
+                        # game style decimal is usually 10/20/30.../90
+                        lv_text = f"{lv}.{dec_num // 10}" if dec_num % 10 == 0 else f"{lv}.{dec_num}"
+                if diff and lv_text:
+                    levels.append(f"{diff}:{lv_text}")
             jacket = (r.findtext("jaketFile/path") or "").strip()
-            items.append(MusicItem(p, name, artist, jacket))
+            items.append(
+                MusicItem(
+                    xml_path=p,
+                    name=name,
+                    artist=artist,
+                    genres=tuple(genre_names),
+                    release_date=release_date,
+                    stage=stage,
+                    cue_file=cue_file,
+                    levels=tuple(levels),
+                    jacket_path=jacket,
+                )
+            )
         except Exception:
             continue
     return sorted(items, key=lambda x: x.name.id)
@@ -153,6 +211,39 @@ def scan_events(acus_root: Path) -> list[EventItem]:
             map_name = _get_idstr(r.find("substances/map/mapName"))
             map_filter = _get_idstr(r.find("substances/information/mapFilterID"))
             items.append(EventItem(p, name, event_type, map_name, map_filter))
+        except Exception:
+            continue
+    return sorted(items, key=lambda x: x.name.id)
+
+
+def scan_nameplates(acus_root: Path) -> list[NamePlateItem]:
+    items: list[NamePlateItem] = []
+    for p in iter_xml_files(acus_root, "namePlate/**/NamePlate.xml"):
+        try:
+            r = ET.parse(p).getroot()
+            name = _get_idstr(r.find("name"))
+            if not name:
+                continue
+            img = (r.findtext("image/path") or "").strip()
+            items.append(NamePlateItem(p, name, img))
+        except Exception:
+            continue
+    return sorted(items, key=lambda x: x.name.id)
+
+
+def scan_trophies(acus_root: Path) -> list[TrophyItem]:
+    items: list[TrophyItem] = []
+    for p in iter_xml_files(acus_root, "trophy/**/Trophy.xml"):
+        try:
+            r = ET.parse(p).getroot()
+            name = _get_idstr(r.find("name"))
+            if not name:
+                continue
+            explain = (r.findtext("explainText") or "").strip()
+            rare_raw = (r.findtext("rareType") or "").strip()
+            rare_type = int(rare_raw) if rare_raw.isdigit() else None
+            img = (r.findtext("image/path") or "").strip()
+            items.append(TrophyItem(p, name, explain, rare_type, img))
         except Exception:
             continue
     return sorted(items, key=lambda x: x.name.id)

@@ -21,6 +21,9 @@ from ..acus_workspace import AcusConfig, ensure_acus_layout
 from .manager_widget import ManagerWidget
 from .settings_dialog import SettingsDialog
 from .chara_add_dialog import CharaAddDialog
+from .map_add_dialog import MapAddDialog
+from .nameplate_add_dialog import NamePlateAddDialog
+from .trophy_add_dialog import TrophyAddDialog
 
 
 class MainWindow(QMainWindow):
@@ -39,6 +42,8 @@ class MainWindow(QMainWindow):
         self.nav.addItem(QListWidgetItem("地图"))
         self.nav.addItem(QListWidgetItem("宣传event"))
         self.nav.addItem(QListWidgetItem("歌曲"))
+        self.nav.addItem(QListWidgetItem("称号"))
+        self.nav.addItem(QListWidgetItem("名牌"))
         self.nav.currentRowChanged.connect(self._on_nav_changed)
 
         self.settings_btn = QPushButton("设置")
@@ -125,6 +130,12 @@ class MainWindow(QMainWindow):
         elif idx == 3:
             self.title.setText("歌曲")
             self.manager.set_kind("Music")
+        elif idx == 4:
+            self.title.setText("称号")
+            self.manager.set_kind("Trophy")
+        elif idx == 5:
+            self.title.setText("名牌")
+            self.manager.set_kind("NamePlate")
         else:
             self.title.setText("角色")
             self.manager.set_kind("Chara")
@@ -140,6 +151,18 @@ class MainWindow(QMainWindow):
             dlg = CharaAddDialog(acus_root=self._acus_root, tool_path=tool, parent=self)
             if dlg.exec() == dlg.DialogCode.Accepted:
                 self._on_refresh()
+        elif idx == 1:
+            dlg = MapAddDialog(acus_root=self._acus_root, parent=self)
+            if dlg.exec() == dlg.DialogCode.Accepted:
+                self._on_refresh()
+        elif idx == 4:
+            dlg = TrophyAddDialog(acus_root=self._acus_root, tool_path=tool, parent=self)
+            if dlg.exec() == dlg.DialogCode.Accepted:
+                self._on_refresh()
+        elif idx == 5:
+            dlg = NamePlateAddDialog(acus_root=self._acus_root, tool_path=tool, parent=self)
+            if dlg.exec() == dlg.DialogCode.Accepted:
+                self._on_refresh()
         else:
-            QMessageBox.information(self, "未实现", "当前仅实现了【新增角色】。其它类型稍后补齐。")
+            QMessageBox.information(self, "未实现", "当前已实现【新增角色】【新增地图】【新增称号】【新增名牌】。其它类型稍后补齐。")
 

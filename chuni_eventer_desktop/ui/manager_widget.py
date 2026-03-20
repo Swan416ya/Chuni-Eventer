@@ -26,11 +26,15 @@ from ..acus_scan import (
     EventItem,
     MapItem,
     MusicItem,
+    NamePlateItem,
+    TrophyItem,
     scan_charas,
     scan_dds_images,
     scan_events,
     scan_maps,
     scan_music,
+    scan_nameplates,
+    scan_trophies,
 )
 from ..dds_preview import dds_to_pixmap
 
@@ -50,7 +54,7 @@ class ManagerWidget(QWidget):
         self._embedded = embedded
 
         self.kind = QComboBox()
-        self.kind.addItems(["Event", "EventPromo", "Map", "Music", "Chara", "DDSImage"])
+        self.kind.addItems(["Event", "EventPromo", "Map", "Music", "Chara", "Trophy", "NamePlate", "DDSImage"])
         self.kind.currentTextChanged.connect(self.reload)
 
         self.search = QLineEdit()
@@ -146,6 +150,11 @@ class ManagerWidget(QWidget):
         self.preview.clear()
 
         k = self.kind.currentText()
+        if k == "Music":
+            self.model.setHorizontalHeaderLabels(["ID", "曲名", "艺术家", "流派", "发布日期", "难度", "CueFile", "来源(XML)"])
+        else:
+            self.model.setHorizontalHeaderLabels(["ID", "名称", "分类", "来源(XML)"])
+
         if k in ("Event", "EventPromo"):
             items = scan_events(self._acus_root)
             self._items = items
@@ -166,13 +175,22 @@ class ManagerWidget(QWidget):
             items = scan_music(self._acus_root)
             self._items = items
             for it in items:
-                extra = it.artist.str if it.artist else ""
-                self._append_row(it.name.id, it.name.str, extra, it.xml_path, it)
+                self._append_music_row(it)
         elif k == "Chara":
             items = scan_charas(self._acus_root)
             self._items = items
             for it in items:
                 self._append_row(it.name.id, it.name.str, it.default_image_key, it.xml_path, it)
+        elif k == "Trophy":
+            items = scan_trophies(self._acus_root)
+            self._items = items
+            for it in items:
+                self._append_row(it.name.id, it.name.str, "Trophy", it.xml_path, it)
+        elif k == "NamePlate":
+            items = scan_nameplates(self._acus_root)
+            self._items = items
+            for it in items:
+                self._append_row(it.name.id, it.name.str, "NamePlate装饰", it.xml_path, it)
         else:
             items = scan_dds_images(self._acus_root)
             self._items = items
@@ -197,6 +215,31 @@ class ManagerWidget(QWidget):
         c0.setData(payload, Qt.ItemDataRole.UserRole)
 
         for i, c in enumerate((c0, c1, c2, c3)):
+            c.setEditable(False)
+            self.model.setItem(row, i, c)
+
+    def _append_music_row(self, it: MusicItem) -> None:
+        row = self.model.rowCount()
+        self.model.insertRow(row)
+
+        artist = it.artist.str if it.artist else ""
+        genres = "/".join(it.genres)
+        levels = " | ".join(it.levels)
+        cue = f"{it.cue_file.id}:{it.cue_file.str}" if it.cue_file else ""
+        src = str(it.xml_path.relative_to(self._acus_root))
+
+        cols = [
+            QStandardItem(str(it.name.id)),
+            QStandardItem(it.name.str),
+            QStandardItem(artist),
+            QStandardItem(genres),
+            QStandardItem(it.release_date),
+            QStandardItem(levels),
+            QStandardItem(cue),
+            QStandardItem(src),
+        ]
+        cols[0].setData(it, Qt.ItemDataRole.UserRole)
+        for i, c in enumerate(cols):
             c.setEditable(False)
             self.model.setItem(row, i, c)
 
@@ -253,6 +296,12 @@ class ManagerWidget(QWidget):
                 if d.name.str == it.default_image_key:
                     dds_path = d.xml_path.parent / d.dds0
                     break
+        elif isinstance(it, NamePlateItem):
+            if it.image_path:
+                dds_path = it.xml_path.parent / it.image_path
+        elif isinstance(it, TrophyItem):
+            if it.image_path:
+                dds_path = it.xml_path.parent / it.image_path
         elif isinstance(it, EventItem):
             # event 本身通常没有 dds；保持空
             dds_path = None
