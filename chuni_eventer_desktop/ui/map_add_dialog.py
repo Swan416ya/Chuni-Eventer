@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QGroupBox,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -753,6 +754,101 @@ class MapAreaProgressDialog(QDialog):
         self.accept()
 
 
+class RewardCreateDialog(QDialog):
+    def __init__(self, *, default_id: int, music_refs: list[MusicRef], parent=None) -> None:
+        super().__init__(parent=parent)
+        self.setWindowTitle("新建 Reward")
+        self.setModal(True)
+        self.result_cell: CellData | None = None
+
+        self.reward_id = QLineEdit(str(default_id))
+        self.reward_name = QLineEdit()
+        self.reward_kind = QComboBox()
+        self.reward_kind.addItems(
+            [
+                "功能票(Ticket)",
+                "外部奖励ID",
+                "角色",
+                "称号(Trophy)",
+                "姓名牌装饰(NamePlate)",
+                "乐曲解锁(Music)",
+            ]
+        )
+        self.inner_id = QLineEdit()
+        self.has_music = QCheckBox("有课题曲")
+        self.music_mode = QComboBox()
+        self.music_mode.addItems(["选择 ACUS 乐曲", "手填乐曲ID"])
+        self.music_pick = QComboBox()
+        self.music_pick.addItem("(请选择)")
+        for m in music_refs:
+            self.music_pick.addItem(f"{m.id} | {m.name}")
+        self.music_id = QLineEdit()
+        self.music_name = QLineEdit()
+        self.music_name.setPlaceholderText("留空则自动 Music{id}")
+        self.has_music.toggled.connect(self._sync)
+        self.music_mode.currentTextChanged.connect(self._sync)
+
+        form = QFormLayout()
+        form.addRow("reward.id", self.reward_id)
+        form.addRow("reward.str", self.reward_name)
+        form.addRow("类型", self.reward_kind)
+        form.addRow("内部ID(可空)", self.inner_id)
+        form.addRow("", self.has_music)
+        form.addRow("课题曲模式", self.music_mode)
+        form.addRow("ACUS乐曲", self.music_pick)
+        form.addRow("乐曲ID", self.music_id)
+        form.addRow("乐曲名", self.music_name)
+
+        ok = QPushButton("创建")
+        ok.clicked.connect(self._on_ok)
+        cancel = QPushButton("取消")
+        cancel.clicked.connect(self.reject)
+        btns = QHBoxLayout()
+        btns.addStretch(1)
+        btns.addWidget(cancel)
+        btns.addWidget(ok)
+        lay = QVBoxLayout(self)
+        lay.addLayout(form)
+        lay.addLayout(btns)
+        self._sync()
+
+    def _sync(self) -> None:
+        on = self.has_music.isChecked()
+        self.music_mode.setEnabled(on)
+        pick = on and self.music_mode.currentText() == "选择 ACUS 乐曲"
+        self.music_pick.setEnabled(pick)
+        self.music_id.setEnabled(on and not pick)
+        self.music_name.setEnabled(on and not pick)
+
+    def _on_ok(self) -> None:
+        rid = _safe_int(self.reward_id.text())
+        if rid is None or rid < 0 or str(rid)[0] != "7":
+            QMessageBox.critical(self, "错误", "reward.id 必须是非负整数，且首位为 7")
+            return
+        name = self.reward_name.text().strip() or f"Reward{rid}"
+        kind = self.reward_kind.currentText()
+        inner = _safe_int(self.inner_id.text()) if self.inner_id.text().strip() else None
+        c = CellData(reward_id=rid, reward_name=name, reward_kind=kind, reward_inner_id=inner)
+        if self.has_music.isChecked():
+            if self.music_mode.currentText() == "选择 ACUS 乐曲":
+                idx = self.music_pick.currentIndex()
+                if idx <= 0:
+                    QMessageBox.critical(self, "错误", "请选择 ACUS 乐曲")
+                    return
+                text = self.music_pick.currentText().split("|", 1)
+                c.music_id = _safe_int(text[0].strip())
+                c.music_name = text[1].strip() if len(text) > 1 else ""
+            else:
+                mid = _safe_int(self.music_id.text())
+                if mid is None:
+                    QMessageBox.critical(self, "错误", "乐曲ID 必须是整数")
+                    return
+                c.music_id = mid
+                c.music_name = self.music_name.text().strip() or f"Music{mid}"
+        self.result_cell = c
+        self.accept()
+
+
 class MapAddDialog(QDialog):
     def __init__(self, *, acus_root: Path, parent=None, edit_map_xml: Path | None = None) -> None:
         super().__init__(parent=parent)
@@ -798,10 +894,10 @@ class MapAddDialog(QDialog):
 
         self.tabs = QTabWidget()
 
-        add_area_btn = QPushButton("新增 MapArea")
-        add_area_btn.clicked.connect(self._add_area)
-        remove_area_btn = QPushButton("删除当前 MapArea")
-        remove_area_btn.clicked.connect(self._remove_current_area)
+        add_area_btn = QPushButton("新增 MapPage")
+        add_area_btn.clicked.connect(self._add_page)
+        remove_area_btn = QPushButton("删除当前 MapPage")
+        remove_area_btn.clicked.connect(self._remove_current_page)
 
         top = QFormLayout()
         top.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
@@ -815,7 +911,7 @@ class MapAddDialog(QDialog):
         area_btns.addWidget(remove_area_btn)
         area_btns.addStretch(1)
 
-        hint = QLabel("每个 MapArea 为 3x3 九宫格。点击格子配置奖励/乐曲；可留空。")
+        hint = QLabel("每个 MapPage 为 3x3 九宫格（9个最终奖励位）。点击格子编辑最终奖励与对应 MapArea 过程设置。")
         hint.setStyleSheet("color:#374151;")
 
         ok = QPushButton("保存修改" if self._edit_mode else "生成 Map + MapArea + Reward (+Event)")
@@ -841,7 +937,7 @@ class MapAddDialog(QDialog):
                 QMessageBox.critical(self, "无法加载地图", err)
                 QTimer.singleShot(0, self.reject)
         else:
-            self._add_area()
+            self._add_page()
             self._sync_event_id_enabled(self.create_unlock_event.isChecked())
 
     def _sync_event_id_enabled(self, on: bool) -> None:
@@ -1016,38 +1112,54 @@ class MapAddDialog(QDialog):
                 continue
         return sorted(refs, key=lambda x: x.id)
 
-    def _add_area(self) -> None:
+    def _append_new_area_with_meta(self, *, page_index: int, index_in_page: int) -> int:
         cells = [CellData() for _ in range(9)]
         self._area_cells.append(cells)
         self._area_info_cells.append(CellData())
-        idx = len(self._area_cells) - 1
-        self._area_info_meta.append(MapInfoMeta(page_index=idx // 9, index_in_page=idx % 9))
+        self._area_info_meta.append(MapInfoMeta(page_index=page_index, index_in_page=index_in_page))
         self._area_extras.append(_default_map_area_extras())
+        self._area_grid_indices.append([None] * 9)
         if self._edit_mode:
             nid = (max(self._area_ids) + 1) if self._area_ids else max(1, (self._current_map_id % 10_000_000) * 10 + 1)
             self._area_ids.append(nid)
             mn = self.map_name.text().strip() or f"Map{self._current_map_id}"
             self._area_names.append(f"{mn}_Area{len(self._area_cells)}")
-            self._area_grid_indices.append([None] * 9)
-        self._rebuild_page_tabs()
+        return len(self._area_cells) - 1
 
-    def _remove_current_area(self) -> None:
-        if len(self._area_cells) <= 1:
-            QMessageBox.information(self, "提示", "至少保留一个 MapArea")
-            return
-        idx = self.tabs.currentIndex()
-        if idx < 0:
-            return
-        self.tabs.removeTab(idx)
-        del self._area_cells[idx]
-        del self._area_info_cells[idx]
-        del self._area_info_meta[idx]
-        del self._area_extras[idx]
-        if self._edit_mode:
-            del self._area_ids[idx]
-            del self._area_names[idx]
-            del self._area_grid_indices[idx]
+    def _add_page(self) -> None:
+        new_page = len(self._page_area_slots) if self._page_area_slots else 0
+        for slot in range(9):
+            self._append_new_area_with_meta(page_index=new_page, index_in_page=slot)
         self._rebuild_page_tabs()
+        if new_page < self.tabs.count():
+            self.tabs.setCurrentIndex(new_page)
+
+    def _remove_current_page(self) -> None:
+        cur_page = self.tabs.currentIndex()
+        if cur_page < 0:
+            return
+        # 至少保留一个 page
+        if len(self._page_area_slots) <= 1:
+            QMessageBox.information(self, "提示", "至少保留一个 MapPage")
+            return
+        keep: list[int] = []
+        for i, m in enumerate(self._area_info_meta):
+            if m.page_index != cur_page:
+                keep.append(i)
+        self._area_cells = [self._area_cells[i] for i in keep]
+        self._area_info_cells = [self._area_info_cells[i] for i in keep]
+        self._area_info_meta = [self._area_info_meta[i] for i in keep]
+        self._area_extras = [self._area_extras[i] for i in keep]
+        self._area_grid_indices = [self._area_grid_indices[i] for i in keep]
+        if self._edit_mode:
+            self._area_ids = [self._area_ids[i] for i in keep]
+            self._area_names = [self._area_names[i] for i in keep]
+        # 删除后压缩 pageIndex，保证连续
+        for m in self._area_info_meta:
+            if m.page_index > cur_page:
+                m.page_index -= 1
+        self._rebuild_page_tabs()
+        self.tabs.setCurrentIndex(max(0, min(cur_page, self.tabs.count() - 1)))
 
     def _rebuild_page_slots(self) -> None:
         max_page = 0
@@ -1200,20 +1312,257 @@ class MapAddDialog(QDialog):
             return
         area_idx = self._page_area_slots[page_idx][slot_idx]
         if area_idx is None:
-            QMessageBox.information(self, "提示", "该格当前未绑定 MapArea。可先新增 Area 再设置其 page/slot。")
-            return
-        # 先编辑最终奖励，再编辑页面参数，再编辑 MapArea 参数/进度
-        self._edit_area_info(area_idx)
-        self._edit_area_meta(area_idx)
-        self._edit_area_extras(area_idx)
-        aid = self._area_ids[area_idx] if area_idx < len(self._area_ids) else -1
-        pd = MapAreaProgressDialog(
-            area_id=aid,
-            cells=self._area_cells[area_idx],
-            grid_indices=self._area_grid_indices[area_idx],
-            parent=self,
-        )
-        if pd.exec() == pd.DialogCode.Accepted:
+            # 点击空格：自动新建一个 MapArea 并绑定到当前 page/slot
+            area_idx = self._append_new_area_with_meta(page_index=page_idx, index_in_page=slot_idx)
+            self._rebuild_page_tabs()
+        self._edit_page_slot_single_dialog(area_idx)
+
+    def _next_custom_reward_id(self) -> int:
+        max_id = 700000000
+        for p in self._acus_root.glob("reward/**/Reward.xml"):
+            try:
+                r = ET.parse(p).getroot()
+                rid = _safe_int(r.findtext("name/id") or "")
+                if rid is not None and str(rid).startswith("7"):
+                    max_id = max(max_id, rid)
+            except Exception:
+                continue
+        return max_id + 1
+
+    def _is_intermediate_reward_allowed(self, rid: int) -> bool:
+        rx = resolve_reward_xml(self._acus_root, rid)
+        if rx is None:
+            return False
+        try:
+            root = ET.parse(rx).getroot()
+            sub = root.find(".//RewardSubstanceData")
+            if sub is None:
+                return False
+            t = _safe_int(sub.findtext("type") or "")
+            if t == 1:
+                return True
+            if t == 0:
+                gp = _safe_int(sub.findtext("gamePoint/gamePoint") or "")
+                return gp is not None and gp > 0
+            return False
+        except Exception:
+            return False
+
+    def _edit_page_slot_single_dialog(self, area_idx: int) -> None:
+        dlg = QDialog(self)
+        dlg.setWindowTitle("编辑页面格子")
+        dlg.setModal(True)
+        lay = QVBoxLayout(dlg)
+
+        # 最终奖励（Map.xml）
+        top = QGroupBox("最终奖励（Map.xml）")
+        top_form = QFormLayout(top)
+        reward_pick = QComboBox()
+        reward_pick.addItem("(请选择)")
+        cur = self._area_info_cells[area_idx].reward_id
+        cur_idx = 0
+        for i, r in enumerate(self._reward_refs, start=1):
+            reward_pick.addItem(f"{r.id} | {r.display_name or r.name}", r.id)
+            if cur is not None and r.id == cur:
+                cur_idx = i
+        reward_pick.setCurrentIndex(cur_idx)
+        new_reward_btn = QPushButton("新增 Reward")
+        music_on = QCheckBox("有课题曲")
+        music_pick = QComboBox()
+        music_pick.addItem("(请选择)")
+        for m in self._music_refs:
+            music_pick.addItem(f"{m.id} | {m.name}", m.id)
+        music_id = QLineEdit()
+        music_name = QLineEdit()
+        music_mode = QComboBox()
+        music_mode.addItems(["选择 ACUS 乐曲", "手填乐曲ID"])
+        cinfo = self._area_info_cells[area_idx]
+        if cinfo.music_id is not None:
+            music_on.setChecked(True)
+            idx = next((i for i, m in enumerate(self._music_refs, start=1) if m.id == cinfo.music_id), -1)
+            if idx > 0:
+                music_mode.setCurrentText("选择 ACUS 乐曲")
+                music_pick.setCurrentIndex(idx)
+            else:
+                music_mode.setCurrentText("手填乐曲ID")
+                music_id.setText(str(cinfo.music_id))
+                music_name.setText(cinfo.music_name or "")
+
+        def _sync_music() -> None:
+            has_reward = reward_pick.currentIndex() > 0
+            on = music_on.isChecked()
+            music_on.setEnabled(has_reward)
+            if not has_reward:
+                music_on.setChecked(False)
+            music_mode.setEnabled(has_reward and on)
+            pick_mode = has_reward and on and music_mode.currentText() == "选择 ACUS 乐曲"
+            music_pick.setEnabled(pick_mode)
+            music_id.setEnabled(has_reward and on and not pick_mode)
+            music_name.setEnabled(has_reward and on and not pick_mode)
+
+        music_on.toggled.connect(_sync_music)
+        music_mode.currentTextChanged.connect(_sync_music)
+        reward_pick.currentIndexChanged.connect(_sync_music)
+        _sync_music()
+        top_form.addRow("Reward", reward_pick)
+        top_form.addRow("", new_reward_btn)
+        top_form.addRow("", music_on)
+        top_form.addRow("课题曲模式", music_mode)
+        top_form.addRow("课题曲", music_pick)
+        top_form.addRow("手填乐曲ID", music_id)
+        top_form.addRow("手填乐曲名", music_name)
+        lay.addWidget(top)
+
+        # MapArea 基础
+        mid = QGroupBox("MapArea 基础")
+        mid_form = QFormLayout(mid)
+        meta = self._area_info_meta[area_idx]
+        page_idx_edit = QLineEdit(str(meta.page_index))
+        slot_edit = QLineEdit(str(meta.index_in_page))
+        total_steps_edit = QLineEdit(str(max([x for x in self._area_grid_indices[area_idx] if x is not None] or [0])))
+        mid_form.addRow("pageIndex", page_idx_edit)
+        mid_form.addRow("indexInPage(0~8)", slot_edit)
+        mid_form.addRow("地图格数(总步数)", total_steps_edit)
+        lay.addWidget(mid)
+
+        # 高级设置
+        adv = QGroupBox("高级设置")
+        adv.setCheckable(True)
+        adv.setChecked(False)
+        adv_form = QFormLayout(adv)
+        add_step = QLineEdit()
+        add_reward = QComboBox()
+        add_reward.addItem("(仅功能票/Points)")
+        for r in self._reward_refs:
+            if self._is_intermediate_reward_allowed(r.id):
+                add_reward.addItem(f"{r.id} | {r.display_name or r.name}", r.id)
+        extra_lines = QTextEdit()
+        extra_lines.setPlaceholderText("每行：步数,reward_id,reward_name")
+        add_btn = QPushButton("新增过程奖励")
+
+        def _on_add_line() -> None:
+            step = _safe_int(add_step.text())
+            idx = add_reward.currentIndex()
+            if step is None or step < 0 or idx <= 0:
+                return
+            rid = add_reward.currentData()
+            txt = add_reward.currentText()
+            rname = txt.split("|", 1)[1].strip() if "|" in txt else f"Reward{rid}"
+            old = extra_lines.toPlainText().strip()
+            line = f"{step},{rid},{rname}"
+            extra_lines.setPlainText((old + "\n" + line).strip())
+            add_step.clear()
+
+        add_btn.clicked.connect(_on_add_line)
+        adv_form.addRow("出现步数", add_step)
+        adv_form.addRow("过程奖励", add_reward)
+        adv_form.addRow("", add_btn)
+        adv_form.addRow("过程奖励列表", extra_lines)
+        lay.addWidget(adv)
+
+        def _sync_advanced() -> None:
+            on = adv.isChecked()
+            add_step.setEnabled(on)
+            add_reward.setEnabled(on)
+            add_btn.setEnabled(on)
+            extra_lines.setEnabled(on)
+
+        adv.toggled.connect(_sync_advanced)
+        _sync_advanced()
+
+        btns = QHBoxLayout()
+        ok = QPushButton("保存")
+        cancel = QPushButton("取消")
+        cancel.clicked.connect(dlg.reject)
+        btns.addStretch(1)
+        btns.addWidget(cancel)
+        btns.addWidget(ok)
+        lay.addLayout(btns)
+
+        def _new_reward() -> None:
+            rd = RewardCreateDialog(default_id=self._next_custom_reward_id(), music_refs=self._music_refs, parent=dlg)
+            if rd.exec() == rd.DialogCode.Accepted and rd.result_cell is not None:
+                self._ensure_reward_xml(cell=rd.result_cell)
+                self._reward_refs = self._load_reward_refs()
+                reward_pick.clear()
+                reward_pick.addItem("(请选择)")
+                for rr in self._reward_refs:
+                    reward_pick.addItem(f"{rr.id} | {rr.display_name or rr.name}", rr.id)
+                idx_new = next((i for i in range(1, reward_pick.count()) if reward_pick.itemData(i) == rd.result_cell.reward_id), 0)
+                reward_pick.setCurrentIndex(idx_new)
+
+        new_reward_btn.clicked.connect(_new_reward)
+
+        def _save() -> None:
+            # page/slot
+            p = _safe_int(page_idx_edit.text())
+            s = _safe_int(slot_edit.text())
+            total = _safe_int(total_steps_edit.text())
+            if p is None or p < 0 or s is None or not (0 <= s <= 8) or total is None or total < 0:
+                QMessageBox.critical(dlg, "错误", "page/slot/总步数 输入不合法")
+                return
+            # final reward
+            rp = reward_pick.currentIndex()
+            if rp <= 0:
+                QMessageBox.critical(dlg, "错误", "请先选择最终奖励")
+                return
+            rid = reward_pick.currentData()
+            cell = self._area_info_cells[area_idx]
+            cell.reward_id = int(rid)
+            for rr in self._reward_refs:
+                if rr.id == rid:
+                    cell.reward_name = rr.name
+                    break
+            cell.reward_kind = "外部奖励ID"
+            cell.reward_inner_id = None
+            cell.music_id = None
+            cell.music_name = ""
+            enrich_cell_from_reward_xml(self._acus_root, cell)
+            if music_on.isChecked():
+                if music_mode.currentText() == "选择 ACUS 乐曲":
+                    mi = music_pick.currentData()
+                    if mi is not None:
+                        cell.music_id = int(mi)
+                        cell.music_name = next((m.name for m in self._music_refs if m.id == mi), f"Music{mi}")
+                else:
+                    mi = _safe_int(music_id.text())
+                    if mi is None:
+                        QMessageBox.critical(dlg, "错误", "手填乐曲ID不合法")
+                        return
+                    cell.music_id = mi
+                    cell.music_name = music_name.text().strip() or f"Music{mi}"
+            # update meta
+            self._area_info_meta[area_idx].page_index = p
+            self._area_info_meta[area_idx].index_in_page = s
+
+            # maparea default: only final reward on last step in basic mode
+            cells = [CellData() for _ in range(9)]
+            idxs: list[int | None] = [0, total] + [None] * 7
+            # advanced intermediate rewards
+            if adv.isChecked():
+                lines = [x.strip() for x in extra_lines.toPlainText().splitlines() if x.strip()]
+                points: list[tuple[int, CellData]] = [(0, CellData()), (total, CellData())]
+                for ln in lines:
+                    ps = [x.strip() for x in ln.split(",")]
+                    if len(ps) < 2:
+                        continue
+                    st = _safe_int(ps[0])
+                    rrid = _safe_int(ps[1])
+                    if st is None or rrid is None:
+                        continue
+                    if not self._is_intermediate_reward_allowed(rrid):
+                        continue
+                    rnm = ps[2] if len(ps) >= 3 and ps[2] else f"Reward{rrid}"
+                    points.append((st, CellData(reward_id=rrid, reward_name=rnm)))
+                points = sorted(points, key=lambda x: x[0])[:9]
+                idxs = [p[0] for p in points] + [None] * (9 - len(points))
+                cells = [p[1] for p in points] + [CellData() for _ in range(9 - len(points))]
+            self._area_cells[area_idx] = cells[:9]
+            self._area_grid_indices[area_idx] = idxs[:9]
+            dlg.accept()
+
+        ok.clicked.connect(_save)
+        if dlg.exec() == dlg.DialogCode.Accepted:
             self._refresh_area_page(area_idx)
 
     def _generate(self) -> None:
