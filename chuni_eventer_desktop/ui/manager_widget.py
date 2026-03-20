@@ -3,10 +3,11 @@ from __future__ import annotations
 from dataclasses import asdict
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QSortFilterProxyModel
+from PyQt6.QtCore import Qt, QModelIndex, QSortFilterProxyModel
 from PyQt6.QtGui import QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QComboBox,
+    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -69,7 +70,7 @@ class ManagerWidget(QWidget):
         self.event_bar.setVisible(False)
 
         self.search = QLineEdit()
-        self.search.setPlaceholderText("搜索：ID / 名称 / 关键字（实时过滤）")
+        self.search.setPlaceholderText("搜索：ID / 名称 / 关键字（地图列表可双击编辑）")
         self.search.textChanged.connect(self._apply_filter)
 
         self.refresh_btn = QPushButton("刷新")
@@ -101,6 +102,7 @@ class ManagerWidget(QWidget):
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignLeft)
         self.table.selectionModel().selectionChanged.connect(self._on_select)
+        self.table.doubleClicked.connect(self._on_table_double_clicked)
 
         self.detail = QTextEdit()
         self.detail.setReadOnly(True)
@@ -280,6 +282,29 @@ class ManagerWidget(QWidget):
             return
         self.detail.setPlainText(self._format_detail(payload))
         self._update_preview(payload)
+
+    def _on_table_double_clicked(self, proxy_index: QModelIndex) -> None:
+        """地图列表：双击打开编辑（读取 Map.xml + 各 MapArea）。"""
+        if self.kind.currentText() != "Map":
+            return
+        if not proxy_index.isValid():
+            return
+        src_idx = self.proxy.mapToSource(proxy_index)
+        item = self.model.item(src_idx.row(), 0)
+        if item is None:
+            return
+        payload = item.data(Qt.ItemDataRole.UserRole)
+        if not isinstance(payload, MapItem):
+            return
+        from .map_add_dialog import MapAddDialog
+
+        dlg = MapAddDialog(
+            acus_root=self._acus_root,
+            parent=self.window(),
+            edit_map_xml=payload.xml_path,
+        )
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.reload()
 
     def _format_detail(self, it: object) -> str:
         # dataclass -> dict for readability

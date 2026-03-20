@@ -17,6 +17,5 @@ ENV/
 *.qm
 *.qrc.depends
 
-# ACUS runtime/cache
-ACUS/.cache/
-ACUS/.config.json
+# ACUS 工作区（解包数据与缓存，勿提交）
+ACUS/
