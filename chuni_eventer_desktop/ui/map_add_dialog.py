@@ -6,6 +6,7 @@ import xml.etree.ElementTree as ET
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QFormLayout,
@@ -311,6 +312,12 @@ class MapAddDialog(QDialog):
         self.map_name = QLineEdit()
         self.map_name.setPlaceholderText("可不填，默认 Map{id}")
 
+        self.create_unlock_event = QCheckBox("同时生成地图解锁 Event（event/ + EventSort.xml）")
+        self.create_unlock_event.setChecked(True)
+        self.create_unlock_event.toggled.connect(self._sync_event_id_enabled)
+        self.event_id = QLineEdit()
+        self.event_id.setPlaceholderText("留空则默认 = max(1, MapID ÷ 1000)，可手填 Event ID")
+
         self.tabs = QTabWidget()
 
         add_area_btn = QPushButton("新增 MapArea")
@@ -322,6 +329,8 @@ class MapAddDialog(QDialog):
         top.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         top.addRow("Map ID", self.map_id)
         top.addRow("Map 名称", self.map_name)
+        top.addRow("", self.create_unlock_event)
+        top.addRow("解锁 Event ID", self.event_id)
 
         area_btns = QHBoxLayout()
         area_btns.addWidget(add_area_btn)
@@ -331,7 +340,7 @@ class MapAddDialog(QDialog):
         hint = QLabel("每个 MapArea 为 3x3 九宫格。点击格子配置奖励/乐曲；可留空。")
         hint.setStyleSheet("color:#374151;")
 
-        ok = QPushButton("生成 Map + MapArea + Reward")
+        ok = QPushButton("生成 Map + MapArea + Reward (+Event)")
         ok.clicked.connect(self._generate)
         cancel = QPushButton("取消")
         cancel.clicked.connect(self.reject)
@@ -348,6 +357,10 @@ class MapAddDialog(QDialog):
         layout.addLayout(btns)
 
         self._add_area()
+        self._sync_event_id_enabled(self.create_unlock_event.isChecked())
+
+    def _sync_event_id_enabled(self, on: bool) -> None:
+        self.event_id.setEnabled(on)
 
     def _load_reward_refs(self) -> list[RewardRef]:
         refs: list[RewardRef] = []
@@ -531,7 +544,21 @@ class MapAddDialog(QDialog):
         (map_dir / "Map.xml").write_text(map_xml, encoding="utf-8")
         self._append_map_sort(map_id)
 
-        QMessageBox.information(self, "完成", f"已生成地图 map{map_id:08d}，共 {len(self._area_cells)} 个 Area。")
+        msg = f"已生成地图 map{map_id:08d}，共 {len(self._area_cells)} 个 Area。"
+        if self.create_unlock_event.isChecked():
+            eid_in = _safe_int(self.event_id.text())
+            event_id = eid_in if eid_in is not None else max(1, map_id // 1000)
+            if event_id < 0:
+                QMessageBox.critical(self, "错误", "解锁 Event ID 必须为非负整数")
+                return
+            try:
+                self._write_map_unlock_event(map_id=map_id, map_name=map_name, event_id=event_id)
+                self._append_event_sort(event_id)
+                msg += f"\n已生成地图解锁 Event：event{event_id:08d}"
+            except Exception as e:
+                QMessageBox.warning(self, "Event 未完整写入", f"地图已生成，但 Event/EventSort 写入失败：\n{e}")
+
+        QMessageBox.information(self, "完成", msg)
         self.accept()
 
     def _write_maparea(self, *, area_id: int, area_name: str, cells: list[CellData]) -> None:
@@ -636,6 +663,122 @@ class MapAddDialog(QDialog):
 </RewardData>
 """
         rxml.write_text(xml, encoding="utf-8")
+
+    def _xml_text(self, s: str) -> str:
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    def _write_map_unlock_event(self, *, map_id: int, map_name: str, event_id: int) -> None:
+        """与 example/event 结构一致：substances/type=6 + map/mapName 指向本图。"""
+        ev_dir = self._acus_root / "event" / f"event{event_id:08d}"
+        ev_dir.mkdir(parents=True, exist_ok=True)
+        title = self._xml_text(f"【MapUnlock】{map_name}")
+        mstr = self._xml_text(map_name)
+        xml = f"""<?xml version='1.0' encoding='utf-8'?>
+<EventData>
+  <dataName>event{event_id:08d}</dataName>
+  <netOpenName>
+    <id>2801</id>
+    <str>v2_45 00_1</str>
+    <data />
+  </netOpenName>
+  <name>
+    <id>{event_id}</id>
+    <str>{title}</str>
+    <data />
+  </name>
+  <text />
+  <ddsBannerName>
+    <id>-1</id>
+    <str>Invalid</str>
+    <data />
+  </ddsBannerName>
+  <periodDispType>1</periodDispType>
+  <alwaysOpen>true</alwaysOpen>
+  <teamOnly>false</teamOnly>
+  <isKop>false</isKop>
+  <priority>0</priority>
+  <substances>
+    <type>6</type>
+    <flag><value>0</value></flag>
+    <information>
+      <informationType>0</informationType>
+      <informationDispType>0</informationDispType>
+      <mapFilterID>
+        <id>3</id>
+        <str>Other</str>
+        <data>CHUNITHM</data>
+      </mapFilterID>
+      <courseNames><list /></courseNames>
+      <text />
+      <image><path /></image>
+      <movieName><id>-1</id><str>Invalid</str><data /></movieName>
+      <presentNames><list /></presentNames>
+    </information>
+    <map>
+      <tagText />
+      <mapName>
+        <id>{map_id}</id>
+        <str>{mstr}</str>
+        <data />
+      </mapName>
+      <musicNames><list /></musicNames>
+    </map>
+    <music><musicType>0</musicType><musicNames><list /></musicNames></music>
+    <advertiseMovie>
+      <firstMovieName><id>-1</id><str>Invalid</str><data /></firstMovieName>
+      <secondMovieName><id>-1</id><str>Invalid</str><data /></secondMovieName>
+    </advertiseMovie>
+    <recommendMusic><musicNames><list /></musicNames></recommendMusic>
+    <release><value>0</value></release>
+    <course><courseNames><list /></courseNames></course>
+    <quest><questNames><list /></questNames></quest>
+    <duel><duelName><id>-1</id><str>Invalid</str><data /></duelName></duel>
+    <cmission><cmissionName><id>-1</id><str>Invalid</str><data /></cmissionName></cmission>
+    <changeSurfBoardUI><value>0</value></changeSurfBoardUI>
+    <avatarAccessoryGacha><avatarAccessoryGachaName><id>-1</id><str>Invalid</str><data /></avatarAccessoryGachaName></avatarAccessoryGacha>
+    <rightsInfo><rightsNames><list /></rightsNames></rightsInfo>
+    <playRewardSet><playRewardSetName><id>-1</id><str>Invalid</str><data /></playRewardSetName></playRewardSet>
+    <dailyBonusPreset><dailyBonusPresetName><id>-1</id><str>Invalid</str><data /></dailyBonusPresetName></dailyBonusPreset>
+    <matchingBonus><timeTableName><id>-1</id><str>Invalid</str><data /></timeTableName></matchingBonus>
+    <unlockChallenge><unlockChallengeName><id>-1</id><str>Invalid</str><data /></unlockChallengeName></unlockChallenge>
+    <linkedVerse><linkedVerseName><id>-1</id><str>Invalid</str><data /></linkedVerseName></linkedVerse>
+  </substances>
+</EventData>
+"""
+        (ev_dir / "Event.xml").write_text(xml, encoding="utf-8")
+
+    def _append_event_sort(self, event_id: int) -> None:
+        sort_path = self._acus_root / "event" / "EventSort.xml"
+        if not sort_path.exists():
+            sort_path.write_text(
+                """<?xml version="1.0" encoding="utf-8"?>
+<SerializeSortData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dataName>event</dataName>
+  <SortList>
+  </SortList>
+</SerializeSortData>
+""",
+                encoding="utf-8",
+            )
+
+        root = ET.parse(sort_path).getroot()
+        sl = root.find("SortList")
+        if sl is None:
+            return
+        for n in sl.findall("StringID/id"):
+            try:
+                if int((n.text or "").strip()) == event_id:
+                    ET.indent(root)  # type: ignore[attr-defined]
+                    ET.ElementTree(root).write(sort_path, encoding="utf-8", xml_declaration=True)
+                    return
+            except Exception:
+                continue
+        s = ET.SubElement(sl, "StringID")
+        ET.SubElement(s, "id").text = str(event_id)
+        ET.SubElement(s, "str")
+        ET.SubElement(s, "data")
+        ET.indent(root)  # type: ignore[attr-defined]
+        ET.ElementTree(root).write(sort_path, encoding="utf-8", xml_declaration=True)
 
     def _append_map_sort(self, map_id: int) -> None:
         sort_path = self._acus_root / "map" / "MapSort.xml"

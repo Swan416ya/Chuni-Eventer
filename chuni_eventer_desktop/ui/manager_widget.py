@@ -55,8 +55,18 @@ class ManagerWidget(QWidget):
         self._embedded = embedded
 
         self.kind = QComboBox()
-        self.kind.addItems(["Event", "EventPromo", "Map", "Music", "Chara", "Trophy", "NamePlate", "DDSImage"])
+        self.kind.addItems(["Event", "Map", "Music", "Chara", "Trophy", "NamePlate", "DDSImage"])
         self.kind.currentTextChanged.connect(self.reload)
+
+        self.event_filter = QComboBox()
+        self.event_filter.addItems(["全部", "地图解禁", "宣传(含DDS)", "其它"])
+        self.event_filter.currentIndexChanged.connect(self.reload)
+        self.event_bar = QWidget()
+        ev_row = QHBoxLayout(self.event_bar)
+        ev_row.setContentsMargins(0, 0, 0, 0)
+        ev_row.addWidget(QLabel("Event 分类"))
+        ev_row.addWidget(self.event_filter, stretch=1)
+        self.event_bar.setVisible(False)
 
         self.search = QLineEdit()
         self.search.setPlaceholderText("搜索：ID / 名称 / 关键字（实时过滤）")
@@ -107,7 +117,7 @@ class ManagerWidget(QWidget):
         right_layout.setContentsMargins(12, 12, 12, 12)
         right_layout.addWidget(QLabel("详情"))
         right_layout.addWidget(self.detail, stretch=1)
-        right_layout.addWidget(QLabel("DDS 预览（需要配置 compressonatorcli）"))
+        right_layout.addWidget(QLabel("DDS 预览（quicktex 或 compressonator）"))
         right_layout.addWidget(self.preview, stretch=0)
 
         self.preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -122,6 +132,7 @@ class ManagerWidget(QWidget):
         layout = QVBoxLayout(self)
         if not self._embedded:
             layout.addLayout(top)
+        layout.addWidget(self.event_bar)
         layout.addWidget(split, stretch=1)
 
         self._items: list[object] = []
@@ -129,7 +140,7 @@ class ManagerWidget(QWidget):
 
     def set_kind(self, kind: str) -> None:
         """
-        kind: Event / EventPromo / Map / Music / Chara / DDSImage
+        kind: Event / Map / Music / Chara / …
         """
         idx = self.kind.findText(kind)
         if idx >= 0 and idx != self.kind.currentIndex():
@@ -151,21 +162,26 @@ class ManagerWidget(QWidget):
         self.preview.clear()
 
         k = self.kind.currentText()
+        self.event_bar.setVisible(k == "Event")
+
         if k == "Music":
             self.model.setHorizontalHeaderLabels(["ID", "曲名", "艺术家", "流派", "发布日期", "难度", "CueFile", "来源(XML)"])
         else:
             self.model.setHorizontalHeaderLabels(["ID", "名称", "分类", "来源(XML)"])
 
-        if k in ("Event", "EventPromo"):
+        if k == "Event":
             items = scan_events(self._acus_root)
-            self._items = items
+            self._items = []
+            bucket_label = self.event_filter.currentText()
             for it in items:
-                if k == "EventPromo" and it.kind != "宣传/其他":
+                if bucket_label == "地图解禁" and it.filter_bucket != "map_unlock":
                     continue
-                if k == "Event" and it.kind == "宣传/其他":
-                    # keep both in Event view
-                    pass
-                self._append_row(it.name.id, it.name.str, it.kind, it.xml_path, it)
+                if bucket_label == "宣传(含DDS)" and it.filter_bucket != "promo":
+                    continue
+                if bucket_label == "其它" and it.filter_bucket != "other":
+                    continue
+                self._append_row(it.name.id, it.name.str, it.category_label, it.xml_path, it)
+                self._items.append(it)
         elif k == "Map":
             items = scan_maps(self._acus_root)
             self._items = items
@@ -307,8 +323,7 @@ class ManagerWidget(QWidget):
             if it.image_path:
                 dds_path = it.xml_path.parent / it.image_path
         elif isinstance(it, EventItem):
-            # event 本身通常没有 dds；保持空
-            dds_path = None
+            dds_path = it.promo_dds_path
         elif isinstance(it, MapItem):
             dds_path = None
 

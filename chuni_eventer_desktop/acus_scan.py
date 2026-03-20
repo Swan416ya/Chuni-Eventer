@@ -85,13 +85,47 @@ class EventItem:
     event_type: int | None
     map_name: IdStr | None
     map_filter: IdStr | None
+    dds_banner_id: int | None
+    info_image_path: str
 
     @property
-    def kind(self) -> str:
-        # Very rough categorization that matches your “宣传类 / 地图解锁类”
-        if self.map_name and self.map_name.id != -1:
-            return "地图解锁类"
-        return "宣传/其他"
+    def is_map_unlock(self) -> bool:
+        return self.map_name is not None and self.map_name.id != -1
+
+    @property
+    def promo_dds_path(self) -> Path | None:
+        """宣传用 information/image/path，且同目录下存在对应 DDS 文件。"""
+        rel = self.info_image_path.strip()
+        if not rel:
+            return None
+        cand = self.xml_path.parent / rel
+        return cand if cand.is_file() else None
+
+    @property
+    def is_promo_with_dds(self) -> bool:
+        return self.promo_dds_path is not None
+
+    @property
+    def category_label(self) -> str:
+        parts: list[str] = []
+        if self.is_map_unlock:
+            parts.append("MapUnlock")
+        if self.is_promo_with_dds:
+            parts.append("Promo+DDS")
+        elif self.info_image_path.strip():
+            parts.append("Promo(no DDS file)")
+        if self.dds_banner_id is not None and self.dds_banner_id != -1:
+            parts.append(f"Banner#{self.dds_banner_id}")
+        return " | ".join(parts) if parts else "Other"
+
+    @property
+    def filter_bucket(self) -> str:
+        """与列表筛选下拉框对应：map_unlock / promo / other"""
+        if self.is_map_unlock:
+            return "map_unlock"
+        if self.is_promo_with_dds:
+            return "promo"
+        return "other"
 
 
 def iter_xml_files(root: Path, rel_glob: str) -> Iterable[Path]:
@@ -210,7 +244,20 @@ def scan_events(acus_root: Path) -> list[EventItem]:
             event_type = int(t.strip()) if (t or "").strip().isdigit() else None
             map_name = _get_idstr(r.find("substances/map/mapName"))
             map_filter = _get_idstr(r.find("substances/information/mapFilterID"))
-            items.append(EventItem(p, name, event_type, map_name, map_filter))
+            banner = _get_idstr(r.find("ddsBannerName"))
+            banner_id = banner.id if banner else None
+            img_path = (r.findtext("substances/information/image/path") or "").strip()
+            items.append(
+                EventItem(
+                    p,
+                    name,
+                    event_type,
+                    map_name,
+                    map_filter,
+                    banner_id,
+                    img_path,
+                )
+            )
         except Exception:
             continue
     return sorted(items, key=lambda x: x.name.id)

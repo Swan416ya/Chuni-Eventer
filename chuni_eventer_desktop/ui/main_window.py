@@ -41,7 +41,7 @@ class MainWindow(QMainWindow):
         self.nav.setFixedWidth(180)
         self.nav.addItem(QListWidgetItem("角色"))
         self.nav.addItem(QListWidgetItem("地图"))
-        self.nav.addItem(QListWidgetItem("宣传event"))
+        self.nav.addItem(QListWidgetItem("Event"))
         self.nav.addItem(QListWidgetItem("歌曲"))
         self.nav.addItem(QListWidgetItem("称号"))
         self.nav.addItem(QListWidgetItem("名牌"))
@@ -134,8 +134,8 @@ class MainWindow(QMainWindow):
             self.title.setText("地图")
             self.manager.set_kind("Map")
         elif idx == 2:
-            self.title.setText("宣传event")
-            self.manager.set_kind("EventPromo")
+            self.title.setText("Event")
+            self.manager.set_kind("Event")
         elif idx == 3:
             self.title.setText("歌曲")
             self.manager.set_kind("Music")

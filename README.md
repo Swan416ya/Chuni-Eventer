@@ -16,9 +16,9 @@
     - `ACUS/ddsImage/ddsImage{ID6位}/CHU_UI_Character_{base4}_{variant2}_{00..02}.dds`（BC3/DXT5）
     - `ACUS/chara/chara{ID6位}/Chara.xml`
 - **ACUS 管理**
-  - 扫描 `ACUS/` 里现有 XML：`Event / Map / Music / Chara / DDSImage`
-  - 支持搜索、查看字段
-  - 尝试把 DDS 直接预览成图片（会缓存）
+  - 扫描 `ACUS/` 里现有 XML：`Event / Map / Music / Chara / …`
+  - **Event** 支持地图解禁 / 宣传(含 DDS) 等分类标注与筛选
+  - 支持搜索、查看字段、DDS 预览（会缓存）
 
 ---
 
@@ -132,13 +132,14 @@ ACUS/
 
 ## 4. 管理页怎么用（看 XML + 看图）
 
-切到 **ACUS 管理** 页：
+切到 **ACUS 管理** 页（或主界面左侧进入对应分类）：
 
-- 选择类型：`Event / Map / Music / Chara / DDSImage`
+- 选择类型：`Event / Map / Music / Chara / …`
+- **Event**：表格「分类」列会标注 `MapUnlock`（`map/mapName` 指向地图）、`Promo+DDS`（`information/image/path` 且同目录下存在该 DDS）、`Other` 等；可用 **Event 分类** 下拉框筛选。
 - 用搜索框输入 ID/名称/关键字过滤
 - 点击表格某条记录：
   - 右侧显示字段详情
-  - 如果能定位到 DDS（角色大头、曲绘等），会尝试生成预览图
+  - 若能定位到 DDS（角色大头、曲绘、**宣传 Event 同目录下的 info 图**等），会尝试预览
 
 > 预览会把 DDS 转成 PNG 缓存到 `ACUS/.cache/dds_preview/`。
 
@@ -185,12 +186,12 @@ python3 -m chuni_eventer_desktop
 
 建议手动走一遍：
 
-- 左侧切换：`角色 / 地图 / 宣传event / 歌曲 / 称号 / 名牌`
+- 左侧切换：`角色 / 地图 / Event / 歌曲 / 称号 / 名牌`
 - 设置页配置 `compressonatorcli`
 - 新增一个角色（3 图）
 - 新增一个称号（可不选图）
 - 新增一个名牌（1 图）
-- 地图里添加格子奖励并保存
+- 地图里添加格子奖励并保存（可选勾选「同时生成地图解锁 Event」）
 - 管理页查看列表和预览是否正常
 
 ### 6.3 可选：快速清理缓存再测
