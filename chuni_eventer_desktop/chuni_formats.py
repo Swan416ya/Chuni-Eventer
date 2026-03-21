@@ -34,6 +34,6 @@ class ChuniCharaId:
 
     def dds_filename(self, idx: int) -> str:
         if idx not in (0, 1, 2):
-            raise ValueError("idx must be 0/1/2 (head/half/full)")
+            raise ValueError("idx must be 0/1/2（对应 _00/_01/_02：全身 / 半身 / 大头）")
         return f"CHU_UI_Character_{self.base4}_{self.variant2}_{idx:02d}.dds"
 

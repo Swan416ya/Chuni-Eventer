@@ -98,6 +98,55 @@ def _kind_label(kind: str) -> str:
     }.get(kind, kind)
 
 
+def _target_id_field_label(*, reward_mode: str, reward_kind: str) -> str:
+    """格子编辑里「写入 Reward.xml 的目标实体 id」一行左侧文案。"""
+    if reward_mode == "角色":
+        return "角色ID"
+    if reward_mode == "称号(Trophy)":
+        return "称号ID"
+    if reward_mode == "姓名牌装饰(NamePlate)":
+        return "姓名牌ID"
+    if reward_mode == "手填奖励ID":
+        k = reward_kind or "外部奖励ID"
+        if k == "角色":
+            return "角色ID"
+        if k == "称号(Trophy)":
+            return "称号ID"
+        if k == "姓名牌装饰(NamePlate)":
+            return "姓名牌ID"
+    return "目标ID"
+
+
+def _acus_pick_label(reward_mode: str) -> str:
+    if reward_mode == "角色":
+        return "从 ACUS 选择角色"
+    if reward_mode == "称号(Trophy)":
+        return "从 ACUS 选择称号"
+    if reward_mode == "姓名牌装饰(NamePlate)":
+        return "从 ACUS 选择姓名牌"
+    return "从 ACUS 选择"
+
+
+def _reward_create_kind_target_label(kind: str) -> str:
+    return {
+        "功能票(Ticket)": "功能票ID",
+        "角色": "角色ID",
+        "称号(Trophy)": "称号ID",
+        "姓名牌装饰(NamePlate)": "姓名牌ID",
+        "乐曲解锁(Music)": "乐曲ID",
+        "外部奖励ID": "关联实体ID（外部类型通常留空）",
+    }.get(kind, "目标ID")
+
+
+def _reward_create_acus_label(kind: str) -> str:
+    return {
+        "角色": "从 ACUS 选择角色",
+        "称号(Trophy)": "从 ACUS 选择称号",
+        "姓名牌装饰(NamePlate)": "从 ACUS 选择姓名牌",
+        "乐曲解锁(Music)": "从 ACUS 选择乐曲",
+    }.get(kind, "")
+
+
 def _parse_grid_int(el: ET.Element | None, tag: str, default: int) -> int:
     if el is None:
         return default
@@ -140,7 +189,7 @@ def resolve_reward_xml(acus_root: Path, rid: int) -> Path | None:
 
 
 def enrich_cell_from_reward_xml(acus_root: Path, cell: CellData) -> None:
-    """根据 reward XML 补全 reward_kind / inner_id / 课题曲。"""
+    """根据 reward XML 补全 reward_kind、目标实体 id（reward_inner_id）与课题曲。"""
     rid = cell.reward_id
     if rid is None or rid < 0:
         return
@@ -326,9 +375,13 @@ class CellEditDialog(QDialog):
 
         self.reward_kind = QComboBox()
         self.reward_kind.addItems(["外部奖励ID", "角色", "称号(Trophy)", "姓名牌装饰(NamePlate)"])
+        self.reward_kind.currentTextChanged.connect(self._sync_state)
         self.reward_inner_id = QLineEdit()
-        self.reward_inner_id.setPlaceholderText("奖励内部ID")
+        self.reward_inner_id.setPlaceholderText("目标ID")
         self.inner_pick = QComboBox()
+        self.inner_pick.activated.connect(self._on_acus_pick_activated)
+        self._lbl_target_id = QLabel("目标ID")
+        self._lbl_acus_pick = QLabel("从 ACUS 选择")
 
         self.music_mode = QComboBox()
         self.music_mode.addItems(["不配置乐曲", "选择 ACUS 乐曲", "手填乐曲ID"])
@@ -354,8 +407,8 @@ class CellEditDialog(QDialog):
         form.addRow("奖励ID", self.reward_id)
         form.addRow("奖励显示名", self.reward_name)
         form.addRow("奖励类型", self.reward_kind)
-        form.addRow("奖励内部ID", self.reward_inner_id)
-        form.addRow("固定/ACUS项", self.inner_pick)
+        form.addRow(self._lbl_acus_pick, self.inner_pick)
+        form.addRow(self._lbl_target_id, self.reward_inner_id)
         form.addRow("", self.warn_reward)
         form.addRow(QLabel(""), QLabel(""))
         form.addRow("乐曲模式", self.music_mode)
@@ -422,35 +475,91 @@ class CellEditDialog(QDialog):
                 self.music_id.setText(str(d.music_id))
                 self.music_name.setText(d.music_name or "")
 
+    def _refs_for_reward_mode(self, rm: str) -> list[RewardRef]:
+        if rm == "角色":
+            return self._chara_refs
+        if rm == "称号(Trophy)":
+            return self._trophy_refs
+        if rm == "姓名牌装饰(NamePlate)":
+            return self._nameplate_refs
+        return []
+
+    def _on_acus_pick_activated(self, index: int) -> None:
+        if index <= 0:
+            return
+        rm = self.reward_mode.currentText()
+        refs = self._refs_for_reward_mode(rm)
+        if index - 1 >= len(refs):
+            return
+        self.reward_inner_id.setText(str(refs[index - 1].id))
+
+    def _match_inner_pick_to_line(self, *, refs: list[RewardRef]) -> None:
+        tid = _safe_int(self.reward_inner_id.text())
+        self.inner_pick.blockSignals(True)
+        self.inner_pick.setCurrentIndex(0)
+        if tid is not None:
+            for i, x in enumerate(refs, start=1):
+                if x.id == tid:
+                    self.inner_pick.setCurrentIndex(i)
+                    break
+        self.inner_pick.blockSignals(False)
+
     def _sync_state(self) -> None:
         rm = self.reward_mode.currentText()
+        rk = self.reward_kind.currentText()
         self.reward_pick.setEnabled(rm == "选择 ACUS 奖励")
         manual = rm == "手填奖励ID"
         typed = rm in {"角色", "称号(Trophy)", "姓名牌装饰(NamePlate)"}
         self.reward_id.setEnabled(manual)
         self.reward_name.setEnabled(manual or typed)
         self.reward_kind.setEnabled(manual)
-        self.reward_inner_id.setEnabled(manual or typed)
+        need_target_id = typed or (manual and rk != "外部奖励ID")
+        self.reward_inner_id.setEnabled(need_target_id)
         self.inner_pick.setEnabled(typed)
 
+        self._lbl_target_id.setText(_target_id_field_label(reward_mode=rm, reward_kind=rk))
+        self._lbl_acus_pick.setText(_acus_pick_label(rm))
+        show_acus = typed
+        self._lbl_acus_pick.setVisible(show_acus)
+        self.inner_pick.setVisible(show_acus)
+
+        self.inner_pick.blockSignals(True)
         self.inner_pick.clear()
-        self.inner_pick.addItem("(可不选)")
-        if rm == "角色":
-            for x in self._chara_refs:
-                self.inner_pick.addItem(f"{x.id} | {x.name}")
-        elif rm == "称号(Trophy)":
-            for x in self._trophy_refs:
-                self.inner_pick.addItem(f"{x.id} | {x.name}")
-        elif rm == "姓名牌装饰(NamePlate)":
-            for x in self._nameplate_refs:
-                self.inner_pick.addItem(f"{x.id} | {x.name}")
+        self.inner_pick.addItem("(手动输入 ID，或从列表选择)")
+        refs = self._refs_for_reward_mode(rm)
+        for x in refs:
+            self.inner_pick.addItem(f"{x.id} | {x.name}")
+        self.inner_pick.blockSignals(False)
+        if typed:
+            self._match_inner_pick_to_line(refs=refs)
+
+        if typed:
+            self.reward_inner_id.setPlaceholderText(
+                "可手动输入 ID，或从上方下拉选择 ACUS 中已有项"
+            )
+        elif manual:
+            if rk == "角色":
+                self.reward_inner_id.setPlaceholderText("填写角色 ID（CharaData.name.id）")
+            elif rk == "称号(Trophy)":
+                self.reward_inner_id.setPlaceholderText("填写称号 ID（TrophyData.name.id）")
+            elif rk == "姓名牌装饰(NamePlate)":
+                self.reward_inner_id.setPlaceholderText("填写姓名牌 ID（NamePlateData.name.id）")
+            else:
+                self.reward_inner_id.setPlaceholderText("手填模式下选「外部奖励」时无需填写此项")
+        else:
+            self.reward_inner_id.setPlaceholderText("目标ID")
 
         mm = self.music_mode.currentText()
         self.music_pick.setEnabled(mm == "选择 ACUS 乐曲")
         self.music_id.setEnabled(mm == "手填乐曲ID")
         self.music_name.setEnabled(mm == "手填乐曲ID")
 
-        self.warn_reward.setText("⚠ 手填奖励/手填内部ID 若游戏内不存在，可能报错，请谨慎使用。" if rm in {"手填奖励ID", "角色", "称号(Trophy)", "姓名牌装饰(NamePlate)"} else "")
+        if rm in {"手填奖励ID", "角色", "称号(Trophy)", "姓名牌装饰(NamePlate)"}:
+            self.warn_reward.setText(
+                "⚠ 填写的奖励 ID 或角色/称号/姓名牌 ID 若在游戏数据中不存在，可能导致异常，请谨慎核对。"
+            )
+        else:
+            self.warn_reward.setText("")
         self.warn_music.setText("⚠ 手填乐曲ID若游戏内不存在，可能报错，请谨慎使用。" if mm == "手填乐曲ID" else "")
 
     def _on_ok(self) -> None:
@@ -482,7 +591,8 @@ class CellEditDialog(QDialog):
             if out.reward_kind != "外部奖励ID":
                 inner = _safe_int(self.reward_inner_id.text())
                 if inner is None:
-                    QMessageBox.critical(self, "错误", "该奖励类型需要填写“奖励内部ID”")
+                    cap = _target_id_field_label(reward_mode="手填奖励ID", reward_kind=out.reward_kind)
+                    QMessageBox.critical(self, "错误", f"该奖励类型需要填写「{cap}」")
                     return
                 out.reward_inner_id = inner
         else:
@@ -497,7 +607,8 @@ class CellEditDialog(QDialog):
                 out.reward_inner_id = self._resolve_inner_from_ui(self._nameplate_refs)
 
             if out.reward_inner_id is None:
-                QMessageBox.critical(self, "错误", "请填写或选择有效的奖励内部ID")
+                cap = _target_id_field_label(reward_mode=rm, reward_kind="")
+                QMessageBox.critical(self, "错误", f"请填写或选择有效的「{cap}」")
                 return
             out.reward_name = self.reward_name.text().strip() or f"Reward{out.reward_inner_id}"
             out.reward_id = self._default_reward_id(out.reward_kind, out.reward_inner_id)
@@ -761,11 +872,24 @@ class MapAreaProgressDialog(QDialog):
 
 
 class RewardCreateDialog(QDialog):
-    def __init__(self, *, default_id: int, music_refs: list[MusicRef], parent=None) -> None:
+    def __init__(
+        self,
+        *,
+        default_id: int,
+        music_refs: list[MusicRef],
+        chara_refs: list[RewardRef],
+        trophy_refs: list[RewardRef],
+        nameplate_refs: list[RewardRef],
+        parent=None,
+    ) -> None:
         super().__init__(parent=parent)
         self.setWindowTitle("新建 Reward")
         self.setModal(True)
         self.result_cell: CellData | None = None
+        self._music_refs = music_refs
+        self._chara_refs = chara_refs
+        self._trophy_refs = trophy_refs
+        self._nameplate_refs = nameplate_refs
 
         self.reward_id = QLineEdit(str(default_id))
         self.reward_name = QLineEdit()
@@ -780,7 +904,13 @@ class RewardCreateDialog(QDialog):
                 "乐曲解锁(Music)",
             ]
         )
+        self.reward_kind.currentTextChanged.connect(self._sync)
         self.inner_id = QLineEdit()
+        self.inner_pick = QComboBox()
+        self.inner_pick.activated.connect(self._on_inner_pick_activated)
+        self._lbl_acus_inner = QLabel("")
+        self._lbl_target_inner = QLabel("目标ID")
+
         self.has_music = QCheckBox("有课题曲")
         self.music_mode = QComboBox()
         self.music_mode.addItems(["选择 ACUS 乐曲", "手填乐曲ID"])
@@ -798,7 +928,8 @@ class RewardCreateDialog(QDialog):
         form.addRow("reward.id", self.reward_id)
         form.addRow("reward.str", self.reward_name)
         form.addRow("类型", self.reward_kind)
-        form.addRow("内部ID(可空)", self.inner_id)
+        form.addRow(self._lbl_acus_inner, self.inner_pick)
+        form.addRow(self._lbl_target_inner, self.inner_id)
         form.addRow("", self.has_music)
         form.addRow("课题曲模式", self.music_mode)
         form.addRow("ACUS乐曲", self.music_pick)
@@ -818,7 +949,70 @@ class RewardCreateDialog(QDialog):
         lay.addLayout(btns)
         self._sync()
 
+    def _inner_refs_for_kind(self, kind: str) -> list[RewardRef]:
+        if kind == "角色":
+            return self._chara_refs
+        if kind == "称号(Trophy)":
+            return self._trophy_refs
+        if kind == "姓名牌装饰(NamePlate)":
+            return self._nameplate_refs
+        if kind == "乐曲解锁(Music)":
+            return [RewardRef(m.id, m.name) for m in self._music_refs]
+        return []
+
+    def _on_inner_pick_activated(self, index: int) -> None:
+        if index <= 0:
+            return
+        refs = self._inner_refs_for_kind(self.reward_kind.currentText())
+        if index - 1 >= len(refs):
+            return
+        self.inner_id.setText(str(refs[index - 1].id))
+
+    def _match_inner_pick(self, refs: list[RewardRef]) -> None:
+        tid = _safe_int(self.inner_id.text())
+        self.inner_pick.blockSignals(True)
+        self.inner_pick.setCurrentIndex(0)
+        if tid is not None:
+            for i, x in enumerate(refs, start=1):
+                if x.id == tid:
+                    self.inner_pick.setCurrentIndex(i)
+                    break
+        self.inner_pick.blockSignals(False)
+
     def _sync(self) -> None:
+        kind = self.reward_kind.currentText()
+        refs = self._inner_refs_for_kind(kind)
+        show_acus = len(refs) > 0
+        self._lbl_acus_inner.setText(_reward_create_acus_label(kind) if show_acus else "")
+        self._lbl_acus_inner.setVisible(show_acus)
+        self.inner_pick.setVisible(show_acus)
+        self.inner_pick.blockSignals(True)
+        self.inner_pick.clear()
+        self.inner_pick.addItem("(手动输入 ID，或从列表选择)")
+        for x in refs:
+            self.inner_pick.addItem(f"{x.id} | {x.name}")
+        self.inner_pick.blockSignals(False)
+        if show_acus:
+            self._match_inner_pick(refs)
+
+        self._lbl_target_inner.setText(_reward_create_kind_target_label(kind))
+        need_inner = kind not in ("外部奖励ID",)
+        self.inner_id.setEnabled(need_inner)
+        if kind == "外部奖励ID":
+            self.inner_id.setPlaceholderText("外部奖励通常无需填写")
+        elif kind == "功能票(Ticket)":
+            self.inner_id.setPlaceholderText("填写功能票 ID（TicketData.name.id）")
+        elif kind == "角色":
+            self.inner_id.setPlaceholderText("填写角色 ID，或从上方选择 ACUS 已有角色")
+        elif kind == "称号(Trophy)":
+            self.inner_id.setPlaceholderText("填写称号 ID，或从上方选择 ACUS 已有称号")
+        elif kind == "姓名牌装饰(NamePlate)":
+            self.inner_id.setPlaceholderText("填写姓名牌 ID，或从上方选择 ACUS 已有姓名牌")
+        elif kind == "乐曲解锁(Music)":
+            self.inner_id.setPlaceholderText("填写乐曲 ID，或从上方选择 ACUS 已有乐曲")
+        else:
+            self.inner_id.setPlaceholderText("目标ID")
+
         on = self.has_music.isChecked()
         self.music_mode.setEnabled(on)
         pick = on and self.music_mode.currentText() == "选择 ACUS 乐曲"
@@ -833,7 +1027,18 @@ class RewardCreateDialog(QDialog):
             return
         name = self.reward_name.text().strip() or f"Reward{rid}"
         kind = self.reward_kind.currentText()
-        inner = _safe_int(self.inner_id.text()) if self.inner_id.text().strip() else None
+        inner: int | None = None
+        if kind != "外部奖励ID":
+            pick = self.inner_pick.currentIndex()
+            refs = self._inner_refs_for_kind(kind)
+            if pick > 0 and pick - 1 < len(refs):
+                inner = refs[pick - 1].id
+            else:
+                inner = _safe_int(self.inner_id.text())
+            if inner is None:
+                cap = _reward_create_kind_target_label(kind)
+                QMessageBox.critical(self, "错误", f"请填写或选择有效的「{cap}」")
+                return
         c = CellData(reward_id=rid, reward_name=name, reward_kind=kind, reward_inner_id=inner)
         if self.has_music.isChecked():
             if self.music_mode.currentText() == "选择 ACUS 乐曲":
@@ -1063,7 +1268,14 @@ class MapAddDialog(QDialog):
                     k = _kind_label(c.reward_kind)
                     label = f"[{k}] {c.reward_name or f'Reward{rid}'}"
                     if c.reward_inner_id is not None and c.reward_inner_id >= 0:
-                        label += f" (inner:{c.reward_inner_id})"
+                        tid_lbl = {
+                            "角色": "角色ID",
+                            "称号(Trophy)": "称号ID",
+                            "姓名牌装饰(NamePlate)": "姓名牌ID",
+                            "乐曲解锁(Music)": "乐曲ID",
+                            "功能票(Ticket)": "功能票ID",
+                        }.get(c.reward_kind, "目标ID")
+                        label += f" ({tid_lbl}:{c.reward_inner_id})"
                     refs.append(RewardRef(rid, c.reward_name or f"Reward{rid}", label))
             except Exception:
                 continue
@@ -1501,7 +1713,14 @@ class MapAddDialog(QDialog):
         lay.addLayout(btns)
 
         def _new_reward() -> None:
-            rd = RewardCreateDialog(default_id=self._next_custom_reward_id(), music_refs=self._music_refs, parent=dlg)
+            rd = RewardCreateDialog(
+                default_id=self._next_custom_reward_id(),
+                music_refs=self._music_refs,
+                chara_refs=self._chara_refs,
+                trophy_refs=self._trophy_refs,
+                nameplate_refs=self._nameplate_refs,
+                parent=dlg,
+            )
             if rd.exec() == rd.DialogCode.Accepted and rd.result_cell is not None:
                 self._ensure_reward_xml(cell=rd.result_cell)
                 self._reward_refs = self._load_reward_refs()
@@ -1766,19 +1985,25 @@ class MapAddDialog(QDialog):
         # build a basic RewardData; unknown IDs are allowed with warning in UI
         kind = cell.reward_kind
         inner = cell.reward_inner_id if cell.reward_inner_id is not None else -1
-        ticket_id = -1
+        ticket_id = inner if kind == "功能票(Ticket)" else -1
         chara_id = inner if kind == "角色" else -1
         trophy_id = inner if kind == "称号(Trophy)" else -1
         nameplate_id = inner if kind == "姓名牌装饰(NamePlate)" else -1
         music_id = cell.music_id if cell.music_id is not None else -1
         music_name = cell.music_name if (cell.music_id is not None and cell.music_name) else ("Invalid" if music_id == -1 else f"Music{music_id}")
         reward_type = 0
-        if kind == "角色":
+        if kind == "功能票(Ticket)":
+            reward_type = 1
+        elif kind == "角色":
             reward_type = 3
         elif kind == "称号(Trophy)":
             reward_type = 2
         elif kind == "姓名牌装饰(NamePlate)":
             reward_type = 5
+        elif kind == "乐曲解锁(Music)":
+            reward_type = 6
+            music_id = inner if inner >= 0 else -1
+            music_name = f"Music{music_id}" if music_id != -1 else "Invalid"
 
         xml = f"""<?xml version="1.0" encoding="utf-8"?>
 <RewardData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
@@ -1807,7 +2032,7 @@ class MapAddDialog(QDialog):
   </substances>
 </RewardData>
 """
-        rxml.write_text(xml, encoding="utf-8")
+        (rdir / "Reward.xml").write_text(xml, encoding="utf-8")
 
     def _xml_text(self, s: str) -> str:
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

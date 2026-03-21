@@ -55,9 +55,19 @@ class CharaAddDialog(QDialog):
         form.addRow("变体", self.variant)
         form.addRow("最终ID", self.cid_preview)
         form.addRow("角色名", self.name)
-        form.addRow("大头", self._file_row(self.head, "选择大头图"))
-        form.addRow("半身", self._file_row(self.half, "选择半身图"))
-        form.addRow("全身", self._file_row(self.full, "选择全身图"))
+        # A001：CHU_UI_Character_*_00/01/02 = 全身 / 半身 / 大头（与 ddsFile0/1/2 一致）
+        form.addRow(
+            "全身（_00）",
+            self._file_row(self.full, "选择全身图", dim_hint="参考分辨率（A001）：1493 × 1027 像素"),
+        )
+        form.addRow(
+            "半身（_01）",
+            self._file_row(self.half, "选择半身图", dim_hint="参考分辨率（A001）：688 × 474 像素"),
+        )
+        form.addRow(
+            "大头（_02）",
+            self._file_row(self.head, "选择大头图", dim_hint="参考分辨率（A001）：545 × 375 像素"),
+        )
 
         ok = QPushButton("生成并写入 ACUS")
         ok.clicked.connect(self._run)
@@ -76,14 +86,24 @@ class CharaAddDialog(QDialog):
         layout.addWidget(warn)
         layout.addLayout(btns)
 
-    def _file_row(self, edit: QLineEdit, title: str) -> QWidget:
+    def _file_row(self, edit: QLineEdit, title: str, *, dim_hint: str | None = None) -> QWidget:
         w = QWidget()
-        h = QHBoxLayout(w)
+        v = QVBoxLayout(w)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(4)
+        row = QWidget()
+        h = QHBoxLayout(row)
         h.setContentsMargins(0, 0, 0, 0)
         h.addWidget(edit, stretch=1)
         b = QPushButton("浏览…")
         b.clicked.connect(lambda: self._pick_into(edit, title))
         h.addWidget(b)
+        v.addWidget(row)
+        if dim_hint:
+            hint = QLabel(dim_hint)
+            hint.setStyleSheet("color:#6B7280; font-size: 11px;")
+            hint.setWordWrap(True)
+            v.addWidget(hint)
         return w
 
     def _pick_into(self, edit: QLineEdit, title: str) -> None:
@@ -120,9 +140,9 @@ class CharaAddDialog(QDialog):
             dds_dir = self._acus_root / "ddsImage" / f"ddsImage{cid.raw6}"
 
             for src, dst in (
-                (head, dds_dir / cid.dds_filename(0)),
+                (full, dds_dir / cid.dds_filename(0)),
                 (half, dds_dir / cid.dds_filename(1)),
-                (full, dds_dir / cid.dds_filename(2)),
+                (head, dds_dir / cid.dds_filename(2)),
             ):
                 convert_to_bc3_dds(tool_path=self._tool, input_image=src, output_dds=dst)
 

@@ -10,7 +10,7 @@ def write_ddsimage_xml(*, out_dir: Path, chara_id: int, net_open_id: int = 2801,
 
     Matches A001 schema:
       <DDSImageData> with name.id = chara_id, name.str = chara{base4}_{variant2}
-      ddsFile0/1/2 paths = CHU_UI_Character_{base4}_{variant2}_{00..02}.dds
+      ddsFile0/1/2 = 全身/半身/大头 → CHU_UI_Character_{base4}_{variant2}_{00..02}.dds
     """
     from .chuni_formats import ChuniCharaId
 

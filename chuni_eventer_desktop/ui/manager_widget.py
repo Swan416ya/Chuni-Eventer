@@ -335,13 +335,13 @@ class ManagerWidget(QWidget):
         dds_path: Path | None = None
 
         if isinstance(it, DdsImageItem):
-            # 默认预览 ddsFile0（大头）
+            # 默认预览 ddsFile0（角色立绘：全身 / _00）
             dds_path = it.xml_path.parent / it.dds0
         elif isinstance(it, MusicItem) and it.jacket_path:
             # jacket is a .dds file in music folder
             dds_path = it.xml_path.parent / it.jacket_path
         elif isinstance(it, CharaItem):
-            # 通过 defaultImages.str 找到匹配的 DDSImage.xml，再取 ddsFile0
+            # 通过 defaultImages.str 找到匹配的 DDSImage.xml，再取 ddsFile0（全身）
             for d in scan_dds_images(self._acus_root):
                 if d.name.str == it.default_image_key:
                     dds_path = d.xml_path.parent / d.dds0
