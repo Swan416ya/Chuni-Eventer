@@ -25,6 +25,7 @@ from .chara_add_dialog import CharaAddDialog
 from .map_add_dialog import MapAddDialog, RewardCreateDialog, ensure_reward_xml, reward_dialog_bundle
 from .nameplate_add_dialog import NamePlateAddDialog
 from .trophy_add_dialog import TrophyAddDialog
+from .music_trophy_dialog import MusicTrophyDialog
 
 
 class MainWindow(QMainWindow):
@@ -170,6 +171,12 @@ class MainWindow(QMainWindow):
                 self._on_refresh()
             return
 
+        if idx == 3:
+            dlg = MusicTrophyDialog(acus_root=self._acus_root, parent=self)
+            if dlg.exec() == dlg.DialogCode.Accepted:
+                self._on_refresh()
+            return
+
         tool = self._get_tool_path_or_none()
         if tool is None and not quicktex_available():
             QMessageBox.critical(
@@ -201,7 +208,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "未实现",
-                "当前已实现【新增角色】【新增地图】【新增称号】【新增名牌】【新增奖励】。"
-                "Event / 歌曲 / DDSImage 等请直接在 ACUS 目录维护或用其它工具。",
+                "当前已实现【新增角色】【新增地图】【新增歌曲课题称号】【新增称号】【新增名牌】【新增奖励】。"
+                "Event / DDSImage 等请直接在 ACUS 目录维护或用其它工具。",
             )
 

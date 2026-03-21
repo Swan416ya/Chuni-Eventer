@@ -97,8 +97,14 @@ def _default_map_area_extras() -> MapAreaExtras:
 
 
 def _maparea_terminator_cell() -> CellData:
-    """MapArea 路线终点占位：与常见官图一致，最后一格为 -1 / Invalid。"""
-    return CellData(reward_id=-1, reward_name="Invalid", reward_kind="外部奖励ID")
+    """MapArea 路线终点占位：与 A001 mapArea0230310x 一致（displayType/type=2，Invalid）。"""
+    return CellData(
+        reward_id=-1,
+        reward_name="Invalid",
+        reward_kind="外部奖励ID",
+        display_type=2,
+        cell_type=2,
+    )
 
 
 def infer_map_terminator_index(idxs: list[int | None], cells: list[CellData]) -> int:
@@ -2222,7 +2228,11 @@ class MapAddDialog(QDialog):
                 dds_str_edit.text().strip() or "共通0001_CHUNITHM"
             )
 
-            final_for_grid = replace(self._area_info_cells[area_idx])
+            final_for_grid = replace(
+                self._area_info_cells[area_idx],
+                display_type=3,
+                cell_type=3,
+            )
             if adv.isChecked():
                 by_step: dict[int, CellData] = {
                     total: _maparea_terminator_cell(),
@@ -2258,9 +2268,13 @@ class MapAddDialog(QDialog):
                         reward_id=rrid,
                         reward_name=rnm,
                         reward_kind="外部奖励ID",
+                        display_type=3,
+                        cell_type=3,
                     )
                 if total >= 2:
-                    by_step.setdefault(0, CellData())
+                    by_step.setdefault(
+                        0, CellData(display_type=1, cell_type=1)
+                    )
                 try:
                     cells, idxs = _maparea_points_to_slots(list(by_step.items()))
                 except ValueError as e:
@@ -2272,7 +2286,7 @@ class MapAddDialog(QDialog):
                     (total - 1, final_for_grid),
                 ]
                 if total >= 2:
-                    pairs_bt.append((0, CellData()))
+                    pairs_bt.append((0, CellData(display_type=1, cell_type=1)))
                 try:
                     cells, idxs = _maparea_points_to_slots(pairs_bt)
                 except ValueError as e:
@@ -2306,6 +2320,16 @@ class MapAddDialog(QDialog):
             QMessageBox.critical(self, "错误", "请至少在九宫格中创建并保存一个 MapArea（点击空格并选择「是」创建区域）。")
             return
 
+        for aix, gix in enumerate(self._area_grid_indices):
+            if not any(x is not None for x in gix):
+                QMessageBox.critical(
+                    self,
+                    "错误",
+                    f"区域 {aix + 1} 尚未保存 MapArea 路线（请点开对应格子 → 保存「编辑页面格子」）。\n"
+                    "否则写入时会错误地使用 index 0~8，游戏内会显示为极短路线。",
+                )
+                return
+
         # build map infos and write maparea/reward files
         infos_xml = []
         for idx, cells in enumerate(self._area_cells, start=1):
@@ -2321,7 +2345,7 @@ class MapAddDialog(QDialog):
                 extras = self._area_extras[idx - 1]
                 info_cell = self._area_info_cells[idx - 1]
                 meta = self._area_info_meta[idx - 1]
-            grid_ix = self._area_grid_indices[idx - 1] if self._edit_mode else None
+            grid_ix = self._area_grid_indices[idx - 1]
             self._write_maparea(
                 area_id=area_id,
                 area_name=area_name,

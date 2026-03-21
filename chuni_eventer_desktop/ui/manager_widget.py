@@ -41,6 +41,7 @@ from ..acus_scan import (
 )
 from ..dds_preview import dds_to_pixmap
 from ..dds_quicktex import quicktex_available
+from ..trophy_preview import load_trophy_frame_pixmap, render_trophy_text_preview
 
 
 class ManagerWidget(QWidget):
@@ -72,7 +73,9 @@ class ManagerWidget(QWidget):
         self.event_bar.setVisible(False)
 
         self.search = QLineEdit()
-        self.search.setPlaceholderText("搜索：ID / 名称 / 关键字（地图列表可双击编辑）")
+        self.search.setPlaceholderText(
+            "搜索：ID / 名称 / 关键字（地图双击编辑；歌曲双击生成课题称号）"
+        )
         self.search.textChanged.connect(self._apply_filter)
 
         self.refresh_btn = QPushButton("刷新")
@@ -314,28 +317,43 @@ class ManagerWidget(QWidget):
         self._update_preview(payload)
 
     def _on_table_double_clicked(self, proxy_index: QModelIndex) -> None:
-        """地图列表：双击打开编辑（读取 Map.xml + 各 MapArea）。"""
-        if self.kind.currentText() != "Map":
-            return
+        """地图：双击编辑；歌曲：双击生成课题称号。"""
         if not proxy_index.isValid():
+            return
+        k = self.kind.currentText()
+        if k not in ("Map", "Music"):
             return
         src_idx = self.proxy.mapToSource(proxy_index)
         item = self.model.item(src_idx.row(), 0)
         if item is None:
             return
         payload = item.data(Qt.ItemDataRole.UserRole)
-        if not isinstance(payload, MapItem):
-            return
-        from .map_add_dialog import MapAddDialog
+        if k == "Map":
+            if not isinstance(payload, MapItem):
+                return
+            from .map_add_dialog import MapAddDialog
 
-        dlg = MapAddDialog(
-            acus_root=self._acus_root,
-            tool_path=self._get_tool_path(),
-            parent=self.window(),
-            edit_map_xml=payload.xml_path,
-        )
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            self.reload()
+            dlg = MapAddDialog(
+                acus_root=self._acus_root,
+                tool_path=self._get_tool_path(),
+                parent=self.window(),
+                edit_map_xml=payload.xml_path,
+            )
+            if dlg.exec() == QDialog.DialogCode.Accepted:
+                self.reload()
+            return
+        if k == "Music":
+            if not isinstance(payload, MusicItem):
+                return
+            from .music_trophy_dialog import MusicTrophyDialog
+
+            dlg = MusicTrophyDialog(
+                acus_root=self._acus_root,
+                preselect=payload,
+                parent=self.window(),
+            )
+            if dlg.exec() == QDialog.DialogCode.Accepted:
+                self.reload()
 
     def _format_detail(self, it: object) -> str:
         # dataclass -> dict for readability
@@ -349,6 +367,10 @@ class ManagerWidget(QWidget):
         return "\n".join(lines)
 
     def _update_preview(self, it: object) -> None:
+        if isinstance(it, TrophyItem):
+            self._preview_trophy(it)
+            return
+
         tool = self._get_tool_path()
         if tool is None and not quicktex_available():
             self.preview.setText(
@@ -375,9 +397,6 @@ class ManagerWidget(QWidget):
         elif isinstance(it, NamePlateItem):
             if it.image_path:
                 dds_path = it.xml_path.parent / it.image_path
-        elif isinstance(it, TrophyItem):
-            if it.image_path:
-                dds_path = it.xml_path.parent / it.image_path
         elif isinstance(it, EventItem):
             dds_path = it.promo_dds_path
         elif isinstance(it, MapItem):
@@ -395,6 +414,63 @@ class ManagerWidget(QWidget):
             self.preview.setText(f"预览失败：{dds_path.name}")
             self.preview.clear()
             return
+        self.preview.setPixmap(pm)
+        self.preview.setText("")
+
+    def _preview_trophy(self, it: TrophyItem) -> None:
+        """
+        无图称号：稀有度底图 + 居中显示名。
+        有图（DDS）称号：仅显示 DDS 内容，不叠稀有度条底图。
+        """
+        try:
+            self._preview_trophy_impl(it)
+        except Exception as e:
+            self.preview.clear()
+            self.preview.setText(f"称号预览异常：{e}")
+
+    def _preview_trophy_impl(self, it: TrophyItem) -> None:
+        tool = self._get_tool_path()
+        qt_ok = quicktex_available()
+
+        img_rel = (it.image_path or "").strip()
+        dds_path: Path | None = None
+        if img_rel:
+            cand = it.xml_path.parent / img_rel
+            if cand.is_file():
+                dds_path = cand
+
+        if dds_path is not None:
+            if tool is None and not qt_ok:
+                self.preview.setText(
+                    "无法预览称号 DDS：未安装 quicktex，且未在【设置】中配置 compressonatorcli。"
+                )
+                self.preview.clear()
+                return
+            pm = dds_to_pixmap(
+                acus_root=self._acus_root,
+                compressonatorcli_path=tool,
+                dds_path=dds_path,
+                max_w=640,
+                max_h=200,
+            )
+            if pm is None:
+                self.preview.setText(f"预览失败：{dds_path.name}")
+                self.preview.clear()
+                return
+        else:
+            frame_pm = load_trophy_frame_pixmap(it.rare_type)
+            if frame_pm is None:
+                self.preview.setText("缺少稀有度底图资源（static/trophy），无法预览无图称号")
+                self.preview.clear()
+                return
+            pm = render_trophy_text_preview(frame=frame_pm, display_name=it.name.str or "—")
+            if pm is None:
+                self.preview.setText("该称号无法生成预览")
+                self.preview.clear()
+                return
+
+        if pm.width() > 640:
+            pm = pm.scaledToWidth(640, Qt.TransformationMode.SmoothTransformation)
         self.preview.setPixmap(pm)
         self.preview.setText("")
 

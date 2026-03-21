@@ -46,6 +46,8 @@ class MusicItem:
     cue_file: IdStr | None
     levels: tuple[str, ...]
     jacket_path: str
+    # 是否存在已启用的 Ultima 谱面（fumen type/id=4），用于课题称号 rareType=8
+    has_ultima: bool
 
 
 @dataclass(frozen=True)
@@ -193,8 +195,13 @@ def scan_music(acus_root: Path) -> list[MusicItem]:
             stage = _get_idstr(r.find("stageName"))
             cue_file = _get_idstr(r.find("cueFileName"))
             levels: list[str] = []
+            has_ultima = False
             for f in r.findall("fumens/MusicFumenData"):
                 enabled = (f.findtext("enable") or "").strip().lower()
+                tid_raw = (f.findtext("type/id") or "").strip()
+                tid = int(tid_raw) if tid_raw.isdigit() else -1
+                if enabled == "true" and tid == 4:
+                    has_ultima = True
                 if enabled != "true":
                     continue
                 diff = (f.findtext("type/str") or "").strip()
@@ -221,6 +228,7 @@ def scan_music(acus_root: Path) -> list[MusicItem]:
                     cue_file=cue_file,
                     levels=tuple(levels),
                     jacket_path=jacket,
+                    has_ultima=has_ultima,
                 )
             )
         except Exception:
