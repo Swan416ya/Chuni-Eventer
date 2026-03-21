@@ -5,7 +5,11 @@ __pycache__/
 .Python
 .python-version
 .venv/
+.venv-build/
 venv/
+build/
+dist/
+*.spec.bak
 ENV/
 .env
 *.log

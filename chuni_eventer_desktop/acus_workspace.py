@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 
 def app_root_dir() -> Path:
-    # chuni_eventer_desktop/acus_workspace.py -> .../desktop/chuni_eventer_desktop -> .../desktop
+    """
+    源码运行：仓库根目录（chuni_eventer_desktop 的上一级）。
+    PyInstaller 打包：可执行文件所在目录（与 exe 同级的 ACUS/）。
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    # chuni_eventer_desktop/acus_workspace.py -> 仓库根
     return Path(__file__).resolve().parents[1]
 
 

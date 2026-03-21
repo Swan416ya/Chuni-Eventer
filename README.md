@@ -205,73 +205,42 @@ rm -rf "ACUS/.cache/dds_preview"
 
 ## 7. Windows 打包为 EXE（PyInstaller）
 
-> 建议在 **Windows 本机** 打包 Windows `exe`。  
-> 不建议在 macOS 直接交叉打包 Windows 可执行文件。
+> 建议在 **Windows 本机** 打包。单文件产物较大（含 PyQt6 / quicktex），属正常现象。
 
-### 7.1 准备 Windows 环境
+### 7.1 推荐：独立虚拟环境 + 项目 spec
 
-1. 安装 Python 3.12+（勾选“Add Python to PATH”）。
-2. 打开 PowerShell，进入项目目录：
-
-```powershell
-cd "D:\path\to\chuni eventer\desktop"
-python -m pip install -r requirements.txt
-python -m pip install pyinstaller
-```
-
-### 7.2 执行打包
+1. 安装 Python 3.12+（勾选 “Add Python to PATH”）。
+2. 在项目根目录执行（PowerShell）：
 
 ```powershell
-cd "D:\path\to\chuni eventer\desktop"
-pyinstaller --noconfirm --clean --windowed --name "Chuni-Eventer" -m chuni_eventer_desktop
+cd "E:\path\to\Chuni-Eventer"
+python -m venv .venv-build
+.\.venv-build\Scripts\pip install -r requirements-build.txt
+.\.venv-build\Scripts\python -m PyInstaller --noconfirm ChuniEventer.spec
 ```
 
-打包结果：
+或使用脚本：`.\scripts\build_windows.ps1`（会自动创建 `.venv-build` 并执行打包）。
 
-- `dist/Chuni-Eventer/Chuni-Eventer.exe`
+3. 产物路径：**`dist\ChuniEventer.exe`**（单文件、无控制台窗口）。
 
-### 7.3 使用项目内 spec（一键稳定打包，推荐）
+> 若全局 Python 曾安装过与标准库冲突的 `typing` 包，PyInstaller 可能报错；请在该环境中执行  
+> `pip uninstall typing` 后重试，或始终只用上面的 **venv** 打包。
 
-本项目已提供：`Chuni-Eventer.spec`  
-建议优先用它，参数更稳定，后续加图标/版本信息也更方便。
+### 7.2 入口说明
 
-```powershell
-cd "D:\path\to\chuni eventer\desktop"
-pyinstaller --noconfirm --clean ".\Chuni-Eventer.spec"
-```
+- 源码启动：`python -m chuni_eventer_desktop` 或 `python run_desktop.py`（仓库根目录）。
+- 打包入口为根目录 **`run_desktop.py`**，spec 已包含 **`chuni_eventer_desktop/static/trophy`** 稀有度条图片。
 
-产物同样在：
+### 7.3 首次运行 EXE
 
-- `dist/Chuni-Eventer/Chuni-Eventer.exe`
-
-### 7.4 可选：设置 EXE 图标
-
-1. 在 `desktop/assets/` 下放入 `icon.ico`
-2. 重新执行 spec 打包命令
-
-> `spec` 已自动检测 `assets/icon.ico`，存在就会应用，不存在则忽略。
-
-### 7.5 首次运行 EXE 注意
-
-- 首次启动会在 EXE 同级目录创建 `ACUS/`。
-- 仍需在“设置”里配置 `compressonatorcli` 路径。
-- `compressonatorcli.exe` 可以单独放在任意目录，只要路径可选中即可。
+- 在 **exe 同级目录** 自动创建 **`ACUS/`**（与源码运行时“仓库根下的 ACUS”不同，便于分发）。
+- **quicktex** 已打进 exe；**compressonatorcli** 仍为可选，在【设置】里填写路径即可。
 
 ---
 
 ## 8. 发行建议（给别人用）
 
-建议把以下内容一起打包发给使用者：
+GitHub Release 可只上传 **`ChuniEventer.exe`**；说明中提醒用户：首次运行在同目录生成 `ACUS/`，按需自备或配置 compressonator。
 
-- `dist/Chuni-Eventer/` 整个目录
-- 一份 `compressonatorcli.exe`（或安装说明）
-- 这份 `README.md`
-
-可选做法：
-
-- 你可以再加一个批处理 `run.bat`，内容仅一行：
-
-```bat
-Chuni-Eventer.exe
-```
+可选：附简短 `README` 片段或链到本仓库说明。
 
