@@ -1060,6 +1060,175 @@ class RewardCreateDialog(QDialog):
         self.accept()
 
 
+def load_reward_refs(acus_root: Path) -> list[RewardRef]:
+    refs: list[RewardRef] = []
+    for p in acus_root.glob("reward/**/Reward.xml"):
+        try:
+            r = ET.parse(p).getroot()
+            rid = _safe_int(r.findtext("name/id") or "")
+            name = (r.findtext("name/str") or "").strip()
+            if rid is not None:
+                c = CellData(reward_id=rid, reward_name=name or f"Reward{rid}")
+                enrich_cell_from_reward_xml(acus_root, c)
+                k = _kind_label(c.reward_kind)
+                label = f"[{k}] {c.reward_name or f'Reward{rid}'}"
+                if c.reward_inner_id is not None and c.reward_inner_id >= 0:
+                    tid_lbl = {
+                        "角色": "角色ID",
+                        "称号(Trophy)": "称号ID",
+                        "姓名牌装饰(NamePlate)": "姓名牌ID",
+                        "乐曲解锁(Music)": "乐曲ID",
+                        "功能票(Ticket)": "功能票ID",
+                    }.get(c.reward_kind, "目标ID")
+                    label += f" ({tid_lbl}:{c.reward_inner_id})"
+                refs.append(RewardRef(rid, c.reward_name or f"Reward{rid}", label))
+        except Exception:
+            continue
+    return sorted(refs, key=lambda x: x.id)
+
+
+def load_music_refs(acus_root: Path) -> list[MusicRef]:
+    refs: list[MusicRef] = []
+    for p in acus_root.glob("music/**/Music.xml"):
+        try:
+            r = ET.parse(p).getroot()
+            mid = _safe_int(r.findtext("name/id") or "")
+            name = (r.findtext("name/str") or "").strip()
+            if mid is not None:
+                refs.append(MusicRef(mid, name or f"Music{mid}"))
+        except Exception:
+            continue
+    return sorted(refs, key=lambda x: x.id)
+
+
+def load_chara_refs(acus_root: Path) -> list[RewardRef]:
+    refs: list[RewardRef] = []
+    for p in acus_root.glob("chara/**/Chara.xml"):
+        try:
+            r = ET.parse(p).getroot()
+            cid = _safe_int(r.findtext("name/id") or "")
+            name = (r.findtext("name/str") or "").strip()
+            if cid is not None:
+                refs.append(RewardRef(cid, name or f"Chara{cid}"))
+        except Exception:
+            continue
+    return sorted(refs, key=lambda x: x.id)
+
+
+def load_nameplate_refs(acus_root: Path) -> list[RewardRef]:
+    refs: list[RewardRef] = []
+    for p in acus_root.glob("namePlate/**/NamePlate.xml"):
+        try:
+            r = ET.parse(p).getroot()
+            nid = _safe_int(r.findtext("name/id") or "")
+            name = (r.findtext("name/str") or "").strip()
+            if nid is not None:
+                refs.append(RewardRef(nid, name or f"NamePlate{nid}"))
+        except Exception:
+            continue
+    return sorted(refs, key=lambda x: x.id)
+
+
+def load_trophy_refs(acus_root: Path) -> list[RewardRef]:
+    refs: list[RewardRef] = []
+    for p in acus_root.glob("trophy/**/Trophy.xml"):
+        try:
+            r = ET.parse(p).getroot()
+            tid = _safe_int(r.findtext("name/id") or "")
+            name = (r.findtext("name/str") or "").strip()
+            if tid is not None:
+                refs.append(RewardRef(tid, name or f"Trophy{tid}"))
+        except Exception:
+            continue
+    return sorted(refs, key=lambda x: x.id)
+
+
+def next_custom_reward_id(acus_root: Path) -> int:
+    max_id = 700000000
+    for p in acus_root.glob("reward/**/Reward.xml"):
+        try:
+            r = ET.parse(p).getroot()
+            rid = _safe_int(r.findtext("name/id") or "")
+            if rid is not None and str(rid).startswith("7"):
+                max_id = max(max_id, rid)
+        except Exception:
+            continue
+    return max_id + 1
+
+
+def reward_dialog_bundle(
+    acus_root: Path,
+) -> tuple[list[MusicRef], list[RewardRef], list[RewardRef], list[RewardRef], int]:
+    return (
+        load_music_refs(acus_root),
+        load_chara_refs(acus_root),
+        load_trophy_refs(acus_root),
+        load_nameplate_refs(acus_root),
+        next_custom_reward_id(acus_root),
+    )
+
+
+def ensure_reward_xml(acus_root: Path, cell: CellData) -> None:
+    if cell.reward_id is None:
+        return
+    rid = cell.reward_id
+    if resolve_reward_xml(acus_root, rid) is not None:
+        return
+    rdir = acus_root / "reward" / f"reward{rid:09d}"
+    rdir.mkdir(parents=True, exist_ok=True)
+
+    kind = cell.reward_kind
+    inner = cell.reward_inner_id if cell.reward_inner_id is not None else -1
+    ticket_id = inner if kind == "功能票(Ticket)" else -1
+    chara_id = inner if kind == "角色" else -1
+    trophy_id = inner if kind == "称号(Trophy)" else -1
+    nameplate_id = inner if kind == "姓名牌装饰(NamePlate)" else -1
+    music_id = cell.music_id if cell.music_id is not None else -1
+    music_name = cell.music_name if (cell.music_id is not None and cell.music_name) else ("Invalid" if music_id == -1 else f"Music{music_id}")
+    reward_type = 0
+    if kind == "功能票(Ticket)":
+        reward_type = 1
+    elif kind == "角色":
+        reward_type = 3
+    elif kind == "称号(Trophy)":
+        reward_type = 2
+    elif kind == "姓名牌装饰(NamePlate)":
+        reward_type = 5
+    elif kind == "乐曲解锁(Music)":
+        reward_type = 6
+        music_id = inner if inner >= 0 else -1
+        music_name = f"Music{music_id}" if music_id != -1 else "Invalid"
+
+    xml = f"""<?xml version="1.0" encoding="utf-8"?>
+<RewardData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dataName>reward{rid:09d}</dataName>
+  <name><id>{rid}</id><str>{cell.reward_name or f"Reward{rid}"}</str><data /></name>
+  <substances>
+    <list>
+      <RewardSubstanceData>
+        <type>{reward_type}</type>
+        <gamePoint><gamePoint>0</gamePoint></gamePoint>
+        <ticket><ticketName><id>{ticket_id}</id><str>{"Invalid" if ticket_id==-1 else f"Ticket{ticket_id}"}</str><data /></ticketName></ticket>
+        <trophy><trophyName><id>{trophy_id}</id><str>{"Invalid" if trophy_id==-1 else f"Trophy{trophy_id}"}</str><data /></trophyName></trophy>
+        <chara><charaName><id>{chara_id}</id><str>{"Invalid" if chara_id==-1 else f"Chara{chara_id}"}</str><data /></charaName></chara>
+        <skillSeed><skillSeedName><id>-1</id><str>Invalid</str><data /></skillSeedName><skillSeedCount>1</skillSeedCount></skillSeed>
+        <namePlate><namePlateName><id>{nameplate_id}</id><str>{"Invalid" if nameplate_id==-1 else f"NamePlate{nameplate_id}"}</str><data /></namePlateName></namePlate>
+        <music><musicName><id>{music_id}</id><str>{music_name}</str><data /></musicName></music>
+        <mapIcon><mapIconName><id>-1</id><str>Invalid</str><data /></mapIconName></mapIcon>
+        <systemVoice><systemVoiceName><id>-1</id><str>Invalid</str><data /></systemVoiceName></systemVoice>
+        <avatarAccessory><avatarAccessoryName><id>-1</id><str>Invalid</str><data /></avatarAccessoryName></avatarAccessory>
+        <frame><frameName><id>-1</id><str>Invalid</str><data /></frameName></frame>
+        <symbolChat><symbolChatName><id>-1</id><str>Invalid</str><data /></symbolChatName></symbolChat>
+        <ultimaScore><musicName><id>-1</id><str>Invalid</str><data /></musicName></ultimaScore>
+        <stage><stageName><id>-1</id><str>Invalid</str><data /></stageName></stage>
+      </RewardSubstanceData>
+    </list>
+  </substances>
+</RewardData>
+"""
+    (rdir / "Reward.xml").write_text(xml, encoding="utf-8")
+
+
 class MapAddDialog(QDialog):
     def __init__(self, *, acus_root: Path, parent=None, edit_map_xml: Path | None = None) -> None:
         super().__init__(parent=parent)
@@ -1068,11 +1237,11 @@ class MapAddDialog(QDialog):
         self.setModal(True)
         self.resize(980, 700)
         self._acus_root = acus_root
-        self._reward_refs = self._load_reward_refs()
-        self._chara_refs = self._load_chara_refs()
-        self._trophy_refs = self._load_trophy_refs()
-        self._nameplate_refs = self._load_nameplate_refs()
-        self._music_refs = self._load_music_refs()
+        self._reward_refs = load_reward_refs(acus_root)
+        self._chara_refs = load_chara_refs(acus_root)
+        self._trophy_refs = load_trophy_refs(acus_root)
+        self._nameplate_refs = load_nameplate_refs(acus_root)
+        self._music_refs = load_music_refs(acus_root)
         self._chara_name_by_id = {x.id: x.name for x in self._chara_refs}
         self._trophy_name_by_id = {x.id: x.name for x in self._trophy_refs}
         self._nameplate_name_by_id = {x.id: x.name for x in self._nameplate_refs}
@@ -1254,84 +1423,6 @@ class MapAddDialog(QDialog):
                 ),
             )
         return ""
-
-    def _load_reward_refs(self) -> list[RewardRef]:
-        refs: list[RewardRef] = []
-        for p in self._acus_root.glob("reward/**/Reward.xml"):
-            try:
-                r = ET.parse(p).getroot()
-                rid = _safe_int(r.findtext("name/id") or "")
-                name = (r.findtext("name/str") or "").strip()
-                if rid is not None:
-                    c = CellData(reward_id=rid, reward_name=name or f"Reward{rid}")
-                    enrich_cell_from_reward_xml(self._acus_root, c)
-                    k = _kind_label(c.reward_kind)
-                    label = f"[{k}] {c.reward_name or f'Reward{rid}'}"
-                    if c.reward_inner_id is not None and c.reward_inner_id >= 0:
-                        tid_lbl = {
-                            "角色": "角色ID",
-                            "称号(Trophy)": "称号ID",
-                            "姓名牌装饰(NamePlate)": "姓名牌ID",
-                            "乐曲解锁(Music)": "乐曲ID",
-                            "功能票(Ticket)": "功能票ID",
-                        }.get(c.reward_kind, "目标ID")
-                        label += f" ({tid_lbl}:{c.reward_inner_id})"
-                    refs.append(RewardRef(rid, c.reward_name or f"Reward{rid}", label))
-            except Exception:
-                continue
-        return sorted(refs, key=lambda x: x.id)
-
-    def _load_music_refs(self) -> list[MusicRef]:
-        refs: list[MusicRef] = []
-        for p in self._acus_root.glob("music/**/Music.xml"):
-            try:
-                r = ET.parse(p).getroot()
-                mid = _safe_int(r.findtext("name/id") or "")
-                name = (r.findtext("name/str") or "").strip()
-                if mid is not None:
-                    refs.append(MusicRef(mid, name or f"Music{mid}"))
-            except Exception:
-                continue
-        return sorted(refs, key=lambda x: x.id)
-
-    def _load_chara_refs(self) -> list[RewardRef]:
-        refs: list[RewardRef] = []
-        for p in self._acus_root.glob("chara/**/Chara.xml"):
-            try:
-                r = ET.parse(p).getroot()
-                cid = _safe_int(r.findtext("name/id") or "")
-                name = (r.findtext("name/str") or "").strip()
-                if cid is not None:
-                    refs.append(RewardRef(cid, name or f"Chara{cid}"))
-            except Exception:
-                continue
-        return sorted(refs, key=lambda x: x.id)
-
-    def _load_nameplate_refs(self) -> list[RewardRef]:
-        refs: list[RewardRef] = []
-        for p in self._acus_root.glob("namePlate/**/NamePlate.xml"):
-            try:
-                r = ET.parse(p).getroot()
-                nid = _safe_int(r.findtext("name/id") or "")
-                name = (r.findtext("name/str") or "").strip()
-                if nid is not None:
-                    refs.append(RewardRef(nid, name or f"NamePlate{nid}"))
-            except Exception:
-                continue
-        return sorted(refs, key=lambda x: x.id)
-
-    def _load_trophy_refs(self) -> list[RewardRef]:
-        refs: list[RewardRef] = []
-        for p in self._acus_root.glob("trophy/**/Trophy.xml"):
-            try:
-                r = ET.parse(p).getroot()
-                tid = _safe_int(r.findtext("name/id") or "")
-                name = (r.findtext("name/str") or "").strip()
-                if tid is not None:
-                    refs.append(RewardRef(tid, name or f"Trophy{tid}"))
-            except Exception:
-                continue
-        return sorted(refs, key=lambda x: x.id)
 
     def _append_new_area_with_meta(self, *, page_index: int, index_in_page: int) -> int:
         cells = [CellData() for _ in range(9)]
@@ -1538,18 +1629,6 @@ class MapAddDialog(QDialog):
             self._rebuild_page_tabs()
         self._edit_page_slot_single_dialog(area_idx)
 
-    def _next_custom_reward_id(self) -> int:
-        max_id = 700000000
-        for p in self._acus_root.glob("reward/**/Reward.xml"):
-            try:
-                r = ET.parse(p).getroot()
-                rid = _safe_int(r.findtext("name/id") or "")
-                if rid is not None and str(rid).startswith("7"):
-                    max_id = max(max_id, rid)
-            except Exception:
-                continue
-        return max_id + 1
-
     def _is_intermediate_reward_allowed(self, rid: int) -> bool:
         rx = resolve_reward_xml(self._acus_root, rid)
         if rx is None:
@@ -1714,7 +1793,7 @@ class MapAddDialog(QDialog):
 
         def _new_reward() -> None:
             rd = RewardCreateDialog(
-                default_id=self._next_custom_reward_id(),
+                default_id=next_custom_reward_id(self._acus_root),
                 music_refs=self._music_refs,
                 chara_refs=self._chara_refs,
                 trophy_refs=self._trophy_refs,
@@ -1722,8 +1801,8 @@ class MapAddDialog(QDialog):
                 parent=dlg,
             )
             if rd.exec() == rd.DialogCode.Accepted and rd.result_cell is not None:
-                self._ensure_reward_xml(cell=rd.result_cell)
-                self._reward_refs = self._load_reward_refs()
+                ensure_reward_xml(self._acus_root, rd.result_cell)
+                self._reward_refs = load_reward_refs(self._acus_root)
                 reward_pick.clear()
                 reward_pick.addItem("(请选择)")
                 for rr in self._reward_refs:
@@ -1940,7 +2019,7 @@ class MapAddDialog(QDialog):
                 rid = c.reward_id
                 assert rid is not None
                 rname = c.reward_name or f"Reward{rid}"
-                self._ensure_reward_xml(cell=c)
+                ensure_reward_xml(self._acus_root, c)
             else:
                 rid = -1
                 rname = "Invalid"
@@ -1972,67 +2051,6 @@ class MapAddDialog(QDialog):
 </MapAreaData>
 """
         (area_dir / "MapArea.xml").write_text(xml, encoding="utf-8")
-
-    def _ensure_reward_xml(self, *, cell: CellData) -> None:
-        if cell.reward_id is None:
-            return
-        rid = cell.reward_id
-        if resolve_reward_xml(self._acus_root, rid) is not None:
-            return
-        rdir = self._acus_root / "reward" / f"reward{rid:09d}"
-        rdir.mkdir(parents=True, exist_ok=True)
-
-        # build a basic RewardData; unknown IDs are allowed with warning in UI
-        kind = cell.reward_kind
-        inner = cell.reward_inner_id if cell.reward_inner_id is not None else -1
-        ticket_id = inner if kind == "功能票(Ticket)" else -1
-        chara_id = inner if kind == "角色" else -1
-        trophy_id = inner if kind == "称号(Trophy)" else -1
-        nameplate_id = inner if kind == "姓名牌装饰(NamePlate)" else -1
-        music_id = cell.music_id if cell.music_id is not None else -1
-        music_name = cell.music_name if (cell.music_id is not None and cell.music_name) else ("Invalid" if music_id == -1 else f"Music{music_id}")
-        reward_type = 0
-        if kind == "功能票(Ticket)":
-            reward_type = 1
-        elif kind == "角色":
-            reward_type = 3
-        elif kind == "称号(Trophy)":
-            reward_type = 2
-        elif kind == "姓名牌装饰(NamePlate)":
-            reward_type = 5
-        elif kind == "乐曲解锁(Music)":
-            reward_type = 6
-            music_id = inner if inner >= 0 else -1
-            music_name = f"Music{music_id}" if music_id != -1 else "Invalid"
-
-        xml = f"""<?xml version="1.0" encoding="utf-8"?>
-<RewardData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <dataName>reward{rid:09d}</dataName>
-  <name><id>{rid}</id><str>{cell.reward_name or f"Reward{rid}"}</str><data /></name>
-  <substances>
-    <list>
-      <RewardSubstanceData>
-        <type>{reward_type}</type>
-        <gamePoint><gamePoint>0</gamePoint></gamePoint>
-        <ticket><ticketName><id>{ticket_id}</id><str>{"Invalid" if ticket_id==-1 else f"Ticket{ticket_id}"}</str><data /></ticketName></ticket>
-        <trophy><trophyName><id>{trophy_id}</id><str>{"Invalid" if trophy_id==-1 else f"Trophy{trophy_id}"}</str><data /></trophyName></trophy>
-        <chara><charaName><id>{chara_id}</id><str>{"Invalid" if chara_id==-1 else f"Chara{chara_id}"}</str><data /></charaName></chara>
-        <skillSeed><skillSeedName><id>-1</id><str>Invalid</str><data /></skillSeedName><skillSeedCount>1</skillSeedCount></skillSeed>
-        <namePlate><namePlateName><id>{nameplate_id}</id><str>{"Invalid" if nameplate_id==-1 else f"NamePlate{nameplate_id}"}</str><data /></namePlateName></namePlate>
-        <music><musicName><id>{music_id}</id><str>{music_name}</str><data /></musicName></music>
-        <mapIcon><mapIconName><id>-1</id><str>Invalid</str><data /></mapIconName></mapIcon>
-        <systemVoice><systemVoiceName><id>-1</id><str>Invalid</str><data /></systemVoiceName></systemVoice>
-        <avatarAccessory><avatarAccessoryName><id>-1</id><str>Invalid</str><data /></avatarAccessoryName></avatarAccessory>
-        <frame><frameName><id>-1</id><str>Invalid</str><data /></frameName></frame>
-        <symbolChat><symbolChatName><id>-1</id><str>Invalid</str><data /></symbolChatName></symbolChat>
-        <ultimaScore><musicName><id>-1</id><str>Invalid</str><data /></musicName></ultimaScore>
-        <stage><stageName><id>-1</id><str>Invalid</str><data /></stageName></stage>
-      </RewardSubstanceData>
-    </list>
-  </substances>
-</RewardData>
-"""
-        (rdir / "Reward.xml").write_text(xml, encoding="utf-8")
 
     def _xml_text(self, s: str) -> str:
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

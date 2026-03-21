@@ -79,6 +79,17 @@ class TrophyItem:
 
 
 @dataclass(frozen=True)
+class RewardItem:
+    xml_path: Path
+    name: IdStr
+    substance_type: int | None
+    type_label: str
+    target_summary: str
+    music_course_id: int | None
+    music_course_str: str
+
+
+@dataclass(frozen=True)
 class EventItem:
     xml_path: Path
     name: IdStr
@@ -306,6 +317,136 @@ def scan_trophies(acus_root: Path) -> list[TrophyItem]:
             rare_type = int(rare_raw) if rare_raw.isdigit() else None
             img = (r.findtext("image/path") or "").strip()
             items.append(TrophyItem(p, name, explain, rare_type, img))
+        except Exception:
+            continue
+    return sorted(items, key=lambda x: x.name.id)
+
+
+def _int_or_none(text: str | None) -> int | None:
+    try:
+        return int((text or "").strip())
+    except Exception:
+        return None
+
+
+def _reward_substance_type_label(t: int | None) -> str:
+    if t is None:
+        return "未知"
+    return {
+        0: "其它",
+        1: "功能票",
+        2: "称号",
+        3: "角色",
+        5: "姓名牌",
+        6: "乐曲解锁",
+        7: "地图图标",
+        9: "头像配件",
+        13: "场景",
+    }.get(t, f"type={t}")
+
+
+def _pick_reward_substance(root: ET.Element) -> ET.Element | None:
+    subs = root.findall(".//RewardSubstanceData")
+    if not subs:
+        return None
+    chosen = subs[0]
+    best_score = -1
+    for sub in subs:
+        t_raw = (sub.findtext("type") or "0").strip()
+        t = int(t_raw) if t_raw.isdigit() else 0
+        mid = _int_or_none(sub.findtext("music/musicName/id"))
+        score = 0
+        if t in (2, 3, 5):
+            score += 4
+        if mid is not None and mid != -1:
+            score += 2
+        if score > best_score:
+            best_score = score
+            chosen = sub
+    return chosen
+
+
+def _summarize_reward_substance(sub: ET.Element) -> tuple[int | None, str, str, int | None, str]:
+    """
+    返回 substance_type, type_label, target_summary, music_course_id, music_course_str
+    """
+    t_raw = (sub.findtext("type") or "0").strip()
+    t = int(t_raw) if t_raw.isdigit() else None
+    label = _reward_substance_type_label(t)
+
+    mid = _int_or_none(sub.findtext("music/musicName/id"))
+    mstr = (sub.findtext("music/musicName/str") or "").strip()
+    if mid == -1:
+        mid = None
+
+    parts: list[str] = []
+    if t == 1:
+        tid = _int_or_none(sub.findtext("ticket/ticketName/id"))
+        if tid is not None and tid != -1:
+            parts.append(f"功能票ID {tid}")
+    elif t == 2:
+        tid = _int_or_none(sub.findtext("trophy/trophyName/id"))
+        if tid is not None and tid != -1:
+            parts.append(f"称号ID {tid}")
+    elif t == 3:
+        cid = _int_or_none(sub.findtext("chara/charaName/id"))
+        if cid is not None and cid != -1:
+            parts.append(f"角色ID {cid}")
+    elif t == 5:
+        nid = _int_or_none(sub.findtext("namePlate/namePlateName/id"))
+        if nid is not None and nid != -1:
+            parts.append(f"姓名牌ID {nid}")
+    elif t == 6:
+        if mid is not None:
+            parts.append(f"乐曲ID {mid}")
+    elif t == 7:
+        iid = _int_or_none(sub.findtext("mapIcon/mapIconName/id"))
+        if iid is not None and iid != -1:
+            parts.append(f"地图图标ID {iid}")
+    elif t == 9:
+        aid = _int_or_none(sub.findtext("avatarAccessory/avatarAccessoryName/id"))
+        if aid is not None and aid != -1:
+            parts.append(f"头像配件ID {aid}")
+    elif t == 13:
+        sid = _int_or_none(sub.findtext("stage/stageName/id"))
+        if sid is not None and sid != -1:
+            parts.append(f"场景ID {sid}")
+
+    course_id: int | None = None
+    course_str = ""
+    if t in (2, 3, 5) and mid is not None and mid != -1:
+        course_id = mid
+        course_str = mstr or f"Music{mid}"
+        parts.append(f"课题曲 {mid}")
+
+    summary = "；".join(parts) if parts else "—"
+    return t, label, summary, course_id, course_str
+
+
+def scan_rewards(acus_root: Path) -> list[RewardItem]:
+    items: list[RewardItem] = []
+    for p in iter_xml_files(acus_root, "reward/**/Reward.xml"):
+        try:
+            r = ET.parse(p).getroot()
+            name = _get_idstr(r.find("name"))
+            if not name:
+                continue
+            sub = _pick_reward_substance(r)
+            if sub is None:
+                items.append(
+                    RewardItem(
+                        p,
+                        name,
+                        None,
+                        "（无 RewardSubstanceData）",
+                        "—",
+                        None,
+                        "",
+                    )
+                )
+                continue
+            st, tlabel, summary, mc_id, mc_str = _summarize_reward_substance(sub)
+            items.append(RewardItem(p, name, st, tlabel, summary, mc_id, mc_str))
         except Exception:
             continue
     return sorted(items, key=lambda x: x.name.id)

@@ -28,6 +28,7 @@ from ..acus_scan import (
     MapItem,
     MusicItem,
     NamePlateItem,
+    RewardItem,
     TrophyItem,
     scan_charas,
     scan_dds_images,
@@ -35,6 +36,7 @@ from ..acus_scan import (
     scan_maps,
     scan_music,
     scan_nameplates,
+    scan_rewards,
     scan_trophies,
 )
 from ..dds_preview import dds_to_pixmap
@@ -56,7 +58,7 @@ class ManagerWidget(QWidget):
         self._embedded = embedded
 
         self.kind = QComboBox()
-        self.kind.addItems(["Event", "Map", "Music", "Chara", "Trophy", "NamePlate", "DDSImage"])
+        self.kind.addItems(["Event", "Map", "Music", "Chara", "Trophy", "NamePlate", "Reward", "DDSImage"])
         self.kind.currentTextChanged.connect(self.reload)
 
         self.event_filter = QComboBox()
@@ -170,6 +172,8 @@ class ManagerWidget(QWidget):
             self.model.setHorizontalHeaderLabels(["ID", "曲名", "艺术家", "流派", "发布日期", "难度", "CueFile", "来源(XML)"])
         elif k == "Trophy":
             self.model.setHorizontalHeaderLabels(["ID", "名称", "稀有度", "来源(XML)"])
+        elif k == "Reward":
+            self.model.setHorizontalHeaderLabels(["ID", "名称", "奖励类型", "关联目标", "来源(XML)"])
         else:
             self.model.setHorizontalHeaderLabels(["ID", "名称", "分类", "来源(XML)"])
 
@@ -215,6 +219,11 @@ class ManagerWidget(QWidget):
             self._items = items
             for it in items:
                 self._append_row(it.name.id, it.name.str, "NamePlate装饰", it.xml_path, it)
+        elif k == "Reward":
+            items = scan_rewards(self._acus_root)
+            self._items = items
+            for it in items:
+                self._append_reward_row(it)
         else:
             items = scan_dds_images(self._acus_root)
             self._items = items
@@ -260,6 +269,22 @@ class ManagerWidget(QWidget):
             QStandardItem(it.release_date),
             QStandardItem(levels),
             QStandardItem(cue),
+            QStandardItem(src),
+        ]
+        cols[0].setData(it, Qt.ItemDataRole.UserRole)
+        for i, c in enumerate(cols):
+            c.setEditable(False)
+            self.model.setItem(row, i, c)
+
+    def _append_reward_row(self, it: RewardItem) -> None:
+        row = self.model.rowCount()
+        self.model.insertRow(row)
+        src = str(it.xml_path.relative_to(self._acus_root))
+        cols = [
+            QStandardItem(str(it.name.id)),
+            QStandardItem(it.name.str),
+            QStandardItem(it.type_label),
+            QStandardItem(it.target_summary),
             QStandardItem(src),
         ]
         cols[0].setData(it, Qt.ItemDataRole.UserRole)
@@ -355,6 +380,8 @@ class ManagerWidget(QWidget):
         elif isinstance(it, EventItem):
             dds_path = it.promo_dds_path
         elif isinstance(it, MapItem):
+            dds_path = None
+        elif isinstance(it, RewardItem):
             dds_path = None
 
         if dds_path is None:
