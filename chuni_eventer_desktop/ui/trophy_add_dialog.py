@@ -16,7 +16,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ..dds_convert import DdsToolError, convert_to_bc3_dds
+from ..dds_convert import DdsToolError
+
+from .dds_progress import run_bc3_jobs_with_progress
 
 
 def _safe_int(text: str) -> int | None:
@@ -24,6 +26,10 @@ def _safe_int(text: str) -> int | None:
         return int(text.strip())
     except Exception:
         return None
+
+
+def _xml_text(s: str) -> str:
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 class TrophyAddDialog(QDialog):
@@ -51,7 +57,17 @@ class TrophyAddDialog(QDialog):
         form.addRow("显示名", self.name_edit)
         form.addRow("说明", self.explain_edit)
         form.addRow("稀有度", self.rare_edit)
-        form.addRow("图片", self._file_row(self.image_edit, "选择称号图片"))
+        form.addRow(
+            "图片",
+            self._file_row(
+                self.image_edit,
+                "选择称号图片",
+                dim_hint=(
+                    "可选；若使用图片：参考分辨率 608 × 148 像素。"
+                    "下方可留空，内容物请靠在整张图最上方排版。"
+                ),
+            ),
+        )
 
         ok = QPushButton("生成并写入 ACUS")
         ok.clicked.connect(self._run)
@@ -69,14 +85,24 @@ class TrophyAddDialog(QDialog):
         layout.addWidget(warn)
         layout.addLayout(btns)
 
-    def _file_row(self, edit: QLineEdit, title: str) -> QWidget:
+    def _file_row(self, edit: QLineEdit, title: str, *, dim_hint: str | None = None) -> QWidget:
         w = QWidget()
-        h = QHBoxLayout(w)
+        v = QVBoxLayout(w)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(4)
+        row = QWidget()
+        h = QHBoxLayout(row)
         h.setContentsMargins(0, 0, 0, 0)
         h.addWidget(edit, stretch=1)
         b = QPushButton("浏览…")
         b.clicked.connect(lambda: self._pick_into(edit, title))
         h.addWidget(b)
+        v.addWidget(row)
+        if dim_hint:
+            hint = QLabel(dim_hint)
+            hint.setStyleSheet("color:#6B7280; font-size: 11px;")
+            hint.setWordWrap(True)
+            v.addWidget(hint)
         return w
 
     def _pick_into(self, edit: QLineEdit, title: str) -> None:
@@ -106,19 +132,34 @@ class TrophyAddDialog(QDialog):
                 if not src.exists():
                     raise ValueError("称号图片路径不存在")
                 dds_path = tdir / dds_name
-                convert_to_bc3_dds(tool_path=self._tool, input_image=src, output_dds=dds_path)
+                ok, dds_msg = run_bc3_jobs_with_progress(
+                    parent=self,
+                    tool_path=self._tool,
+                    jobs=[(src, dds_path)],
+                    title="正在生成称号 DDS",
+                )
+                if not ok:
+                    raise DdsToolError(dds_msg)
                 image_path_xml = dds_name
+
+            # 与 A001 一致：有图时为同目录下 CHU_UI_Trophy_XXXXXX.dds；无图时 <path /> 空元素
+            if image_path_xml:
+                image_xml = f"<image><path>{image_path_xml}</path></image>"
+            else:
+                image_xml = "<image><path /></image>"
+            name_x = _xml_text(name)
+            explain_x = _xml_text(explain)
 
             xml = f"""<?xml version="1.0" encoding="utf-8"?>
 <TrophyData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <dataName>trophy{tid:06d}</dataName>
   <netOpenName><id>2801</id><str>v2_45 00_1</str><data /></netOpenName>
   <disableFlag>false</disableFlag>
-  <name><id>{tid}</id><str>{name}</str><data /></name>
-  <explainText>{explain}</explainText>
+  <name><id>{tid}</id><str>{name_x}</str><data /></name>
+  <explainText>{explain_x}</explainText>
   <defaultHave>false</defaultHave>
   <rareType>{rare}</rareType>
-  <image><path>{image_path_xml}</path></image>
+  {image_xml}
   <normCondition><conditions /></normCondition>
   <priority>0</priority>
 </TrophyData>

@@ -16,7 +16,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ..dds_convert import DdsToolError, convert_to_bc3_dds
+from ..dds_convert import DdsToolError
+
+from .dds_progress import run_bc3_jobs_with_progress
 
 
 def _safe_int(text: str) -> int | None:
@@ -48,7 +50,16 @@ class NamePlateAddDialog(QDialog):
         form.addRow("NamePlate ID", self.id_edit)
         form.addRow("显示名", self.name_edit)
         form.addRow("排序名", self.sort_edit)
-        form.addRow("图片", self._file_row(self.image_edit, "选择名牌图片"))
+        form.addRow(
+            "图片",
+            self._file_row(
+                self.image_edit,
+                "选择名牌图片",
+                dim_hint=(
+                    "参考分辨率：576 × 228 像素；下方可留空，内容物请靠在整张图最上方排版。"
+                ),
+            ),
+        )
 
         ok = QPushButton("生成并写入 ACUS")
         ok.clicked.connect(self._run)
@@ -66,14 +77,24 @@ class NamePlateAddDialog(QDialog):
         layout.addWidget(warn)
         layout.addLayout(btns)
 
-    def _file_row(self, edit: QLineEdit, title: str) -> QWidget:
+    def _file_row(self, edit: QLineEdit, title: str, *, dim_hint: str | None = None) -> QWidget:
         w = QWidget()
-        h = QHBoxLayout(w)
+        v = QVBoxLayout(w)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(4)
+        row = QWidget()
+        h = QHBoxLayout(row)
         h.setContentsMargins(0, 0, 0, 0)
         h.addWidget(edit, stretch=1)
         b = QPushButton("浏览…")
         b.clicked.connect(lambda: self._pick_into(edit, title))
         h.addWidget(b)
+        v.addWidget(row)
+        if dim_hint:
+            hint = QLabel(dim_hint)
+            hint.setStyleSheet("color:#6B7280; font-size: 11px;")
+            hint.setWordWrap(True)
+            v.addWidget(hint)
         return w
 
     def _pick_into(self, edit: QLineEdit, title: str) -> None:
@@ -97,7 +118,14 @@ class NamePlateAddDialog(QDialog):
             plate_dir.mkdir(parents=True, exist_ok=True)
             dds_name = f"CHU_UI_NamePlate_{nid:08d}.dds"
             dds_path = plate_dir / dds_name
-            convert_to_bc3_dds(tool_path=self._tool, input_image=src, output_dds=dds_path)
+            ok, dds_msg = run_bc3_jobs_with_progress(
+                parent=self,
+                tool_path=self._tool,
+                jobs=[(src, dds_path)],
+                title="正在生成名牌 DDS",
+            )
+            if not ok:
+                raise DdsToolError(dds_msg)
 
             xml = f"""<?xml version="1.0" encoding="utf-8"?>
 <NamePlateData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">

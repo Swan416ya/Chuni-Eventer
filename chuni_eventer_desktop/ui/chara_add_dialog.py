@@ -17,8 +17,10 @@ from PyQt6.QtWidgets import (
 )
 
 from ..chuni_formats import ChuniCharaId
-from ..dds_convert import DdsToolError, convert_to_bc3_dds
+from ..dds_convert import DdsToolError
 from ..xml_writer import write_chara_xml, write_ddsimage_xml
+
+from .dds_progress import run_bc3_jobs_with_progress
 
 
 class CharaAddDialog(QDialog):
@@ -148,12 +150,19 @@ class CharaAddDialog(QDialog):
             cid = ChuniCharaId(cid_raw)
             dds_dir = self._acus_root / "ddsImage" / f"ddsImage{cid.raw6}"
 
-            for src, dst in (
+            jobs = [
                 (full, dds_dir / cid.dds_filename(0)),
                 (half, dds_dir / cid.dds_filename(1)),
                 (head, dds_dir / cid.dds_filename(2)),
-            ):
-                convert_to_bc3_dds(tool_path=self._tool, input_image=src, output_dds=dst)
+            ]
+            ok, dds_msg = run_bc3_jobs_with_progress(
+                parent=self,
+                tool_path=self._tool,
+                jobs=jobs,
+                title="正在生成角色 DDS",
+            )
+            if not ok:
+                raise DdsToolError(dds_msg)
 
             write_ddsimage_xml(out_dir=self._acus_root, chara_id=cid.raw)
             ill = self.illustrator.text().strip() or None

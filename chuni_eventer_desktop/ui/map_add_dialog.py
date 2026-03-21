@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 import tempfile
 import xml.etree.ElementTree as ET
@@ -27,7 +27,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ..dds_convert import DdsToolError, convert_to_bc3_dds
+from ..dds_convert import DdsToolError
+
+from .dds_progress import run_bc3_jobs_with_progress
 from ..dds_quicktex import quicktex_available
 from ..xml_writer import write_ddsmap_xml
 
@@ -90,6 +92,33 @@ class MapInfoMeta:
 
 def _default_map_area_extras() -> MapAreaExtras:
     return MapAreaExtras(-1, "Invalid", (0,) * 8)
+
+
+def _maparea_terminator_cell() -> CellData:
+    """MapArea 路线终点占位：与常见官图一致，最后一格为 -1 / Invalid。"""
+    return CellData(reward_id=-1, reward_name="Invalid", reward_kind="外部奖励ID")
+
+
+def infer_map_terminator_index(idxs: list[int | None], cells: list[CellData]) -> int:
+    """
+    从已载入的 MapArea 节点推断「地图格数」编辑框默认值：
+    取所有已写入格子里最大的 <index>（通常即终点 Invalid 格；旧数据也可能是最终奖励所在格）。
+    """
+    best = 0
+    for i in range(min(9, len(idxs), len(cells))):
+        ix = idxs[i]
+        if ix is not None:
+            best = max(best, ix)
+    return best if best > 0 else 1
+
+
+def _maparea_points_to_slots(pairs: list[tuple[int, CellData]]) -> tuple[list[CellData], list[int | None]]:
+    pairs = sorted(pairs, key=lambda x: x[0])
+    if len(pairs) > 9:
+        raise ValueError("超过 9 个 MapArea 节点")
+    idxs: list[int | None] = [p[0] for p in pairs] + [None] * (9 - len(pairs))
+    cells: list[CellData] = [p[1] for p in pairs] + [CellData() for _ in range(9 - len(pairs))]
+    return cells, idxs
 
 
 def _kind_label(kind: str) -> str:
@@ -726,16 +755,26 @@ class AreaExtrasDialog(QDialog):
 
 
 class AreaPageMetaDialog(QDialog):
-    def __init__(self, *, meta: MapInfoMeta, dds_refs: list[RewardRef], parent=None) -> None:
+    def __init__(
+        self,
+        *,
+        meta: MapInfoMeta,
+        dds_refs: list[RewardRef],
+        parent=None,
+        show_dds: bool = True,
+    ) -> None:
         super().__init__(parent=parent)
         self.setWindowTitle("编辑页面参数(Map.xml)")
         self.setModal(True)
         self._meta = meta
         self._dds_refs = dds_refs
+        self._show_dds = show_dds
 
         hint = QLabel(
             "ddsMapName：地图格背景贴图，与 **Map.xml → MapDataAreaInfo** 绑定（每格可不同）。\n"
             "对应资源在 ACUS/ddsMap/ddsMapXXXXXXXX/DDSMap.xml；此处填其 name.id / name.str。"
+            if show_dds
+            else "pageIndex / indexInPage：地图分页九宫格位置；gauge / isHard 等写入 Map.xml 的 MapDataAreaInfo。"
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#374151; font-size: 12px;")
@@ -762,9 +801,10 @@ class AreaPageMetaDialog(QDialog):
         form.addRow("requiredAchievementCount", self.required)
         form.addRow("gaugeName.id", self.gauge_id)
         form.addRow("gaugeName.str", self.gauge_str)
-        form.addRow("从 ACUS 选 ddsMap", self.dds_pick)
-        form.addRow("ddsMapName.id", self.dds_id)
-        form.addRow("ddsMapName.str", self.dds_str)
+        if show_dds:
+            form.addRow("从 ACUS 选 ddsMap", self.dds_pick)
+            form.addRow("ddsMapName.id", self.dds_id)
+            form.addRow("ddsMapName.str", self.dds_str)
         form.addRow("", self.is_hard)
 
         ok = QPushButton("确定")
@@ -792,7 +832,6 @@ class AreaPageMetaDialog(QDialog):
         slot = _safe_int(self.index_in_page.text())
         required = _safe_int(self.required.text())
         gauge_id = _safe_int(self.gauge_id.text())
-        dds_id = _safe_int(self.dds_id.text())
         if page_index is None or page_index < 0:
             QMessageBox.critical(self, "错误", "pageIndex 必须为非负整数")
             return
@@ -805,16 +844,18 @@ class AreaPageMetaDialog(QDialog):
         if gauge_id is None:
             QMessageBox.critical(self, "错误", "gaugeName.id 必须是整数")
             return
-        if dds_id is None:
-            QMessageBox.critical(self, "错误", "ddsMapName.id 必须是整数")
-            return
         self._meta.page_index = page_index
         self._meta.index_in_page = slot
         self._meta.required_achievement_count = required
         self._meta.gauge_id = gauge_id
         self._meta.gauge_str = self.gauge_str.text().strip() or "基本セット34"
-        self._meta.dds_id = dds_id
-        self._meta.dds_str = self.dds_str.text().strip() or "共通0001_CHUNITHM"
+        if self._show_dds:
+            dds_id = _safe_int(self.dds_id.text())
+            if dds_id is None:
+                QMessageBox.critical(self, "错误", "ddsMapName.id 必须是整数")
+                return
+            self._meta.dds_id = dds_id
+            self._meta.dds_str = self.dds_str.text().strip() or "共通0001_CHUNITHM"
         self._meta.is_hard = self.is_hard.isChecked()
         self.accept()
 
@@ -1308,7 +1349,14 @@ class DdsMapCreateDialog(QDialog):
             with tempfile.TemporaryDirectory() as td:
                 tp = Path(td) / "map_bg.png"
                 img.save(tp, "PNG")
-                convert_to_bc3_dds(tool_path=self._tool, input_image=tp, output_dds=out_dds)
+                ok, dds_msg = run_bc3_jobs_with_progress(
+                    parent=self,
+                    tool_path=self._tool,
+                    jobs=[(tp, out_dds)],
+                    title="正在生成地图 DDS",
+                )
+                if not ok:
+                    raise DdsToolError(dds_msg)
             write_ddsmap_xml(
                 out_dir=self._acus_root,
                 dds_map_id=mid,
@@ -1322,7 +1370,11 @@ class DdsMapCreateDialog(QDialog):
             QMessageBox.critical(self, "错误", str(e))
             return
         self.created_id = mid
-        QMessageBox.information(self, "完成", f"已写入 {ddir.name}/（id={mid}）\n可在编辑格子 →「页面参数」中选择该 ddsMap。")
+        QMessageBox.information(
+            self,
+            "完成",
+            f"已写入 {ddir.name}/（id={mid}）\n可在编辑地图格子弹窗顶部的「ddsMap 背景贴图」中选择该 ddsMap。",
+        )
         self.accept()
 
 
@@ -1489,7 +1541,7 @@ class MapAddDialog(QDialog):
 
         hint = QLabel(
             "每个 MapPage 为 3×3 九宫格。**空格无需 MapArea**：仅当你要在该格放最终奖励/跑图路线时再点击并创建区域。\n"
-            "地图格背景贴图（ddsMap）在编辑格子窗口顶部的「页面参数」里设置，写入 Map.xml 的 ddsMapName（与 A001 一致，不由 MapArea.xml 引用）。"
+            "ddsMap 与 gauge 等写在「编辑页面格子」窗口内：ddsMap 在顶部；其它 MapDataAreaInfo 字段通过「其它页面参数」按钮编辑。"
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#374151;")
@@ -1878,12 +1930,71 @@ class MapAddDialog(QDialog):
         dlg.setModal(True)
         lay = QVBoxLayout(dlg)
 
-        meta_btn = QPushButton("页面参数：ddsMap 背景贴图 / gauge / pageIndex …")
+        dds_box = QGroupBox("ddsMap 背景贴图 (Map.xml)")
+        dds_form = QFormLayout(dds_box)
+        dds_hint = QLabel(
+            "对应该 MapArea 的 MapDataAreaInfo.ddsMapName；资源位于 ddsMap/ddsMapXXXXXXXX/。"
+        )
+        dds_hint.setWordWrap(True)
+        dds_hint.setStyleSheet("color:#6B7280; font-size: 11px;")
+        dds_form.addRow("", dds_hint)
+        meta_dds = self._area_info_meta[area_idx]
+        dds_id_edit = QLineEdit(str(meta_dds.dds_id))
+        dds_str_edit = QLineEdit(meta_dds.dds_str)
+        dds_pick = QComboBox()
+        dds_pick.addItem("(从 ACUS 选择 ddsMap)")
+        for ref in self._dds_map_refs:
+            dds_pick.addItem(f"{ref.id} | {ref.name}")
+
+        def _on_dds_pick_act(dix: int) -> None:
+            if dix <= 0:
+                return
+            ref = self._dds_map_refs[dix - 1]
+            dds_id_edit.setText(str(ref.id))
+            dds_str_edit.setText(ref.name)
+
+        dds_pick.activated.connect(_on_dds_pick_act)
+        dds_form.addRow("从 ACUS 选择", dds_pick)
+        dds_form.addRow("ddsMapName.id", dds_id_edit)
+        dds_form.addRow("ddsMapName.str", dds_str_edit)
+        lay.addWidget(dds_box)
+
+        # MapArea 基础（page/slot 也可在「其它页面参数」里改，此处与之同步）
+        mid = QGroupBox("MapArea 基础")
+        mid_form = QFormLayout(mid)
+        meta = self._area_info_meta[area_idx]
+        page_idx_edit = QLineEdit(str(meta.page_index))
+        slot_edit = QLineEdit(str(meta.index_in_page))
+        total_steps_edit = QLineEdit(
+            str(
+                infer_map_terminator_index(
+                    self._area_grid_indices[area_idx], self._area_cells[area_idx]
+                )
+            )
+        )
+        total_steps_edit.setPlaceholderText("终点格的 MapAreaGridData.index，该格固定为 -1 Invalid")
+        mid_form.addRow("pageIndex", page_idx_edit)
+        mid_form.addRow("indexInPage(0~8)", slot_edit)
+        mid_form.addRow("地图格数(终点 index)", total_steps_edit)
+        step_hint = QLabel(
+            "写入时：index=上值 的格子为 Invalid；最终奖励在 index=地图格数−1；"
+            "高级模式下的过程奖励步数须小于地图格数且不可占用「最终」步。"
+        )
+        step_hint.setWordWrap(True)
+        step_hint.setStyleSheet("color:#6B7280; font-size: 11px;")
+        mid_form.addRow("", step_hint)
+        lay.addWidget(mid)
+
+        meta_btn = QPushButton("其它页面参数：pageIndex / gauge / isHard / requiredAchievement …")
         meta_btn.setStyleSheet("background:#FFFFFF;color:#111827;border:1px solid #E5E7EB;")
 
         def _open_page_meta() -> None:
             m = self._area_info_meta[area_idx]
-            AreaPageMetaDialog(meta=m, dds_refs=self._dds_map_refs, parent=dlg).exec()
+            AreaPageMetaDialog(
+                meta=m, dds_refs=self._dds_map_refs, parent=dlg, show_dds=False
+            ).exec()
+            page_idx_edit.setText(str(m.page_index))
+            slot_edit.setText(str(m.index_in_page))
 
         meta_btn.clicked.connect(_open_page_meta)
         lay.addWidget(meta_btn)
@@ -1952,18 +2063,6 @@ class MapAddDialog(QDialog):
         top_form.addRow("手填乐曲名", music_name)
         lay.addWidget(top)
 
-        # MapArea 基础
-        mid = QGroupBox("MapArea 基础")
-        mid_form = QFormLayout(mid)
-        meta = self._area_info_meta[area_idx]
-        page_idx_edit = QLineEdit(str(meta.page_index))
-        slot_edit = QLineEdit(str(meta.index_in_page))
-        total_steps_edit = QLineEdit(str(max([x for x in self._area_grid_indices[area_idx] if x is not None] or [0])))
-        mid_form.addRow("pageIndex", page_idx_edit)
-        mid_form.addRow("indexInPage(0~8)", slot_edit)
-        mid_form.addRow("地图格数(总步数)", total_steps_edit)
-        lay.addWidget(mid)
-
         # 高级设置
         adv = QGroupBox("高级设置")
         adv.setCheckable(True)
@@ -1976,7 +2075,9 @@ class MapAddDialog(QDialog):
             if self._is_intermediate_reward_allowed(r.id):
                 add_reward.addItem(f"{r.id} | {r.display_name or r.name}", r.id)
         extra_lines = QTextEdit()
-        extra_lines.setPlaceholderText("每行：步数,reward_id,reward_name")
+        extra_lines.setPlaceholderText(
+            "每行：步数,reward_id,reward_name（步数 < 地图格数，且不可等于 地图格数−1）"
+        )
         add_btn = QPushButton("新增过程奖励")
 
         def _on_add_line() -> None:
@@ -2051,8 +2152,10 @@ class MapAddDialog(QDialog):
             p = _safe_int(page_idx_edit.text())
             s = _safe_int(slot_edit.text())
             total = _safe_int(total_steps_edit.text())
-            if p is None or p < 0 or s is None or not (0 <= s <= 8) or total is None or total < 0:
-                QMessageBox.critical(dlg, "错误", "page/slot/总步数 输入不合法")
+            if p is None or p < 0 or s is None or not (0 <= s <= 8) or total is None or total < 1:
+                QMessageBox.critical(
+                    dlg, "错误", "pageIndex / indexInPage / 地图格数(终点 index) 输入不合法（地图格数须 ≥ 1）"
+                )
                 return
             # final reward
             rp = reward_pick.currentIndex()
@@ -2087,14 +2190,22 @@ class MapAddDialog(QDialog):
             # update meta
             self._area_info_meta[area_idx].page_index = p
             self._area_info_meta[area_idx].index_in_page = s
+            dds_id_v = _safe_int(dds_id_edit.text())
+            if dds_id_v is None:
+                QMessageBox.critical(dlg, "错误", "ddsMapName.id 必须是整数")
+                return
+            self._area_info_meta[area_idx].dds_id = dds_id_v
+            self._area_info_meta[area_idx].dds_str = (
+                dds_str_edit.text().strip() or "共通0001_CHUNITHM"
+            )
 
-            # maparea default: only final reward on last step in basic mode
-            cells = [CellData() for _ in range(9)]
-            idxs: list[int | None] = [0, total] + [None] * 7
-            # advanced intermediate rewards
+            final_for_grid = replace(self._area_info_cells[area_idx])
             if adv.isChecked():
+                by_step: dict[int, CellData] = {
+                    total: _maparea_terminator_cell(),
+                    total - 1: final_for_grid,
+                }
                 lines = [x.strip() for x in extra_lines.toPlainText().splitlines() if x.strip()]
-                points: list[tuple[int, CellData]] = [(0, CellData()), (total, CellData())]
                 for ln in lines:
                     ps = [x.strip() for x in ln.split(",")]
                     if len(ps) < 2:
@@ -2103,13 +2214,47 @@ class MapAddDialog(QDialog):
                     rrid = _safe_int(ps[1])
                     if st is None or rrid is None:
                         continue
+                    if st >= total:
+                        QMessageBox.critical(
+                            dlg,
+                            "错误",
+                            f"过程奖励步数须小于地图格数（终点 index）{total}",
+                        )
+                        return
+                    if st == total - 1:
+                        QMessageBox.critical(
+                            dlg,
+                            "错误",
+                            "过程奖励不可占用最终奖励所在步（地图格数−1）；请在上方选择最终奖励。",
+                        )
+                        return
                     if not self._is_intermediate_reward_allowed(rrid):
                         continue
                     rnm = ps[2] if len(ps) >= 3 and ps[2] else f"Reward{rrid}"
-                    points.append((st, CellData(reward_id=rrid, reward_name=rnm)))
-                points = sorted(points, key=lambda x: x[0])[:9]
-                idxs = [p[0] for p in points] + [None] * (9 - len(points))
-                cells = [p[1] for p in points] + [CellData() for _ in range(9 - len(points))]
+                    by_step[st] = CellData(
+                        reward_id=rrid,
+                        reward_name=rnm,
+                        reward_kind="外部奖励ID",
+                    )
+                if total >= 2:
+                    by_step.setdefault(0, CellData())
+                try:
+                    cells, idxs = _maparea_points_to_slots(list(by_step.items()))
+                except ValueError as e:
+                    QMessageBox.critical(dlg, "错误", str(e))
+                    return
+            else:
+                pairs_bt: list[tuple[int, CellData]] = [
+                    (total, _maparea_terminator_cell()),
+                    (total - 1, final_for_grid),
+                ]
+                if total >= 2:
+                    pairs_bt.append((0, CellData()))
+                try:
+                    cells, idxs = _maparea_points_to_slots(pairs_bt)
+                except ValueError as e:
+                    QMessageBox.critical(dlg, "错误", str(e))
+                    return
             self._area_cells[area_idx] = cells[:9]
             self._area_grid_indices[area_idx] = idxs[:9]
             dlg.accept()
