@@ -330,6 +330,7 @@ class ManagerWidget(QWidget):
 
         dlg = MapAddDialog(
             acus_root=self._acus_root,
+            tool_path=self._get_tool_path(),
             parent=self.window(),
             edit_map_xml=payload.xml_path,
         )

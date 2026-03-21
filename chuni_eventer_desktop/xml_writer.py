@@ -52,8 +52,10 @@ def write_chara_xml(
     out_dir: Path,
     chara_id: int,
     chara_name: str,
-    release_tag_id: int = 20,
-    release_tag_str: str = "v2 2.45.00",
+    illustrator_name: str | None = None,
+    illustrator_id: int = -1,
+    release_tag_id: int = -1,
+    release_tag_str: str = "Invalid",
     net_open_id: int = 2801,
     net_open_str: str = "v2_45 00_1",
 ) -> Path:
@@ -71,14 +73,21 @@ def write_chara_xml(
     chara_dir.mkdir(parents=True, exist_ok=True)
     xml_path = chara_dir / "Chara.xml"
 
-    safe_name = (chara_name or "").strip() or f"EX_CHARA_{cid.raw}"
+    def _esc(t: str) -> str:
+        return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    safe_name = _esc((chara_name or "").strip() or f"EX_CHARA_{cid.raw}")
+    ill_raw = (illustrator_name or "").strip()
+    ill_str = _esc(ill_raw) if ill_raw else "Invalid"
+    ill_id = illustrator_id if ill_raw else -1
+    rt_str = _esc((release_tag_str or "").strip() or "Invalid")
 
     xml = f"""<?xml version="1.0" encoding="utf-8"?>
 <CharaData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <dataName>chara{cid.raw6}</dataName>
   <releaseTagName>
     <id>{release_tag_id}</id>
-    <str>{release_tag_str}</str>
+    <str>{rt_str}</str>
     <data />
   </releaseTagName>
   <netOpenName>
@@ -100,8 +109,8 @@ def write_chara_xml(
     <data />
   </works>
   <illustratorName>
-    <id>-1</id>
-    <str>Invalid</str>
+    <id>{ill_id}</id>
+    <str>{ill_str}</str>
     <data />
   </illustratorName>
   <defaultHave>false</defaultHave>
@@ -261,6 +270,40 @@ def write_chara_xml(
     </CharaRankData>
   </ranks>
 </CharaData>
+"""
+    xml_path.write_text(xml, encoding="utf-8")
+    return xml_path
+
+
+def write_ddsmap_xml(*, out_dir: Path, dds_map_id: int, name_str: str, dds_basename: str) -> Path:
+    """
+    Writes:
+      out_dir/ddsMap/ddsMap{ID8}/DDSMap.xml
+
+    Matches A001: DDSMapData + name + ddsFile/path（与 .dds 同目录）。
+    """
+    ddir = out_dir / "ddsMap" / f"ddsMap{dds_map_id:08d}"
+    ddir.mkdir(parents=True, exist_ok=True)
+    xml_path = ddir / "DDSMap.xml"
+
+    def _esc(t: str) -> str:
+        return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    safe_name = _esc((name_str or "").strip() or f"DdsMap{dds_map_id}")
+    base = f"ddsMap{dds_map_id:08d}"
+
+    xml = f"""<?xml version="1.0" encoding="utf-8"?>
+<DDSMapData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dataName>{base}</dataName>
+  <name>
+    <id>{dds_map_id}</id>
+    <str>{safe_name}</str>
+    <data />
+  </name>
+  <ddsFile>
+    <path>{_esc(dds_basename)}</path>
+  </ddsFile>
+</DDSMapData>
 """
     xml_path.write_text(xml, encoding="utf-8")
     return xml_path

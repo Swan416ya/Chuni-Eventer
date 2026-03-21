@@ -38,6 +38,12 @@ class CharaAddDialog(QDialog):
 
         self.name = QLineEdit()
         self.name.setPlaceholderText("角色显示名")
+        self.illustrator = QLineEdit()
+        self.illustrator.setPlaceholderText("绘师 / illustratorName.str（可选，不填则 Invalid）")
+        self.release_tag_id = QLineEdit("-1")
+        self.release_tag_id.setPlaceholderText("releaseTagName.id")
+        self.release_tag_str = QLineEdit("Invalid")
+        self.release_tag_str.setPlaceholderText("releaseTagName.str")
 
         self.head = QLineEdit()
         self.half = QLineEdit()
@@ -55,6 +61,9 @@ class CharaAddDialog(QDialog):
         form.addRow("变体", self.variant)
         form.addRow("最终ID", self.cid_preview)
         form.addRow("角色名", self.name)
+        form.addRow("绘师（可选）", self.illustrator)
+        form.addRow("releaseTagName.id", self.release_tag_id)
+        form.addRow("releaseTagName.str", self.release_tag_str)
         # A001：CHU_UI_Character_*_00/01/02 = 全身 / 半身 / 大头（与 ddsFile0/1/2 一致）
         form.addRow(
             "全身（_00）",
@@ -147,7 +156,24 @@ class CharaAddDialog(QDialog):
                 convert_to_bc3_dds(tool_path=self._tool, input_image=src, output_dds=dst)
 
             write_ddsimage_xml(out_dir=self._acus_root, chara_id=cid.raw)
-            write_chara_xml(out_dir=self._acus_root, chara_id=cid.raw, chara_name=self.name.text().strip())
+            ill = self.illustrator.text().strip() or None
+            rt_id_s = self.release_tag_id.text().strip()
+            if rt_id_s == "":
+                rt_id = -1
+            else:
+                try:
+                    rt_id = int(rt_id_s)
+                except ValueError as e:
+                    raise ValueError("releaseTagName.id 必须是整数") from e
+            rt_str = self.release_tag_str.text().strip() or "Invalid"
+            write_chara_xml(
+                out_dir=self._acus_root,
+                chara_id=cid.raw,
+                chara_name=self.name.text().strip(),
+                illustrator_name=ill,
+                release_tag_id=rt_id,
+                release_tag_str=rt_str,
+            )
 
             QMessageBox.information(self, "完成", f"已写入 ACUS：角色 {cid.raw}")
             self.accept()

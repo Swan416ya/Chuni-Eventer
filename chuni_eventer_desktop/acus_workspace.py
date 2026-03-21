@@ -21,7 +21,21 @@ def ensure_acus_layout() -> Path:
     """
     root = acus_root_dir()
     root.mkdir(parents=True, exist_ok=True)
-    for d in ["chara", "ddsImage", "music", "map", "mapArea", "mapBonus", "event", "course", "reward", "cueFile", "namePlate", "trophy"]:
+    for d in [
+        "chara",
+        "ddsImage",
+        "ddsMap",
+        "music",
+        "map",
+        "mapArea",
+        "mapBonus",
+        "event",
+        "course",
+        "reward",
+        "cueFile",
+        "namePlate",
+        "trophy",
+    ]:
         (root / d).mkdir(parents=True, exist_ok=True)
     (root / ".cache" / "dds_preview").mkdir(parents=True, exist_ok=True)
     return root

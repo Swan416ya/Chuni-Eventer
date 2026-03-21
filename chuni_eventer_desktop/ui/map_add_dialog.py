@@ -2,13 +2,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import tempfile
 import xml.etree.ElementTree as ET
+
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QFileDialog,
     QFormLayout,
     QGridLayout,
     QHBoxLayout,
@@ -22,6 +26,10 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from ..dds_convert import DdsToolError, convert_to_bc3_dds
+from ..dds_quicktex import quicktex_available
+from ..xml_writer import write_ddsmap_xml
 
 
 def _safe_int(text: str) -> int | None:
@@ -718,11 +726,19 @@ class AreaExtrasDialog(QDialog):
 
 
 class AreaPageMetaDialog(QDialog):
-    def __init__(self, *, meta: MapInfoMeta, parent=None) -> None:
+    def __init__(self, *, meta: MapInfoMeta, dds_refs: list[RewardRef], parent=None) -> None:
         super().__init__(parent=parent)
         self.setWindowTitle("编辑页面参数(Map.xml)")
         self.setModal(True)
         self._meta = meta
+        self._dds_refs = dds_refs
+
+        hint = QLabel(
+            "ddsMapName：地图格背景贴图，与 **Map.xml → MapDataAreaInfo** 绑定（每格可不同）。\n"
+            "对应资源在 ACUS/ddsMap/ddsMapXXXXXXXX/DDSMap.xml；此处填其 name.id / name.str。"
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color:#374151; font-size: 12px;")
 
         self.page_index = QLineEdit(str(meta.page_index))
         self.index_in_page = QLineEdit(str(meta.index_in_page))
@@ -731,15 +747,22 @@ class AreaPageMetaDialog(QDialog):
         self.gauge_str = QLineEdit(meta.gauge_str)
         self.dds_id = QLineEdit(str(meta.dds_id))
         self.dds_str = QLineEdit(meta.dds_str)
+        self.dds_pick = QComboBox()
+        self.dds_pick.addItem("(手动填写 id/str，或从 ACUS 选择 ddsMap)")
+        for ref in dds_refs:
+            self.dds_pick.addItem(f"{ref.id} | {ref.name}")
+        self.dds_pick.activated.connect(self._on_dds_pick_activated)
         self.is_hard = QCheckBox("isHard = true")
         self.is_hard.setChecked(meta.is_hard)
 
         form = QFormLayout()
+        form.addRow("", hint)
         form.addRow("pageIndex", self.page_index)
         form.addRow("indexInPage", self.index_in_page)
         form.addRow("requiredAchievementCount", self.required)
         form.addRow("gaugeName.id", self.gauge_id)
         form.addRow("gaugeName.str", self.gauge_str)
+        form.addRow("从 ACUS 选 ddsMap", self.dds_pick)
         form.addRow("ddsMapName.id", self.dds_id)
         form.addRow("ddsMapName.str", self.dds_str)
         form.addRow("", self.is_hard)
@@ -756,6 +779,13 @@ class AreaPageMetaDialog(QDialog):
         lay = QVBoxLayout(self)
         lay.addLayout(form)
         lay.addLayout(btns)
+
+    def _on_dds_pick_activated(self, index: int) -> None:
+        if index <= 0:
+            return
+        ref = self._dds_refs[index - 1]
+        self.dds_id.setText(str(ref.id))
+        self.dds_str.setText(ref.name)
 
     def _on_ok(self) -> None:
         page_index = _safe_int(self.page_index.text())
@@ -1143,6 +1173,159 @@ def load_trophy_refs(acus_root: Path) -> list[RewardRef]:
     return sorted(refs, key=lambda x: x.id)
 
 
+def load_dds_map_refs(acus_root: Path) -> list[RewardRef]:
+    """ddsMap/**/DDSMap.xml（或 DdsMap.xml）→ Map.xml 里 MapDataAreaInfo.ddsMapName 引用。"""
+    seen: set[int] = set()
+    refs: list[RewardRef] = []
+    paths: set[Path] = set()
+    for pat in ("ddsMap/**/DDSMap.xml", "ddsMap/**/DdsMap.xml"):
+        for p in acus_root.glob(pat):
+            paths.add(p)
+    for p in sorted(paths):
+        try:
+            r = ET.parse(p).getroot()
+            did = _safe_int(r.findtext("name/id") or "")
+            dstr = (r.findtext("name/str") or "").strip()
+            if did is None or did in seen:
+                continue
+            seen.add(did)
+            refs.append(RewardRef(did, dstr or f"DdsMap{did}", ""))
+        except Exception:
+            continue
+    return sorted(refs, key=lambda x: x.id)
+
+
+def next_custom_dds_map_id(acus_root: Path) -> int:
+    """自定义 ddsMap：与 Reward 类似，使用首位为 7 的 id（70000000 起递增）。"""
+    max_id = 69999999
+    paths: set[Path] = set()
+    for pat in ("ddsMap/**/DDSMap.xml", "ddsMap/**/DdsMap.xml"):
+        for p in acus_root.glob(pat):
+            paths.add(p)
+    for p in paths:
+        try:
+            r = ET.parse(p).getroot()
+            did = _safe_int(r.findtext("name/id") or "")
+            if did is not None and str(did).startswith("7"):
+                max_id = max(max_id, did)
+        except Exception:
+            continue
+    return max_id + 1
+
+
+MAP_DDS_WIDTH = 1220
+MAP_DDS_HEIGHT = 680
+
+
+def prepare_map_background_rgba(*, source_image: Path) -> Image.Image:
+    """将任意比例图源缩放并居中裁切为地图背景贴图尺寸（BC3 编码前）。"""
+    with Image.open(source_image) as im:
+        im.seek(0)
+        im.load()
+        rgba = im.convert("RGBA")
+    return ImageOps.fit(rgba, (MAP_DDS_WIDTH, MAP_DDS_HEIGHT), method=Image.Resampling.LANCZOS)
+
+
+class DdsMapCreateDialog(QDialog):
+    """从位图生成 ddsMap 目录（BC3 DDS + DDSMap.xml），供 Map.xml ddsMapName 引用。"""
+
+    def __init__(self, *, acus_root: Path, tool_path: Path | None, parent=None) -> None:
+        super().__init__(parent=parent)
+        self.setWindowTitle("新建地图贴图 (ddsMap)")
+        self.setModal(True)
+        self._acus_root = acus_root
+        self._tool = tool_path
+        self.created_id = -1
+
+        self._alloc_id = next_custom_dds_map_id(acus_root)
+        self.dds_id_show = QLineEdit(str(self._alloc_id))
+        self.dds_id_show.setReadOnly(True)
+        self.name = QLineEdit()
+        self.name.setPlaceholderText("显示名（写入 DDSMap name.str）")
+        self.image_path = QLineEdit()
+        self.image_path.setPlaceholderText("选择图片…")
+        br = QPushButton("浏览…")
+        br.clicked.connect(self._pick_image)
+
+        row = QWidget()
+        hl = QHBoxLayout(row)
+        hl.setContentsMargins(0, 0, 0, 0)
+        hl.addWidget(self.image_path, stretch=1)
+        hl.addWidget(br)
+
+        hint = QLabel(
+            f"贴图将自动缩放并裁切为 **{MAP_DDS_WIDTH}×{MAP_DDS_HEIGHT}** 像素（与游戏地图格背景常见规格一致），再编码为 BC3 DDS。\n"
+            f"ID 自动分配为 **7xxxxxxx**，与官方小包 id 错开。"
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color:#374151; font-size: 12px;")
+
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form.addRow("", hint)
+        form.addRow("ddsMap id", self.dds_id_show)
+        form.addRow("显示名", self.name)
+        form.addRow("源图片", row)
+
+        ok = QPushButton("生成并写入 ACUS")
+        ok.clicked.connect(self._run)
+        cancel = QPushButton("取消")
+        cancel.clicked.connect(self.reject)
+        btns = QHBoxLayout()
+        btns.addStretch(1)
+        btns.addWidget(cancel)
+        btns.addWidget(ok)
+
+        lay = QVBoxLayout(self)
+        lay.addLayout(form)
+        lay.addLayout(btns)
+
+    def _pick_image(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "选择地图背景图")
+        if path:
+            self.image_path.setText(path)
+
+    def _run(self) -> None:
+        mid = self._alloc_id
+        src = Path(self.image_path.text().strip()).expanduser()
+        if not src.is_file():
+            QMessageBox.critical(self, "错误", "请选择有效的图片文件")
+            return
+        disp = self.name.text().strip() or f"MapTex{mid}"
+        dds_basename = f"CHU_MAP_{mid:08d}.dds"
+        ddir = self._acus_root / "ddsMap" / f"ddsMap{mid:08d}"
+        try:
+            ddir.mkdir(parents=True, exist_ok=True)
+            try:
+                img = prepare_map_background_rgba(source_image=src)
+            except UnidentifiedImageError as e:
+                QMessageBox.critical(self, "错误", f"无法识别图片：{e}")
+                return
+            except OSError as e:
+                QMessageBox.critical(self, "错误", f"无法读取图片：{e}")
+                return
+            out_dds = ddir / dds_basename
+            with tempfile.TemporaryDirectory() as td:
+                tp = Path(td) / "map_bg.png"
+                img.save(tp, "PNG")
+                convert_to_bc3_dds(tool_path=self._tool, input_image=tp, output_dds=out_dds)
+            write_ddsmap_xml(
+                out_dir=self._acus_root,
+                dds_map_id=mid,
+                name_str=disp,
+                dds_basename=dds_basename,
+            )
+        except DdsToolError as e:
+            QMessageBox.critical(self, "DDS 转换失败", str(e))
+            return
+        except Exception as e:
+            QMessageBox.critical(self, "错误", str(e))
+            return
+        self.created_id = mid
+        QMessageBox.information(self, "完成", f"已写入 {ddir.name}/（id={mid}）\n可在编辑格子 →「页面参数」中选择该 ddsMap。")
+        self.accept()
+
+
 def next_custom_reward_id(acus_root: Path) -> int:
     max_id = 700000000
     for p in acus_root.glob("reward/**/Reward.xml"):
@@ -1230,18 +1413,28 @@ def ensure_reward_xml(acus_root: Path, cell: CellData) -> None:
 
 
 class MapAddDialog(QDialog):
-    def __init__(self, *, acus_root: Path, parent=None, edit_map_xml: Path | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        acus_root: Path,
+        tool_path: Path | None = None,
+        parent=None,
+        edit_map_xml: Path | None = None,
+    ) -> None:
         super().__init__(parent=parent)
         self._edit_mode = edit_map_xml is not None
         self.setWindowTitle("编辑地图" if self._edit_mode else "新增地图")
         self.setModal(True)
         self.resize(980, 700)
         self._acus_root = acus_root
+        self._tool = tool_path
         self._reward_refs = load_reward_refs(acus_root)
         self._chara_refs = load_chara_refs(acus_root)
         self._trophy_refs = load_trophy_refs(acus_root)
         self._nameplate_refs = load_nameplate_refs(acus_root)
         self._music_refs = load_music_refs(acus_root)
+        self._dds_map_refs = load_dds_map_refs(acus_root)
+        self._page_area_slots: list[list[int | None]] = []
         self._chara_name_by_id = {x.id: x.name for x in self._chara_refs}
         self._trophy_name_by_id = {x.id: x.name for x in self._trophy_refs}
         self._nameplate_name_by_id = {x.id: x.name for x in self._nameplate_refs}
@@ -1255,7 +1448,6 @@ class MapAddDialog(QDialog):
         self._area_info_meta: list[MapInfoMeta] = []
         # 编辑模式：每格对应 MapArea.xml 里的游戏 index（非 0..8）；与 _area_cells 对齐
         self._area_grid_indices: list[list[int | None]] = []
-        self._page_area_slots: list[list[int | None]] = []
         self._current_map_id = 0
 
         self.map_id = QLineEdit()
@@ -1278,6 +1470,9 @@ class MapAddDialog(QDialog):
         add_area_btn.clicked.connect(self._add_page)
         remove_area_btn = QPushButton("删除当前 MapPage")
         remove_area_btn.clicked.connect(self._remove_current_page)
+        new_ddsmap_btn = QPushButton("新建地图贴图 (ddsMap)")
+        new_ddsmap_btn.clicked.connect(self._on_create_ddsmap)
+        new_ddsmap_btn.setStyleSheet("background:#FFFFFF;color:#111827;border:1px solid #E5E7EB;")
 
         top = QFormLayout()
         top.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
@@ -1289,9 +1484,14 @@ class MapAddDialog(QDialog):
         area_btns = QHBoxLayout()
         area_btns.addWidget(add_area_btn)
         area_btns.addWidget(remove_area_btn)
+        area_btns.addWidget(new_ddsmap_btn)
         area_btns.addStretch(1)
 
-        hint = QLabel("每个 MapPage 为 3x3 九宫格（9个最终奖励位）。点击格子编辑最终奖励与对应 MapArea 过程设置。")
+        hint = QLabel(
+            "每个 MapPage 为 3×3 九宫格。**空格无需 MapArea**：仅当你要在该格放最终奖励/跑图路线时再点击并创建区域。\n"
+            "地图格背景贴图（ddsMap）在编辑格子窗口顶部的「页面参数」里设置，写入 Map.xml 的 ddsMapName（与 A001 一致，不由 MapArea.xml 引用）。"
+        )
+        hint.setWordWrap(True)
         hint.setStyleSheet("color:#374151;")
         glyph_warn = QLabel("提示：Map 名称、奖励名称、乐曲名称等文本请尽量使用日语字库内字符；否则游戏内可能显示异常。")
         glyph_warn.setStyleSheet("color:#B45309;")
@@ -1326,6 +1526,20 @@ class MapAddDialog(QDialog):
     def _sync_event_id_enabled(self, on: bool) -> None:
         self.event_id.setEnabled(on)
 
+    def _on_create_ddsmap(self) -> None:
+        if self._tool is None and not quicktex_available():
+            QMessageBox.critical(
+                self,
+                "无法生成 DDS",
+                "生成地图贴图需要 quicktex 或 compressonatorcli：\n"
+                "• pip install quicktex\n"
+                "• 或在【设置】中配置 compressonatorcli",
+            )
+            return
+        dlg = DdsMapCreateDialog(acus_root=self._acus_root, tool_path=self._tool, parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.created_id >= 0:
+            self._dds_map_refs = load_dds_map_refs(self._acus_root)
+
     def _load_existing(self, map_xml: Path) -> str:
         """载入 Map.xml 及对应 MapArea；成功返回空串，失败返回错误说明。"""
         try:
@@ -1351,6 +1565,7 @@ class MapAddDialog(QDialog):
         self._area_info_cells.clear()
         self._area_info_meta.clear()
         self._area_grid_indices.clear()
+        self._page_area_slots.clear()
         rel_root = self._acus_root
         truncated_areas: list[str] = []
         for info in infos:
@@ -1409,7 +1624,7 @@ class MapAddDialog(QDialog):
             self._area_cells.append(cells)
             self._area_grid_indices.append(grid_indices)
         if not self._area_cells:
-            return "没有成功载入任何 MapArea"
+            return "没有成功载入任何 MapArea（请检查 Map.xml 的 MapDataAreaInfo 与对应 mapArea 文件）"
         self._rebuild_page_tabs()
         if truncated_areas:
             QTimer.singleShot(
@@ -1439,11 +1654,11 @@ class MapAddDialog(QDialog):
         return len(self._area_cells) - 1
 
     def _add_page(self) -> None:
-        new_page = len(self._page_area_slots) if self._page_area_slots else 0
-        for slot in range(9):
-            self._append_new_area_with_meta(page_index=new_page, index_in_page=slot)
+        """新增一页 3×3：默认全空，不创建 MapArea。"""
+        self._page_area_slots.append([None] * 9)
         self._rebuild_page_tabs()
-        if new_page < self.tabs.count():
+        new_page = len(self._page_area_slots) - 1
+        if 0 <= new_page < self.tabs.count():
             self.tabs.setCurrentIndex(new_page)
 
     def _remove_current_page(self) -> None:
@@ -1466,6 +1681,8 @@ class MapAddDialog(QDialog):
         if self._edit_mode:
             self._area_ids = [self._area_ids[i] for i in keep]
             self._area_names = [self._area_names[i] for i in keep]
+        if cur_page < len(self._page_area_slots):
+            del self._page_area_slots[cur_page]
         # 删除后压缩 pageIndex，保证连续
         for m in self._area_info_meta:
             if m.page_index > cur_page:
@@ -1474,14 +1691,13 @@ class MapAddDialog(QDialog):
         self.tabs.setCurrentIndex(max(0, min(cur_page, self.tabs.count() - 1)))
 
     def _rebuild_page_slots(self) -> None:
-        max_page = 0
-        for m in self._area_info_meta:
-            max_page = max(max_page, m.page_index)
-        slots = [[None for _ in range(9)] for _ in range(max_page + 1)]
+        """根据 Area 的 pageIndex/indexInPage 铺到九宫格；保留仅有空格的 MapPage 行数。"""
+        n_from_meta = max((m.page_index + 1 for m in self._area_info_meta), default=0)
+        n_from_pages = len(self._page_area_slots)
+        n_pages = max(1, n_from_meta, n_from_pages)
+        slots: list[list[int | None]] = [[None] * 9 for _ in range(n_pages)]
         for i, m in enumerate(self._area_info_meta):
-            if 0 <= m.index_in_page <= 8 and m.page_index >= 0:
-                while m.page_index >= len(slots):
-                    slots.append([None for _ in range(9)])
+            if 0 <= m.page_index < n_pages and 0 <= m.index_in_page <= 8:
                 slots[m.page_index][m.index_in_page] = i
         self._page_area_slots = slots
 
@@ -1615,7 +1831,7 @@ class MapAddDialog(QDialog):
 
     def _edit_area_meta(self, area_idx: int) -> None:
         meta = self._area_info_meta[area_idx]
-        dlg = AreaPageMetaDialog(meta=meta, parent=self)
+        dlg = AreaPageMetaDialog(meta=meta, dds_refs=self._dds_map_refs, parent=self)
         if dlg.exec() == dlg.DialogCode.Accepted:
             self._refresh_area_page(area_idx)
 
@@ -1624,7 +1840,15 @@ class MapAddDialog(QDialog):
             return
         area_idx = self._page_area_slots[page_idx][slot_idx]
         if area_idx is None:
-            # 点击空格：自动新建一个 MapArea 并绑定到当前 page/slot
+            ans = QMessageBox.question(
+                self,
+                "空格子",
+                "此格尚未绑定 MapArea。\n\n要在本格创建跑图区域并配置最终奖励吗？\n（与 A001 一致：无内容的格子可不写 MapArea。）",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if ans != QMessageBox.StandardButton.Yes:
+                return
             area_idx = self._append_new_area_with_meta(page_index=page_idx, index_in_page=slot_idx)
             self._rebuild_page_tabs()
         self._edit_page_slot_single_dialog(area_idx)
@@ -1653,6 +1877,16 @@ class MapAddDialog(QDialog):
         dlg.setWindowTitle("编辑页面格子")
         dlg.setModal(True)
         lay = QVBoxLayout(dlg)
+
+        meta_btn = QPushButton("页面参数：ddsMap 背景贴图 / gauge / pageIndex …")
+        meta_btn.setStyleSheet("background:#FFFFFF;color:#111827;border:1px solid #E5E7EB;")
+
+        def _open_page_meta() -> None:
+            m = self._area_info_meta[area_idx]
+            AreaPageMetaDialog(meta=m, dds_refs=self._dds_map_refs, parent=dlg).exec()
+
+        meta_btn.clicked.connect(_open_page_meta)
+        lay.addWidget(meta_btn)
 
         # 最终奖励（Map.xml）
         top = QGroupBox("最终奖励（Map.xml）")
@@ -1899,6 +2133,10 @@ class MapAddDialog(QDialog):
         map_name = self.map_name.text().strip() or f"Map{map_id}"
         map_dir = self._acus_root / "map" / f"map{map_id:08d}"
         map_dir.mkdir(parents=True, exist_ok=True)
+
+        if not self._area_cells:
+            QMessageBox.critical(self, "错误", "请至少在九宫格中创建并保存一个 MapArea（点击空格并选择「是」创建区域）。")
+            return
 
         # build map infos and write maparea/reward files
         infos_xml = []

@@ -186,7 +186,7 @@ class MainWindow(QMainWindow):
             if dlg.exec() == dlg.DialogCode.Accepted:
                 self._on_refresh()
         elif idx == 1:
-            dlg = MapAddDialog(acus_root=self._acus_root, parent=self)
+            dlg = MapAddDialog(acus_root=self._acus_root, tool_path=tool, parent=self)
             if dlg.exec() == dlg.DialogCode.Accepted:
                 self._on_refresh()
         elif idx == 4:
