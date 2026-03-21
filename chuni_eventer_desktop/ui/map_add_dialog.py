@@ -9,6 +9,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -21,6 +22,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QGroupBox,
+    QScrollArea,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -1928,7 +1930,22 @@ class MapAddDialog(QDialog):
         dlg = QDialog(self)
         dlg.setWindowTitle("编辑页面格子")
         dlg.setModal(True)
+        dlg.setMinimumWidth(480)
+        scr = QApplication.primaryScreen()
+        if scr is not None:
+            g = scr.availableGeometry()
+            dlg.setMaximumHeight(int(g.height() * 0.92))
+            dlg.resize(min(560, g.width() - 48), int(g.height() * 0.88))
+
         lay = QVBoxLayout(dlg)
+        scroll = QScrollArea(dlg)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        content = QWidget()
+        content_lay = QVBoxLayout(content)
+        content_lay.setContentsMargins(0, 0, 0, 0)
 
         dds_box = QGroupBox("ddsMap 背景贴图 (Map.xml)")
         dds_form = QFormLayout(dds_box)
@@ -1957,7 +1974,7 @@ class MapAddDialog(QDialog):
         dds_form.addRow("从 ACUS 选择", dds_pick)
         dds_form.addRow("ddsMapName.id", dds_id_edit)
         dds_form.addRow("ddsMapName.str", dds_str_edit)
-        lay.addWidget(dds_box)
+        content_lay.addWidget(dds_box)
 
         # MapArea 基础（page/slot 也可在「其它页面参数」里改，此处与之同步）
         mid = QGroupBox("MapArea 基础")
@@ -1983,7 +2000,7 @@ class MapAddDialog(QDialog):
         step_hint.setWordWrap(True)
         step_hint.setStyleSheet("color:#6B7280; font-size: 11px;")
         mid_form.addRow("", step_hint)
-        lay.addWidget(mid)
+        content_lay.addWidget(mid)
 
         meta_btn = QPushButton("其它页面参数：pageIndex / gauge / isHard / requiredAchievement …")
         meta_btn.setStyleSheet("background:#FFFFFF;color:#111827;border:1px solid #E5E7EB;")
@@ -1997,7 +2014,7 @@ class MapAddDialog(QDialog):
             slot_edit.setText(str(m.index_in_page))
 
         meta_btn.clicked.connect(_open_page_meta)
-        lay.addWidget(meta_btn)
+        content_lay.addWidget(meta_btn)
 
         # 最终奖励（Map.xml）
         top = QGroupBox("最终奖励（Map.xml）")
@@ -2061,7 +2078,7 @@ class MapAddDialog(QDialog):
         top_form.addRow("课题曲", music_pick)
         top_form.addRow("手填乐曲ID", music_id)
         top_form.addRow("手填乐曲名", music_name)
-        lay.addWidget(top)
+        content_lay.addWidget(top)
 
         # 高级设置
         adv = QGroupBox("高级设置")
@@ -2075,6 +2092,8 @@ class MapAddDialog(QDialog):
             if self._is_intermediate_reward_allowed(r.id):
                 add_reward.addItem(f"{r.id} | {r.display_name or r.name}", r.id)
         extra_lines = QTextEdit()
+        extra_lines.setMinimumHeight(72)
+        extra_lines.setMaximumHeight(160)
         extra_lines.setPlaceholderText(
             "每行：步数,reward_id,reward_name（步数 < 地图格数，且不可等于 地图格数−1）"
         )
@@ -2098,7 +2117,11 @@ class MapAddDialog(QDialog):
         adv_form.addRow("过程奖励", add_reward)
         adv_form.addRow("", add_btn)
         adv_form.addRow("过程奖励列表", extra_lines)
-        lay.addWidget(adv)
+        content_lay.addWidget(adv)
+
+        content_lay.addStretch(1)
+        scroll.setWidget(content)
+        lay.addWidget(scroll, 1)
 
         def _sync_advanced() -> None:
             on = adv.isChecked()
@@ -2307,30 +2330,47 @@ class MapAddDialog(QDialog):
                 grid_indices=grid_ix,
             )
             infos_xml.append(
-                f"""    <MapDataAreaInfo>
-      <mapAreaName><id>{area_id}</id><str>{self._xml_text(area_name)}</str><data /></mapAreaName>
-      <ddsMapName><id>{meta.dds_id}</id><str>{self._xml_text(meta.dds_str)}</str><data /></ddsMapName>
-      <musicName><id>{info_cell.music_id if info_cell.music_id is not None else -1}</id><str>{self._xml_text(info_cell.music_name if info_cell.music_id is not None else "Invalid")}</str><data /></musicName>
-      <rewardName><id>{info_cell.reward_id if info_cell.reward_id is not None else -1}</id><str>{self._xml_text(info_cell.reward_name if info_cell.reward_id is not None else "Invalid")}</str><data /></rewardName>
-      <isHard>{"true" if meta.is_hard else "false"}</isHard><pageIndex>{meta.page_index}</pageIndex><indexInPage>{meta.index_in_page}</indexInPage>
-      <requiredAchievementCount>{meta.required_achievement_count}</requiredAchievementCount>
-      <gaugeName><id>{meta.gauge_id}</id><str>{self._xml_text(meta.gauge_str)}</str><data /></gaugeName>
-    </MapDataAreaInfo>"""
+                self._map_data_area_info_xml(
+                    area_id=area_id,
+                    area_name=area_name,
+                    meta=meta,
+                    info_cell=info_cell,
+                )
             )
 
         map_xml = f"""<?xml version="1.0" encoding="utf-8"?>
 <MapData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <dataName>map{map_id:08d}</dataName>
-  <netDispPeriod>false</netDispPeriod>
-  <name><id>{map_id}</id><str>{self._xml_text(map_name)}</str><data /></name>
-  <mapType>1</mapType>
+  <netDispPeriod>true</netDispPeriod>
+  <name>
+    <id>{map_id}</id>
+    <str>{self._xml_text(map_name)}</str>
+    <data />
+  </name>
+  <mapType>2</mapType>
   <hiddenType>0</hiddenType>
   <unlockText>-</unlockText>
-  <mapFilterID><id>3</id><str>Other</str><data>CHUNITHM</data></mapFilterID>
-  <categoryName><id>0</id><str>設定なし</str><data /></categoryName>
-  <timeTableName><id>-1</id><str>Invalid</str><data /></timeTableName>
+  <mapFilterID>
+    <id>0</id>
+    <str>Collaboration</str>
+    <data>イベント</data>
+  </mapFilterID>
+  <categoryName>
+    <id>0</id>
+    <str>設定なし</str>
+    <data />
+  </categoryName>
+  <timeTableName>
+    <id>-1</id>
+    <str>Invalid</str>
+    <data />
+  </timeTableName>
   <stopPageIndex>0</stopPageIndex>
-  <stopReleaseEventName><id>-1</id><str>Invalid</str><data /></stopReleaseEventName>
+  <stopReleaseEventName>
+    <id>-1</id>
+    <str>Invalid</str>
+    <data />
+  </stopReleaseEventName>
   <priority>0</priority>
   <infos>
 {chr(10).join(infos_xml)}
@@ -2438,8 +2478,62 @@ class MapAddDialog(QDialog):
     def _xml_text(self, s: str) -> str:
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
+    def _map_data_area_info_xml(
+        self,
+        *,
+        area_id: int,
+        area_name: str,
+        meta: MapInfoMeta,
+        info_cell: CellData,
+    ) -> str:
+        """与 A001 map02006619 中 MapDataAreaInfo 排版、字段顺序一致。"""
+        mid = info_cell.music_id if info_cell.music_id is not None else -1
+        mstr = (
+            info_cell.music_name if info_cell.music_id is not None else "Invalid"
+        )
+        rid = info_cell.reward_id if info_cell.reward_id is not None else -1
+        rstr = (
+            info_cell.reward_name if info_cell.reward_id is not None else "Invalid"
+        )
+        return f"""    <MapDataAreaInfo>
+      <mapAreaName>
+        <id>{area_id}</id>
+        <str>{self._xml_text(area_name)}</str>
+        <data />
+      </mapAreaName>
+      <ddsMapName>
+        <id>{meta.dds_id}</id>
+        <str>{self._xml_text(meta.dds_str)}</str>
+        <data />
+      </ddsMapName>
+      <musicName>
+        <id>{mid}</id>
+        <str>{self._xml_text(mstr)}</str>
+        <data />
+      </musicName>
+      <rewardName>
+        <id>{rid}</id>
+        <str>{self._xml_text(rstr)}</str>
+        <data />
+      </rewardName>
+      <isHard>{"true" if meta.is_hard else "false"}</isHard>
+      <pageIndex>{meta.page_index}</pageIndex>
+      <indexInPage>{meta.index_in_page}</indexInPage>
+      <requiredAchievementCount>{meta.required_achievement_count}</requiredAchievementCount>
+      <gaugeName>
+        <id>{meta.gauge_id}</id>
+        <str>{self._xml_text(meta.gauge_str)}</str>
+        <data />
+      </gaugeName>
+    </MapDataAreaInfo>"""
+
     def _write_map_unlock_event(self, *, map_id: int, map_name: str, event_id: int) -> None:
-        """与 example/event 结构一致：substances/type=6 + map/mapName 指向本图。"""
+        """
+        与 A001 联动地图一致：event00018077（Ave Mujica）/ event00018087（MyGO）「マップフラグ」。
+
+        - substances/type = 2（地图旗标），不是 6
+        - information/mapFilterID = Invalid（-1）；Collaboration 只写在 Map.xml，不在此 Event
+        """
         ev_dir = self._acus_root / "event" / f"event{event_id:08d}"
         ev_dir.mkdir(parents=True, exist_ok=True)
         title = self._xml_text(f"【MapUnlock】{map_name}")
@@ -2469,21 +2563,33 @@ class MapAddDialog(QDialog):
   <isKop>false</isKop>
   <priority>0</priority>
   <substances>
-    <type>6</type>
-    <flag><value>0</value></flag>
+    <type>2</type>
+    <flag>
+      <value>0</value>
+    </flag>
     <information>
       <informationType>0</informationType>
       <informationDispType>0</informationDispType>
       <mapFilterID>
-        <id>3</id>
-        <str>Other</str>
-        <data>CHUNITHM</data>
+        <id>-1</id>
+        <str>Invalid</str>
+        <data />
       </mapFilterID>
-      <courseNames><list /></courseNames>
+      <courseNames>
+        <list />
+      </courseNames>
       <text />
-      <image><path /></image>
-      <movieName><id>-1</id><str>Invalid</str><data /></movieName>
-      <presentNames><list /></presentNames>
+      <image>
+        <path />
+      </image>
+      <movieName>
+        <id>-1</id>
+        <str>Invalid</str>
+        <data />
+      </movieName>
+      <presentNames>
+        <list />
+      </presentNames>
     </information>
     <map>
       <tagText />
@@ -2492,31 +2598,114 @@ class MapAddDialog(QDialog):
         <str>{mstr}</str>
         <data />
       </mapName>
-      <musicNames><list /></musicNames>
+      <musicNames>
+        <list />
+      </musicNames>
     </map>
-    <music><musicType>0</musicType><musicNames><list /></musicNames></music>
+    <music>
+      <musicType>0</musicType>
+      <musicNames>
+        <list />
+      </musicNames>
+    </music>
     <advertiseMovie>
-      <firstMovieName><id>-1</id><str>Invalid</str><data /></firstMovieName>
-      <secondMovieName><id>-1</id><str>Invalid</str><data /></secondMovieName>
+      <firstMovieName>
+        <id>-1</id>
+        <str>Invalid</str>
+        <data />
+      </firstMovieName>
+      <secondMovieName>
+        <id>-1</id>
+        <str>Invalid</str>
+        <data />
+      </secondMovieName>
     </advertiseMovie>
-    <recommendMusic><musicNames><list /></musicNames></recommendMusic>
-    <release><value>0</value></release>
-    <course><courseNames><list /></courseNames></course>
-    <quest><questNames><list /></questNames></quest>
-    <duel><duelName><id>-1</id><str>Invalid</str><data /></duelName></duel>
-    <cmission><cmissionName><id>-1</id><str>Invalid</str><data /></cmissionName></cmission>
-    <changeSurfBoardUI><value>0</value></changeSurfBoardUI>
-    <avatarAccessoryGacha><avatarAccessoryGachaName><id>-1</id><str>Invalid</str><data /></avatarAccessoryGachaName></avatarAccessoryGacha>
-    <rightsInfo><rightsNames><list /></rightsNames></rightsInfo>
-    <playRewardSet><playRewardSetName><id>-1</id><str>Invalid</str><data /></playRewardSetName></playRewardSet>
-    <dailyBonusPreset><dailyBonusPresetName><id>-1</id><str>Invalid</str><data /></dailyBonusPresetName></dailyBonusPreset>
-    <matchingBonus><timeTableName><id>-1</id><str>Invalid</str><data /></timeTableName></matchingBonus>
-    <unlockChallenge><unlockChallengeName><id>-1</id><str>Invalid</str><data /></unlockChallengeName></unlockChallenge>
-    <linkedVerse><linkedVerseName><id>-1</id><str>Invalid</str><data /></linkedVerseName></linkedVerse>
+    <recommendMusic>
+      <musicNames>
+        <list />
+      </musicNames>
+    </recommendMusic>
+    <release>
+      <value>0</value>
+    </release>
+    <course>
+      <courseNames>
+        <list />
+      </courseNames>
+    </course>
+    <quest>
+      <questNames>
+        <list />
+      </questNames>
+    </quest>
+    <duel>
+      <duelName>
+        <id>-1</id>
+        <str>Invalid</str>
+        <data />
+      </duelName>
+    </duel>
+    <cmission>
+      <cmissionName>
+        <id>-1</id>
+        <str>Invalid</str>
+        <data />
+      </cmissionName>
+    </cmission>
+    <changeSurfBoardUI>
+      <value>0</value>
+    </changeSurfBoardUI>
+    <avatarAccessoryGacha>
+      <avatarAccessoryGachaName>
+        <id>-1</id>
+        <str>Invalid</str>
+        <data />
+      </avatarAccessoryGachaName>
+    </avatarAccessoryGacha>
+    <rightsInfo>
+      <rightsNames>
+        <list />
+      </rightsNames>
+    </rightsInfo>
+    <playRewardSet>
+      <playRewardSetName>
+        <id>-1</id>
+        <str>Invalid</str>
+        <data />
+      </playRewardSetName>
+    </playRewardSet>
+    <dailyBonusPreset>
+      <dailyBonusPresetName>
+        <id>-1</id>
+        <str>Invalid</str>
+        <data />
+      </dailyBonusPresetName>
+    </dailyBonusPreset>
+    <matchingBonus>
+      <timeTableName>
+        <id>-1</id>
+        <str>Invalid</str>
+        <data />
+      </timeTableName>
+    </matchingBonus>
+    <unlockChallenge>
+      <unlockChallengeName>
+        <id>-1</id>
+        <str>Invalid</str>
+        <data />
+      </unlockChallengeName>
+    </unlockChallenge>
+    <linkedVerse>
+      <linkedVerseName>
+        <id>-1</id>
+        <str>Invalid</str>
+        <data />
+      </linkedVerseName>
+    </linkedVerse>
   </substances>
 </EventData>
 """
-        (ev_dir / "Event.xml").write_text(xml, encoding="utf-8")
+        (ev_dir / "Event.xml").write_text(xml, encoding="utf-8", newline="\n")
 
     def _append_event_sort(self, event_id: int) -> None:
         sort_path = self._acus_root / "event" / "EventSort.xml"

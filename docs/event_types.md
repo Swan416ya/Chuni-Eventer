@@ -29,6 +29,6 @@
 
 ## 判定建议
 
-- 要做“开图”活动，优先关注 `type=2` / `type=6` 以及 `substances/map/mapName`
+- 要做“开图”活动，与 A001 Bandori（Ave Mujica / MyGO）一致时：用 **`type=2`（マップフラグ）** + `substances/map/mapName`；`information/mapFilterID` 为 Invalid。不要用 `type=6` 冒充开图（本仓库旧版生成器曾误用）。
 - 要做“曲相关”活动，优先关注 `type=3`，并根据名称再细分 ULT/WE/常驻
 - 管理页分类属于“运营便利分类”，不是官方 schema 的强约束
