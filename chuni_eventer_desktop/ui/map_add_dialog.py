@@ -199,37 +199,51 @@ def _parse_grid_int(el: ET.Element | None, tag: str, default: int) -> int:
     return int(t) if t.isdigit() else default
 
 
+def _reward_source_roots(acus_root: Path) -> list[Path]:
+    """
+    Reward 参考源：
+    - ACUS（用户自定义）
+    - 仓库 A001（官方基础奖励，如企鹅/功能票等）
+    """
+    roots: list[Path] = [acus_root]
+    a001 = acus_root.parent / "A001"
+    if a001.is_dir() and a001 != acus_root:
+        roots.append(a001)
+    return roots
+
+
 def resolve_reward_xml(acus_root: Path, rid: int) -> Path | None:
     """
     定位 Reward.xml。优先 reward{9位零填充}；否则在 reward/*/Reward.xml 里按 name/id 匹配。
     """
     if rid < 0:
         return None
-    p9 = acus_root / "reward" / f"reward{rid:09d}" / "Reward.xml"
-    if p9.exists():
-        return p9
-    alt = acus_root / "reward" / f"reward{rid}" / "Reward.xml"
-    if alt.exists():
-        return alt
-    reward_root = acus_root / "reward"
-    if not reward_root.is_dir():
-        return None
-    try:
-        for folder in reward_root.iterdir():
-            if not folder.is_dir():
-                continue
-            rx = folder / "Reward.xml"
-            if not rx.exists():
-                continue
-            try:
-                rr = ET.parse(rx).getroot()
-                nid = _safe_int(rr.findtext("name/id") or "")
-                if nid == rid:
-                    return rx
-            except Exception:
-                continue
-    except OSError:
-        pass
+    for root in _reward_source_roots(acus_root):
+        p9 = root / "reward" / f"reward{rid:09d}" / "Reward.xml"
+        if p9.exists():
+            return p9
+        alt = root / "reward" / f"reward{rid}" / "Reward.xml"
+        if alt.exists():
+            return alt
+        reward_root = root / "reward"
+        if not reward_root.is_dir():
+            continue
+        try:
+            for folder in reward_root.iterdir():
+                if not folder.is_dir():
+                    continue
+                rx = folder / "Reward.xml"
+                if not rx.exists():
+                    continue
+                try:
+                    rr = ET.parse(rx).getroot()
+                    nid = _safe_int(rr.findtext("name/id") or "")
+                    if nid == rid:
+                        return rx
+                except Exception:
+                    continue
+        except OSError:
+            continue
     return None
 
 
@@ -969,9 +983,13 @@ class RewardCreateDialog(QDialog):
         self._chara_refs = chara_refs
         self._trophy_refs = trophy_refs
         self._nameplate_refs = nameplate_refs
+        self._auto_name_enabled = True
+        self._last_auto_name = ""
 
         self.reward_id = QLineEdit(str(default_id))
         self.reward_name = QLineEdit()
+        self.reward_name.setPlaceholderText("可自动命名；手动修改后不再自动覆盖")
+        self.reward_name.textEdited.connect(self._on_reward_name_edited)
         self.reward_kind = QComboBox()
         self.reward_kind.addItems(
             [
@@ -987,6 +1005,7 @@ class RewardCreateDialog(QDialog):
         self.inner_id = QLineEdit()
         self.inner_pick = QComboBox()
         self.inner_pick.activated.connect(self._on_inner_pick_activated)
+        self.inner_id.textChanged.connect(self._on_inner_id_changed)
         self._lbl_acus_inner = QLabel("")
         self._lbl_target_inner = QLabel("目标ID")
 
@@ -1002,6 +1021,7 @@ class RewardCreateDialog(QDialog):
         self.music_name.setPlaceholderText("留空则自动 Music{id}")
         self.has_music.toggled.connect(self._sync)
         self.music_mode.currentTextChanged.connect(self._sync)
+        self.music_pick.activated.connect(self._on_music_pick_activated)
 
         form = QFormLayout()
         form.addRow("reward.id", self.reward_id)
@@ -1046,6 +1066,54 @@ class RewardCreateDialog(QDialog):
         if index - 1 >= len(refs):
             return
         self.inner_id.setText(str(refs[index - 1].id))
+        self._apply_auto_reward_name()
+
+    def _on_inner_id_changed(self, _text: str) -> None:
+        self._apply_auto_reward_name()
+
+    def _on_music_pick_activated(self, _index: int) -> None:
+        self._apply_auto_reward_name()
+
+    def _on_reward_name_edited(self, _text: str) -> None:
+        self._auto_name_enabled = False
+
+    def _name_from_refs_or_id(self, kind: str, target_id: int | None) -> str:
+        if target_id is None:
+            return ""
+        refs = self._inner_refs_for_kind(kind)
+        for x in refs:
+            if x.id == target_id:
+                return x.name
+        return str(target_id)
+
+    def _build_auto_reward_name(self) -> str:
+        kind = self.reward_kind.currentText()
+        if kind == "外部奖励ID":
+            rid = _safe_int(self.reward_id.text())
+            return f"reward+{rid}" if rid is not None else "reward"
+
+        target_id = _safe_int(self.inner_id.text())
+        target_name = self._name_from_refs_or_id(kind, target_id)
+        if kind == "角色":
+            return f"character+{target_name or 'Unknown'}"
+        if kind == "称号(Trophy)":
+            return f"trophy+{target_name or 'Unknown'}"
+        if kind == "姓名牌装饰(NamePlate)":
+            return f"nameplate+{target_name or 'Unknown'}"
+        if kind == "乐曲解锁(Music)":
+            return f"music+{target_name or 'Unknown'}"
+        if kind == "功能票(Ticket)":
+            return f"ticket+{target_name or 'Unknown'}"
+        return f"reward+{target_name or 'Unknown'}"
+
+    def _apply_auto_reward_name(self) -> None:
+        auto = self._build_auto_reward_name()
+        if not auto:
+            return
+        if self._auto_name_enabled or self.reward_name.text().strip() == self._last_auto_name:
+            self.reward_name.setText(auto)
+            self._last_auto_name = auto
+            self._auto_name_enabled = True
 
     def _match_inner_pick(self, refs: list[RewardRef]) -> None:
         tid = _safe_int(self.inner_id.text())
@@ -1098,6 +1166,7 @@ class RewardCreateDialog(QDialog):
         self.music_pick.setEnabled(pick)
         self.music_id.setEnabled(on and not pick)
         self.music_name.setEnabled(on and not pick)
+        self._apply_auto_reward_name()
 
     def _on_ok(self) -> None:
         rid = _safe_int(self.reward_id.text())
@@ -1141,12 +1210,29 @@ class RewardCreateDialog(QDialog):
 
 def load_reward_refs(acus_root: Path) -> list[RewardRef]:
     refs: list[RewardRef] = []
-    for p in acus_root.glob("reward/**/Reward.xml"):
-        try:
-            r = ET.parse(p).getroot()
-            rid = _safe_int(r.findtext("name/id") or "")
-            name = (r.findtext("name/str") or "").strip()
-            if rid is not None:
+    seen: set[int] = set()
+    for root in _reward_source_roots(acus_root):
+        for p in root.glob("reward/**/Reward.xml"):
+            try:
+                r = ET.parse(p).getroot()
+                rid = _safe_int(r.findtext("name/id") or "")
+                name = (r.findtext("name/str") or "").strip()
+                if rid is None or rid in seen:
+                    continue
+                if root != acus_root:
+                    allow_a001 = False
+                    for sub in r.findall(".//RewardSubstanceData"):
+                        t = _safe_int(sub.findtext("type") or "")
+                        if t == 1:
+                            allow_a001 = True
+                            break
+                        if t == 0:
+                            gp = _safe_int(sub.findtext("gamePoint/gamePoint") or "")
+                            if gp is not None and gp > 0:
+                                allow_a001 = True
+                                break
+                    if not allow_a001:
+                        continue
                 c = CellData(reward_id=rid, reward_name=name or f"Reward{rid}")
                 enrich_cell_from_reward_xml(acus_root, c)
                 k = _kind_label(c.reward_kind)
@@ -1161,8 +1247,9 @@ def load_reward_refs(acus_root: Path) -> list[RewardRef]:
                     }.get(c.reward_kind, "目标ID")
                     label += f" ({tid_lbl}:{c.reward_inner_id})"
                 refs.append(RewardRef(rid, c.reward_name or f"Reward{rid}", label))
-        except Exception:
-            continue
+                seen.add(rid)
+            except Exception:
+                continue
     return sorted(refs, key=lambda x: x.id)
 
 
