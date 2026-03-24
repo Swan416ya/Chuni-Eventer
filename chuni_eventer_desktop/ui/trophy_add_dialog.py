@@ -35,6 +35,149 @@ def _xml_text(s: str) -> str:
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+# 普通称号（非乐曲AJ）条件模板：对齐 A001 trophy009715 的结构，但字段留空/Invalid
+_NORM_CONDITION_EMPTY_TEMPLATE = """<normCondition>
+    <conditions>
+      <ConditionSubData>
+        <type>11</type>
+        <eventData>
+          <eventNames>
+            <list />
+          </eventNames>
+        </eventData>
+        <playMusicData>
+          <genreNames>
+            <list />
+          </genreNames>
+          <musicNames>
+            <list />
+          </musicNames>
+          <musicDif>
+            <id>-1</id>
+            <str>Invalid</str>
+            <data />
+          </musicDif>
+        </playMusicData>
+        <playSettingData>
+          <playOptionSpeed>
+            <id>-1</id>
+            <str>Invalid</str>
+            <data />
+          </playOptionSpeed>
+          <playOptionFieldWallPosition>
+            <id>-1</id>
+            <str>Invalid</str>
+            <data />
+          </playOptionFieldWallPosition>
+          <playOptionMirror>false</playOptionMirror>
+        </playSettingData>
+        <playMusicResultData>
+          <memberNum>0</memberNum>
+          <scoreRank>
+            <id>-1</id>
+            <str>Invalid</str>
+            <data />
+          </scoreRank>
+          <matchingResultType>0</matchingResultType>
+          <memberRanking>0</memberRanking>
+          <gameOver>false</gameOver>
+          <fullCombo>false</fullCombo>
+          <fullChain>false</fullChain>
+          <allJustice>false</allJustice>
+          <memberOtherTrophyName>
+            <id>-1</id>
+            <str>Invalid</str>
+            <data />
+          </memberOtherTrophyName>
+          <missNum>0</missNum>
+          <maxComboNum>0</maxComboNum>
+        </playMusicResultData>
+        <playTotalResultData>
+          <allPlayedMusicName>
+            <id>-1</id>
+            <str>Invalid</str>
+            <data />
+          </allPlayedMusicName>
+        </playTotalResultData>
+        <personData>
+          <playerRebirthCount>0</playerRebirthCount>
+          <playerLv>0</playerLv>
+          <playerRating>0</playerRating>
+          <totalGamePoint>0</totalGamePoint>
+          <totalNetBattle>0</totalNetBattle>
+          <battleRank>
+            <id>-1</id>
+            <str>Invalid</str>
+            <data />
+          </battleRank>
+        </personData>
+        <charaData>
+          <targetRank>0</targetRank>
+          <charaName>
+            <id>-1</id>
+            <str>Invalid</str>
+            <data />
+          </charaName>
+        </charaData>
+        <skillData>
+          <lvMax>false</lvMax>
+        </skillData>
+        <trophyData>
+          <haveTrophyNames>
+            <list />
+          </haveTrophyNames>
+        </trophyData>
+        <travelData>
+          <japanRegionID>
+            <id>-1</id>
+            <str>Invalid</str>
+            <data />
+          </japanRegionID>
+          <japanRegionPlayNum>0</japanRegionPlayNum>
+          <playedRegionNum>0</playedRegionNum>
+          <lapNum>0</lapNum>
+        </travelData>
+        <musicData>
+          <musicName>
+            <id>-1</id>
+            <str>Invalid</str>
+            <data />
+          </musicName>
+          <musicDif>
+            <id>-1</id>
+            <str>Invalid</str>
+            <data />
+          </musicDif>
+          <masterUnderAll>false</masterUnderAll>
+          <totalPlayNum>0</totalPlayNum>
+          <scoreRank>
+            <id>-1</id>
+            <str>Invalid</str>
+            <data />
+          </scoreRank>
+          <fullCombo>false</fullCombo>
+          <fullChain>false</fullChain>
+          <allJustice>false</allJustice>
+          <playNum>0</playNum>
+        </musicData>
+        <completeData>
+          <releaseTagName>
+            <id>-1</id>
+            <str>Invalid</str>
+            <data />
+          </releaseTagName>
+          <scoreRank>
+            <id>-1</id>
+            <str>Invalid</str>
+            <data />
+          </scoreRank>
+          <allJustice>false</allJustice>
+        </completeData>
+      </ConditionSubData>
+    </conditions>
+  </normCondition>"""
+
+
 # 无图称号：与游戏内标准稀有度一致（有图时用 ≥50 的自定义段）
 TROPHY_PRESET_RARE: tuple[tuple[int, str], ...] = (
     (0, "normal"),
@@ -66,8 +209,9 @@ def max_trophy_rare_type_in_acus(acus_root: Path) -> int:
 
 
 def next_trophy_rare_type_with_image(acus_root: Path) -> int:
-    """有图称号：max(已有最大 rareType + 1, 50)。"""
-    return max(max_trophy_rare_type_in_acus(acus_root) + 1, 50)
+    """有图称号：固定 rareType=20（按当前实机兼容测试规则）。"""
+    _ = acus_root
+    return 20
 
 
 class TrophyAddDialog(QDialog):
@@ -160,7 +304,7 @@ class TrophyAddDialog(QDialog):
         if has_img:
             r = next_trophy_rare_type_with_image(self._acus_root)
             self.rare_auto_label.setText(
-                f"已选择图片：将自动写入 rareType = {r}（≥50，与 ACUS 内已有 Trophy 取 max(最大+1, 50)）"
+                f"已选择图片：将自动写入 rareType = {r}（固定值）"
             )
             self.rare_auto_label.show()
         else:
@@ -267,7 +411,7 @@ class TrophyAddDialog(QDialog):
   <defaultHave>false</defaultHave>
   <rareType>{rare}</rareType>
   {image_xml}
-  <normCondition><conditions /></normCondition>
+  {_NORM_CONDITION_EMPTY_TEMPLATE}
   <priority>0</priority>
 </TrophyData>
 """

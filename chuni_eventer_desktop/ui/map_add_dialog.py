@@ -2540,6 +2540,9 @@ class MapAddDialog(QDialog):
 
         for i, c in enumerate(cells):
             has_r = c.reward_id is not None and c.reward_id >= 0
+            # MapArea 路径末端：倒数第二格不写奖励，最终格固定 -1/Invalid
+            if i == len(cells) - 2:
+                has_r = False
             if sparse:
                 orig = grid_indices[i] if i < len(grid_indices) else None
                 if orig is None and not has_r:
