@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 from PyQt6.QtCore import Qt, QModelIndex, QSortFilterProxyModel
-from PyQt6.QtGui import QStandardItem, QStandardItemModel
+from PyQt6.QtGui import QPixmap, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -15,7 +16,10 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSplitter,
+    QTabWidget,
     QTableView,
+    QTableWidget,
+    QTableWidgetItem,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -117,6 +121,33 @@ class ManagerWidget(QWidget):
         self.preview.setMinimumHeight(340)
         self.preview.setStyleSheet("border: 1px solid #444;")
 
+        self.chara_panel = QWidget()
+        cp = QVBoxLayout(self.chara_panel)
+        cp.setContentsMargins(0, 0, 0, 0)
+        cp.setSpacing(8)
+        self.chara_variant_tabs = QTabWidget()
+        for i in range(10):
+            self.chara_variant_tabs.addTab(QWidget(), str(i))
+        self.chara_variant_tabs.currentChanged.connect(self._on_chara_variant_changed)
+        cp.addWidget(self.chara_variant_tabs, stretch=0)
+        self.chara_preview0 = QLabel("全身(_00)")
+        self.chara_preview1 = QLabel("半身(_01)")
+        self.chara_preview2 = QLabel("大头(_02)")
+        for lb in (self.chara_preview0, self.chara_preview1, self.chara_preview2):
+            lb.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lb.setMinimumHeight(120)
+            lb.setStyleSheet("border: 1px solid #444;")
+            cp.addWidget(lb, stretch=0)
+        self.chara_meta = QTableWidget(0, 2)
+        self.chara_meta.setHorizontalHeaderLabels(["字段", "值"])
+        self.chara_meta.horizontalHeader().setStretchLastSection(True)
+        self.chara_meta.verticalHeader().setVisible(False)
+        self.chara_meta.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        cp.addWidget(self.chara_meta, stretch=1)
+        self.chara_panel.setVisible(False)
+        self._selected_chara: CharaItem | None = None
+        self._chara_variant_map: dict[int, int] = {}
+
         # right panel "card"
         right_card = QFrame()
         right_card.setFrameShape(QFrame.Shape.NoFrame)
@@ -126,6 +157,7 @@ class ManagerWidget(QWidget):
         right_layout.addWidget(self.detail, stretch=1)
         right_layout.addWidget(QLabel("DDS 预览（quicktex 或 compressonator）"))
         right_layout.addWidget(self.preview, stretch=0)
+        right_layout.addWidget(self.chara_panel, stretch=1)
 
         self.preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
@@ -167,6 +199,7 @@ class ManagerWidget(QWidget):
         self.detail.clear()
         self.preview.setText("预览")
         self.preview.clear()
+        self.chara_panel.setVisible(False)
 
         k = self.kind.currentText()
         self.event_bar.setVisible(k == "Event")
@@ -177,6 +210,8 @@ class ManagerWidget(QWidget):
             self.model.setHorizontalHeaderLabels(["ID", "名称", "稀有度", "来源(XML)"])
         elif k == "Reward":
             self.model.setHorizontalHeaderLabels(["ID", "名称", "奖励类型", "关联目标", "来源(XML)"])
+        elif k == "Chara":
+            self.model.setHorizontalHeaderLabels(["ID", "名称"])
         else:
             self.model.setHorizontalHeaderLabels(["ID", "名称", "分类", "来源(XML)"])
 
@@ -210,7 +245,7 @@ class ManagerWidget(QWidget):
             items = scan_charas(self._acus_root)
             self._items = items
             for it in items:
-                self._append_row(it.name.id, it.name.str, it.default_image_key, it.xml_path, it)
+                self._append_chara_row(it)
         elif k == "Trophy":
             items = scan_trophies(self._acus_root)
             self._items = items
@@ -295,6 +330,17 @@ class ManagerWidget(QWidget):
             c.setEditable(False)
             self.model.setItem(row, i, c)
 
+    def _append_chara_row(self, it: CharaItem) -> None:
+        row = self.model.rowCount()
+        self.model.insertRow(row)
+        c0 = QStandardItem(str(it.name.id))
+        c1 = QStandardItem(it.name.str)
+        c0.setData(it, Qt.ItemDataRole.UserRole)
+        c0.setEditable(False)
+        c1.setEditable(False)
+        self.model.setItem(row, 0, c0)
+        self.model.setItem(row, 1, c1)
+
     def _apply_filter(self) -> None:
         self.proxy.setFilterFixedString(self.search.text().strip())
 
@@ -313,7 +359,13 @@ class ManagerWidget(QWidget):
         payload = item.data(Qt.ItemDataRole.UserRole)
         if payload is None:
             return
-        self.detail.setPlainText(self._format_detail(payload))
+        if isinstance(payload, CharaItem):
+            self._show_chara_detail(payload)
+        else:
+            self.chara_panel.setVisible(False)
+            self.detail.setVisible(True)
+            self.preview.setVisible(True)
+            self.detail.setPlainText(self._format_detail(payload))
         self._update_preview(payload)
 
     def _on_table_double_clicked(self, proxy_index: QModelIndex) -> None:
@@ -365,6 +417,117 @@ class ManagerWidget(QWidget):
         for k, v in d.items():
             lines.append(f"{k}: {v}")
         return "\n".join(lines)
+
+    def _show_chara_detail(self, it: CharaItem) -> None:
+        self._selected_chara = it
+        self.detail.setVisible(False)
+        self.preview.setVisible(False)
+        self.chara_panel.setVisible(True)
+        self._chara_variant_map, meta = self._parse_chara_variants_and_meta(it.xml_path)
+        cur = self.chara_variant_tabs.currentIndex()
+        for i in range(10):
+            has_variant = i in self._chara_variant_map
+            self.chara_variant_tabs.setTabEnabled(i, has_variant)
+            self.chara_variant_tabs.setTabText(i, f"{i}{' *' if has_variant else ''}")
+        if cur not in self._chara_variant_map:
+            next_idx = 0
+            for i in range(10):
+                if i in self._chara_variant_map:
+                    next_idx = i
+                    break
+            self.chara_variant_tabs.setCurrentIndex(next_idx)
+        self._fill_chara_meta_table(meta)
+        self._update_chara_variant_preview()
+
+    def _fill_chara_meta_table(self, meta: dict[str, str]) -> None:
+        rows = list(meta.items())
+        self.chara_meta.setRowCount(len(rows))
+        for r, (k, v) in enumerate(rows):
+            self.chara_meta.setItem(r, 0, QTableWidgetItem(k))
+            self.chara_meta.setItem(r, 1, QTableWidgetItem(v))
+        self.chara_meta.resizeColumnsToContents()
+
+    def _parse_chara_variants_and_meta(self, xml_path: Path) -> tuple[dict[int, int], dict[str, str]]:
+        variant_map: dict[int, int] = {}
+        meta: dict[str, str] = {}
+        root = ET.parse(xml_path).getroot()
+        base_id_raw = (root.findtext("name/id") or "").strip()
+        name = (root.findtext("name/str") or "").strip()
+        release_tag_id = (root.findtext("releaseTagName/id") or "").strip()
+        release_tag_str = (root.findtext("releaseTagName/str") or "").strip()
+        illustrator = (root.findtext("illustratorName/str") or "").strip()
+        works = (root.findtext("works/str") or "").strip()
+        meta["name"] = name
+        meta["id"] = base_id_raw
+        meta["releaseTag"] = f"{release_tag_id}:{release_tag_str}"
+        meta["illustrator"] = illustrator or "Invalid"
+        meta["works"] = works or "Invalid"
+        try:
+            base_id = int(base_id_raw)
+        except Exception:
+            base_id = -1
+        if base_id >= 0:
+            variant_map[base_id % 10] = base_id
+        for i in range(1, 10):
+            sec = root.find(f"addImages{i}")
+            if sec is None:
+                continue
+            if (sec.findtext("changeImg") or "").strip().lower() != "true":
+                continue
+            vid_raw = (sec.findtext("image/id") or "").strip()
+            if not vid_raw.isdigit():
+                continue
+            variant_map[i] = int(vid_raw)
+        return variant_map, meta
+
+    def _on_chara_variant_changed(self, _idx: int) -> None:
+        if self.chara_panel.isVisible():
+            self._update_chara_variant_preview()
+
+    def _update_chara_variant_preview(self) -> None:
+        if self._selected_chara is None:
+            return
+        var = self.chara_variant_tabs.currentIndex()
+        cid = self._chara_variant_map.get(var)
+        if cid is None:
+            for lb in (self.chara_preview0, self.chara_preview1, self.chara_preview2):
+                lb.setText("该变体不存在")
+                lb.setPixmap(QPixmap())
+            return
+        dds_xml = self._acus_root / "ddsImage" / f"ddsImage{cid:06d}" / "DDSImage.xml"
+        if not dds_xml.exists():
+            for lb in (self.chara_preview0, self.chara_preview1, self.chara_preview2):
+                lb.setText(f"缺少 ddsImage{cid:06d}")
+                lb.setPixmap(QPixmap())
+            return
+        root = ET.parse(dds_xml).getroot()
+        d0 = (root.findtext("ddsFile0/path") or "").strip()
+        d1 = (root.findtext("ddsFile1/path") or "").strip()
+        d2 = (root.findtext("ddsFile2/path") or "").strip()
+        tool = self._get_tool_path()
+        if tool is None and not quicktex_available():
+            for lb in (self.chara_preview0, self.chara_preview1, self.chara_preview2):
+                lb.setText("未配置解码工具（quicktex/compressonator）")
+                lb.setPixmap(QPixmap())
+            return
+        pairs = (
+            (self.chara_preview0, d0),
+            (self.chara_preview1, d1),
+            (self.chara_preview2, d2),
+        )
+        for lb, rel in pairs:
+            if not rel:
+                lb.setText("无路径")
+                lb.setPixmap(QPixmap())
+                continue
+            p = dds_xml.parent / rel
+            pm = dds_to_pixmap(acus_root=self._acus_root, compressonatorcli_path=tool, dds_path=p, max_w=380, max_h=150)
+            if pm is None:
+                lb.setText(f"预览失败：{p.name}")
+                lb.setPixmap(QPixmap())
+            else:
+                lb.setPixmap(pm)
+                lb.setText("")
 
     def _update_preview(self, it: object) -> None:
         if isinstance(it, TrophyItem):

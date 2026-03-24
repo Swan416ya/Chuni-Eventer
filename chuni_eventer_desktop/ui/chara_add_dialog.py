@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -21,6 +22,66 @@ from ..dds_convert import DdsToolError
 from ..xml_writer import write_chara_xml, write_ddsimage_xml
 
 from .dds_progress import run_bc3_jobs_with_progress
+
+
+def _set_idstr(node: ET.Element, val_id: int, val_str: str) -> None:
+    id_el = node.find("id")
+    if id_el is None:
+        id_el = ET.SubElement(node, "id")
+    id_el.text = str(val_id)
+    str_el = node.find("str")
+    if str_el is None:
+        str_el = ET.SubElement(node, "str")
+    str_el.text = val_str
+    data_el = node.find("data")
+    if data_el is None:
+        ET.SubElement(node, "data")
+
+
+def update_chara_variant_slot(*, acus_root: Path, base_id: int, variant: int, variant_name: str) -> Path:
+    """
+    变体只写回主角色（base*10）的 Chara.xml：
+    - addImages{variant}.changeImg = true
+    - addImages{variant}.charaName = 当前变体ID/名称
+    - addImages{variant}.image = 当前变体ID/chara_key
+    """
+    if variant <= 0 or variant > 9:
+        raise ValueError("仅支持更新 addImages1~9")
+    base_raw = base_id * 10
+    base_chara_dir = acus_root / "chara" / f"chara{base_raw:06d}"
+    xml_path = base_chara_dir / "Chara.xml"
+    if not xml_path.exists():
+        raise ValueError(f"未找到主角色 Chara.xml：{xml_path}")
+
+    root = ET.parse(xml_path).getroot()
+    sec = root.find(f"addImages{variant}")
+    if sec is None:
+        sec = ET.SubElement(root, f"addImages{variant}")
+    chg = sec.find("changeImg")
+    if chg is None:
+        chg = ET.SubElement(sec, "changeImg")
+    chg.text = "true"
+
+    cid = ChuniCharaId(base_raw + variant)
+    cname = sec.find("charaName")
+    if cname is None:
+        cname = ET.SubElement(sec, "charaName")
+    _set_idstr(cname, cid.raw, variant_name)
+
+    image = sec.find("image")
+    if image is None:
+        image = ET.SubElement(sec, "image")
+    _set_idstr(image, cid.raw, cid.chara_key)
+
+    rank = sec.find("rank")
+    if rank is None:
+        rank = ET.SubElement(sec, "rank")
+    if not (rank.text or "").strip().isdigit():
+        rank.text = "15"
+
+    ET.indent(root, space="  ")
+    ET.ElementTree(root).write(xml_path, encoding="utf-8", xml_declaration=True)
+    return xml_path
 
 
 class CharaAddDialog(QDialog):
@@ -175,16 +236,30 @@ class CharaAddDialog(QDialog):
                 except ValueError as e:
                     raise ValueError("releaseTagName.id 必须是整数") from e
             rt_str = self.release_tag_str.text().strip() or "Invalid"
-            write_chara_xml(
-                out_dir=self._acus_root,
-                chara_id=cid.raw,
-                chara_name=self.name.text().strip(),
-                illustrator_name=ill,
-                release_tag_id=rt_id,
-                release_tag_str=rt_str,
-            )
+            chara_name = self.name.text().strip()
+            if var == 0:
+                write_chara_xml(
+                    out_dir=self._acus_root,
+                    chara_id=cid.raw,
+                    chara_name=chara_name,
+                    illustrator_name=ill,
+                    release_tag_id=rt_id,
+                    release_tag_str=rt_str,
+                )
+            else:
+                update_chara_variant_slot(
+                    acus_root=self._acus_root,
+                    base_id=base,
+                    variant=var,
+                    variant_name=chara_name or cid.chara_key,
+                )
 
-            QMessageBox.information(self, "完成", f"已写入 ACUS：角色 {cid.raw}")
+            msg = f"已写入 ACUS：ddsImage {cid.raw}"
+            if var == 0:
+                msg += f"\n并生成主角色 chara{cid.raw6}/Chara.xml"
+            else:
+                msg += f"\n并更新主角色 chara{base*10:06d}/Chara.xml 的 addImages{var}"
+            QMessageBox.information(self, "完成", msg)
             self.accept()
         except DdsToolError as e:
             QMessageBox.critical(self, "DDS 转换失败", str(e))
