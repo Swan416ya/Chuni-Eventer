@@ -22,6 +22,10 @@ def acus_root_dir() -> Path:
     return app_root_dir() / "ACUS"
 
 
+def app_cache_dir() -> Path:
+    return app_root_dir() / ".cache"
+
+
 def ensure_acus_layout() -> Path:
     """
     Create ACUS folder and core subfolders (A001-like roots we care about).
@@ -44,7 +48,8 @@ def ensure_acus_layout() -> Path:
         "trophy",
     ]:
         (root / d).mkdir(parents=True, exist_ok=True)
-    (root / ".cache" / "dds_preview").mkdir(parents=True, exist_ok=True)
+    # 缓存不再放在 ACUS 内，统一放应用根 .cache
+    (app_cache_dir() / "dds_preview").mkdir(parents=True, exist_ok=True)
     return root
 
 

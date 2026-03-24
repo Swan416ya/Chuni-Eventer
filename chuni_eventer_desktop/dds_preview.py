@@ -5,12 +5,15 @@ from pathlib import Path
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
 
+from .acus_workspace import app_cache_dir
 from .dds_convert import DdsToolError, convert_dds_to_png
 from .dds_quicktex import quicktex_available
 
 
 def preview_cache_dir(acus_root: Path) -> Path:
-    return acus_root / ".cache" / "dds_preview"
+    # 保留 acus_root 参数以兼容调用方签名；缓存位置统一在应用根目录
+    _ = acus_root
+    return app_cache_dir() / "dds_preview"
 
 
 def dds_to_pixmap(

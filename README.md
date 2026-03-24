@@ -90,7 +90,7 @@ desktop/ACUS/
   course/
   reward/
   cueFile/
-  .cache/dds_preview/        # DDS 预览缓存（已被 .gitignore 忽略）
+  # 说明：预览缓存已迁移到项目根 .cache/dds_preview/
 ```
 
 > 以后所有生成/管理都围绕这个 `ACUS/` 进行。
@@ -141,7 +141,7 @@ ACUS/
   - 右侧显示字段详情
   - 若能定位到 DDS（角色大头、曲绘、**宣传 Event 同目录下的 info 图**等），会尝试预览
 
-> 预览会把 DDS 转成 PNG 缓存到 `ACUS/.cache/dds_preview/`。
+> 预览会把 DDS 转成 PNG 缓存到项目根目录的 `.cache/dds_preview/`（不在 ACUS 内）。
 
 ---
 
@@ -198,7 +198,7 @@ python3 -m chuni_eventer_desktop
 
 ```bash
 cd "/Users/mac/code/chuni eventer/desktop"
-rm -rf "ACUS/.cache/dds_preview"
+rm -rf ".cache/dds_preview"
 ```
 
 ---
