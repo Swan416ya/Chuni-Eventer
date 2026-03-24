@@ -4,6 +4,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -132,6 +133,7 @@ class TrophyAddDialog(QDialog):
                 ),
             ),
         )
+        form.addRow("格式示例", self._example_row())
 
         ok = QPushButton("生成并写入 ACUS")
         ok.clicked.connect(self._run)
@@ -182,6 +184,30 @@ class TrophyAddDialog(QDialog):
             hint.setStyleSheet("color:#6B7280; font-size: 11px;")
             hint.setWordWrap(True)
             v.addWidget(hint)
+        return w
+
+    def _example_row(self) -> QWidget:
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(4)
+        img = QLabel("示例图")
+        img.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        img.setStyleSheet("border: 1px solid #444;")
+        sample = Path(__file__).resolve().parents[1] / "static" / "trophy" / "Custom_Example.png"
+        if sample.exists():
+            pm = QPixmap(str(sample))
+            if not pm.isNull():
+                img.setPixmap(pm.scaledToWidth(560, Qt.TransformationMode.SmoothTransformation))
+                img.setText("")
+        v.addWidget(img)
+        tip = QLabel(
+            "示例说明：上半部分是实际显示内容；下半部分黑白区域用于游戏内闪光遮罩。"
+            "如果不需要闪光效果，下半部分可直接填纯黑。"
+        )
+        tip.setWordWrap(True)
+        tip.setStyleSheet("color:#6B7280; font-size: 11px;")
+        v.addWidget(tip)
         return w
 
     def _pick_into(self, edit: QLineEdit, title: str) -> None:
