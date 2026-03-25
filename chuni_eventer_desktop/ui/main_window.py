@@ -26,6 +26,7 @@ from .map_add_dialog import MapAddDialog, RewardCreateDialog, ensure_reward_xml,
 from .nameplate_add_dialog import NamePlateAddDialog
 from .trophy_add_dialog import TrophyAddDialog
 from .music_trophy_dialog import MusicTrophyDialog
+from .save_patch_dialog import SavePatchDialog
 
 
 class MainWindow(QMainWindow):
@@ -53,12 +54,17 @@ class MainWindow(QMainWindow):
         self.settings_btn.clicked.connect(self._open_settings)
         self.settings_btn.setStyleSheet("background: #FFFFFF; color: #111827; border: 1px solid #E5E7EB;")
 
+        self.save_patch_btn = QPushButton("存档装备")
+        self.save_patch_btn.clicked.connect(self._open_save_patch)
+        self.save_patch_btn.setStyleSheet("background: #FFFFFF; color: #111827; border: 1px solid #E5E7EB;")
+
         left = QWidget()
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(12, 12, 12, 12)
         left_layout.addWidget(QLabel("导航"))
         left_layout.addWidget(self.nav, stretch=1)
         left_layout.addStretch(1)
+        left_layout.addWidget(self.save_patch_btn)
         left_layout.addWidget(self.settings_btn)
 
         # Right header
@@ -116,6 +122,14 @@ class MainWindow(QMainWindow):
             return None
         # 误填「.」或目录时 exists 为真但不可执行，预览会崩；必须指向普通文件
         return p if p.is_file() else None
+
+    def _open_save_patch(self) -> None:
+        dlg = SavePatchDialog(
+            acus_root=self._acus_root,
+            get_tool_path=self._get_tool_path_or_none,
+            parent=self,
+        )
+        dlg.exec()
 
     def _open_settings(self) -> None:
         dlg = SettingsDialog(cfg=self._cfg, parent=self)
