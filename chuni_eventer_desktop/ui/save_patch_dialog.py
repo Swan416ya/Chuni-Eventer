@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -65,13 +66,17 @@ class SavePatchDialog(QDialog):
         # --- 名牌 ---
         np_page = QWidget()
         np_lay = QVBoxLayout(np_page)
+        self.np_current_id_label = QLabel("当前存档名牌 ID：-")
+        self.np_current_id_label.setStyleSheet("color:#6B7280;")
         self.np_filter = QLineEdit()
         self.np_filter.setPlaceholderText("筛选名牌：ID 或名称")
         self.np_filter.textChanged.connect(self._filter_nameplates)
         self.np_combo = QComboBox()
+        self.np_combo.setEditable(True)
         self.np_combo.setMaxVisibleItems(30)
         for np in self._nameplates:
             self.np_combo.addItem(f"{np.name.id} | {np.name.str}", np)
+        np_lay.addWidget(self.np_current_id_label)
         np_lay.addWidget(self.np_filter)
         np_lay.addWidget(self.np_combo)
         self.np_preview = QLabel("预览")
@@ -85,15 +90,19 @@ class SavePatchDialog(QDialog):
         # --- 称号 三槽 ---
         tr_page = QWidget()
         tr_lay = QVBoxLayout(tr_page)
+        self.tr_current_ids_label = QLabel("当前存档称号 ID：主 - / 副1 - / 副2 -")
+        self.tr_current_ids_label.setStyleSheet("color:#6B7280;")
         form = QFormLayout()
         self.tr_main = QComboBox()
         self.tr_sub1 = QComboBox()
         self.tr_sub2 = QComboBox()
         for cb in (self.tr_main, self.tr_sub1, self.tr_sub2):
+            cb.setEditable(True)
             cb.setMaxVisibleItems(30)
         self._fill_trophy_combo(self.tr_main, with_keep=False)
         self._fill_trophy_combo(self.tr_sub1, with_keep=True)
         self._fill_trophy_combo(self.tr_sub2, with_keep=True)
+        tr_lay.addWidget(self.tr_current_ids_label)
         form.addRow("主称号", self.tr_main)
         form.addRow("副称号 1", self.tr_sub1)
         form.addRow("副称号 2", self.tr_sub2)
@@ -189,6 +198,7 @@ class SavePatchDialog(QDialog):
         if not self._data:
             return
         ud = self._data.get("userData") or {}
+        self._update_current_id_labels()
 
         nid = ud.get("nameplateId")
         if isinstance(nid, int):
@@ -197,6 +207,8 @@ class SavePatchDialog(QDialog):
                 if np and np.name.id == nid:
                     self.np_combo.setCurrentIndex(i)
                     break
+            else:
+                self.np_combo.setEditText(str(nid))
 
         def set_trophy_combo(cb: QComboBox, tid: object, *, allow_keep: bool) -> None:
             if not isinstance(tid, int):
@@ -208,8 +220,7 @@ class SavePatchDialog(QDialog):
                 if isinstance(it, TrophyItem) and it.name.id == tid:
                     cb.setCurrentIndex(i)
                     return
-            if allow_keep:
-                cb.setCurrentIndex(0)
+            cb.setEditText(str(tid))
 
         set_trophy_combo(self.tr_main, ud.get("trophyId"), allow_keep=False)
         set_trophy_combo(self.tr_sub1, ud.get("trophyIdSub1"), allow_keep=True)
@@ -219,6 +230,31 @@ class SavePatchDialog(QDialog):
 
         self._on_np_changed()
         self._on_tr_main_changed()
+
+    def _update_current_id_labels(self) -> None:
+        ud = (self._data or {}).get("userData") or {}
+        nid = ud.get("nameplateId")
+        t0 = ud.get("trophyId")
+        t1 = ud.get("trophyIdSub1")
+        t2 = ud.get("trophyIdSub2")
+        self.np_current_id_label.setText(f"当前存档名牌 ID：{nid if isinstance(nid, int) else '-'}")
+        self.tr_current_ids_label.setText(
+            f"当前存档称号 ID：主 {t0 if isinstance(t0, int) else '-'} / "
+            f"副1 {t1 if isinstance(t1, int) else '-'} / "
+            f"副2 {t2 if isinstance(t2, int) else '-'}"
+        )
+
+    @staticmethod
+    def _extract_numeric_id(text: str) -> int | None:
+        s = text.strip()
+        if not s:
+            return None
+        if re.fullmatch(r"-?\d+", s):
+            return int(s)
+        m = re.match(r"\s*(-?\d+)\s*\|", s)
+        if m:
+            return int(m.group(1))
+        return None
 
     def _sync_penguins_from_save(self) -> None:
         if not self._data:
@@ -286,22 +322,34 @@ class SavePatchDialog(QDialog):
             QMessageBox.warning(self, "提示", "请先选择存档 JSON")
             return
         np: NamePlateItem | None = self.np_combo.currentData()
-        if np is None:
-            QMessageBox.warning(self, "提示", "请选择一个名牌（可先筛选下拉框）")
+        np_id = np.name.id if isinstance(np, NamePlateItem) else self._extract_numeric_id(self.np_combo.currentText())
+        if np_id is None:
+            QMessageBox.warning(self, "提示", "请选择名牌，或在下拉框里输入名牌 ID")
             return
         main: TrophyItem | None = self.tr_main.currentData()
-        if main is None:
-            QMessageBox.warning(self, "提示", "请选择主称号")
+        main_id = main.name.id if isinstance(main, TrophyItem) else self._extract_numeric_id(self.tr_main.currentText())
+        if main_id is None:
+            QMessageBox.warning(self, "提示", "请选择主称号，或在下拉框里输入称号 ID")
             return
-        set_equipped_nameplate(self._data, np.name.id)
+        set_equipped_nameplate(self._data, np_id)
         ud = self._data.setdefault("userData", {})
         cur_sub1 = ud.get("trophyIdSub1")
         cur_sub2 = ud.get("trophyIdSub2")
         sub1_it = self.tr_sub1.currentData()
         sub2_it = self.tr_sub2.currentData()
-        s1 = sub1_it.name.id if isinstance(sub1_it, TrophyItem) else (int(cur_sub1) if isinstance(cur_sub1, int) else -1)
-        s2 = sub2_it.name.id if isinstance(sub2_it, TrophyItem) else (int(cur_sub2) if isinstance(cur_sub2, int) else -1)
-        set_equipped_trophies(self._data, main.name.id, s1, s2)
+        sub1_typed = self._extract_numeric_id(self.tr_sub1.currentText())
+        sub2_typed = self._extract_numeric_id(self.tr_sub2.currentText())
+        s1 = (
+            sub1_it.name.id
+            if isinstance(sub1_it, TrophyItem)
+            else (sub1_typed if isinstance(sub1_typed, int) else (int(cur_sub1) if isinstance(cur_sub1, int) else -1))
+        )
+        s2 = (
+            sub2_it.name.id
+            if isinstance(sub2_it, TrophyItem)
+            else (sub2_typed if isinstance(sub2_typed, int) else (int(cur_sub2) if isinstance(cur_sub2, int) else -1))
+        )
+        set_equipped_trophies(self._data, main_id, s1, s2)
 
         stocks = {pid: sp.value() for sp, pid in zip(self._penguin_spins, PENGUIN_ITEM_IDS, strict=True)}
         set_penguin_stocks(self._data, stocks)

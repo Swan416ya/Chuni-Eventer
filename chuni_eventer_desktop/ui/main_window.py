@@ -27,6 +27,7 @@ from .nameplate_add_dialog import NamePlateAddDialog
 from .trophy_add_dialog import TrophyAddDialog
 from .music_trophy_dialog import MusicTrophyDialog
 from .save_patch_dialog import SavePatchDialog
+from .event_add_dialog import EventAddDialog
 
 
 class MainWindow(QMainWindow):
@@ -191,6 +192,16 @@ class MainWindow(QMainWindow):
                 self._on_refresh()
             return
 
+        if idx == 2:
+            dlg = EventAddDialog(
+                acus_root=self._acus_root,
+                tool_path=self._get_tool_path_or_none(),
+                parent=self,
+            )
+            if dlg.exec() == dlg.DialogCode.Accepted:
+                self._on_refresh()
+            return
+
         tool = self._get_tool_path_or_none()
         if tool is None and not quicktex_available():
             QMessageBox.critical(
@@ -223,6 +234,6 @@ class MainWindow(QMainWindow):
                 self,
                 "未实现",
                 "当前已实现【新增角色】【新增地图】【新增歌曲课题称号】【新增称号】【新增名牌】【新增奖励】。"
-                "Event / DDSImage 等请直接在 ACUS 目录维护或用其它工具。",
+                "DDSImage 请直接在 ACUS 目录维护或用其它工具。",
             )
 

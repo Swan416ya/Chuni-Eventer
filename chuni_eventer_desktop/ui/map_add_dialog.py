@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ..dds_convert import DdsToolError
+from ..dds_convert import DdsToolError, ingest_to_bc3_dds
 
 from .dds_progress import run_bc3_jobs_with_progress
 from ..dds_quicktex import quicktex_available
@@ -1379,7 +1379,7 @@ class DdsMapCreateDialog(QDialog):
         self.name = QLineEdit()
         self.name.setPlaceholderText("显示名（写入 DDSMap name.str）")
         self.image_path = QLineEdit()
-        self.image_path.setPlaceholderText("选择图片…")
+        self.image_path.setPlaceholderText("选择图片或 DDS（DDS 将直接导入，需为 BC3）…")
         br = QPushButton("浏览…")
         br.clicked.connect(self._pick_image)
 
@@ -1391,6 +1391,7 @@ class DdsMapCreateDialog(QDialog):
 
         hint = QLabel(
             f"贴图将自动缩放并裁切为 **{MAP_DDS_WIDTH}×{MAP_DDS_HEIGHT}** 像素（与游戏地图格背景常见规格一致），再编码为 BC3 DDS。\n"
+            "若直接上传 `.dds` 则不会重编码，会直接写入（必须是 BC3/DXT5）。\n"
             f"ID 自动分配为 **7xxxxxxx**，与官方小包 id 错开。"
         )
         hint.setWordWrap(True)
@@ -1417,7 +1418,12 @@ class DdsMapCreateDialog(QDialog):
         lay.addLayout(btns)
 
     def _pick_image(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "选择地图背景图")
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择地图背景图",
+            "",
+            "Image or DDS (*.dds *.png *.jpg *.jpeg *.webp *.bmp *.tif *.tiff);;All (*)",
+        )
         if path:
             self.image_path.setText(path)
 
@@ -1425,33 +1431,36 @@ class DdsMapCreateDialog(QDialog):
         mid = self._alloc_id
         src = Path(self.image_path.text().strip()).expanduser()
         if not src.is_file():
-            QMessageBox.critical(self, "错误", "请选择有效的图片文件")
+            QMessageBox.critical(self, "错误", "请选择有效的输入文件")
             return
         disp = self.name.text().strip() or f"MapTex{mid}"
         dds_basename = f"CHU_MAP_{mid:08d}.dds"
         ddir = self._acus_root / "ddsMap" / f"ddsMap{mid:08d}"
         try:
             ddir.mkdir(parents=True, exist_ok=True)
-            try:
-                img = prepare_map_background_rgba(source_image=src)
-            except UnidentifiedImageError as e:
-                QMessageBox.critical(self, "错误", f"无法识别图片：{e}")
-                return
-            except OSError as e:
-                QMessageBox.critical(self, "错误", f"无法读取图片：{e}")
-                return
             out_dds = ddir / dds_basename
-            with tempfile.TemporaryDirectory() as td:
-                tp = Path(td) / "map_bg.png"
-                img.save(tp, "PNG")
-                ok, dds_msg = run_bc3_jobs_with_progress(
-                    parent=self,
-                    tool_path=self._tool,
-                    jobs=[(tp, out_dds)],
-                    title="正在生成地图 DDS",
-                )
-                if not ok:
-                    raise DdsToolError(dds_msg)
+            if src.suffix.lower() == ".dds":
+                ingest_to_bc3_dds(tool_path=self._tool, input_path=src, output_dds=out_dds)
+            else:
+                try:
+                    img = prepare_map_background_rgba(source_image=src)
+                except UnidentifiedImageError as e:
+                    QMessageBox.critical(self, "错误", f"无法识别图片：{e}")
+                    return
+                except OSError as e:
+                    QMessageBox.critical(self, "错误", f"无法读取图片：{e}")
+                    return
+                with tempfile.TemporaryDirectory() as td:
+                    tp = Path(td) / "map_bg.png"
+                    img.save(tp, "PNG")
+                    ok, dds_msg = run_bc3_jobs_with_progress(
+                        parent=self,
+                        tool_path=self._tool,
+                        jobs=[(tp, out_dds)],
+                        title="正在生成地图 DDS",
+                    )
+                    if not ok:
+                        raise DdsToolError(dds_msg)
             write_ddsmap_xml(
                 out_dir=self._acus_root,
                 dds_map_id=mid,
@@ -1606,7 +1615,7 @@ class MapAddDialog(QDialog):
         self.create_unlock_event.setChecked(True)
         self.create_unlock_event.toggled.connect(self._sync_event_id_enabled)
         self.event_id = QLineEdit()
-        self.event_id.setPlaceholderText("留空则默认 = max(1, MapID ÷ 1000)，可手填 Event ID")
+        self.event_id.setPlaceholderText("留空则自动分配：从 70000 开始取未占用 ID，可手填 Event ID")
         if self._edit_mode:
             self.create_unlock_event.setVisible(False)
             self.event_id.setVisible(False)
@@ -2498,7 +2507,7 @@ class MapAddDialog(QDialog):
         )
         if not self._edit_mode and self.create_unlock_event.isChecked():
             eid_in = _safe_int(self.event_id.text())
-            event_id = eid_in if eid_in is not None else max(1, map_id // 1000)
+            event_id = eid_in if eid_in is not None else self._next_available_unlock_event_id()
             if event_id < 0:
                 QMessageBox.critical(self, "错误", "解锁 Event ID 必须为非负整数")
                 return
@@ -2853,6 +2862,35 @@ class MapAddDialog(QDialog):
         ET.SubElement(s, "data")
         ET.indent(root)  # type: ignore[attr-defined]
         ET.ElementTree(root).write(sort_path, encoding="utf-8", xml_declaration=True)
+
+    def _next_available_unlock_event_id(self, *, start: int = 70000) -> int:
+        """返回从 start 开始的首个未被占用 Event ID。"""
+        used: set[int] = set()
+        event_root = self._acus_root / "event"
+        if event_root.exists():
+            for p in event_root.glob("event*"):
+                if not p.is_dir():
+                    continue
+                name = p.name
+                if len(name) <= 5:
+                    continue
+                suffix = name[5:]
+                if suffix.isdigit():
+                    used.add(int(suffix))
+            sort_path = event_root / "EventSort.xml"
+            if sort_path.exists():
+                try:
+                    root = ET.parse(sort_path).getroot()
+                    for n in root.findall("./SortList/StringID/id"):
+                        v = _safe_int((n.text or "").strip())
+                        if v is not None:
+                            used.add(v)
+                except Exception:
+                    pass
+        cur = max(0, start)
+        while cur in used:
+            cur += 1
+        return cur
 
     def _append_map_sort(self, map_id: int) -> None:
         sort_path = self._acus_root / "map" / "MapSort.xml"

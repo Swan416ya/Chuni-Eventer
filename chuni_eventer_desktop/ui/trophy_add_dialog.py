@@ -19,9 +19,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ..dds_convert import DdsToolError
-
-from .dds_progress import run_bc3_jobs_with_progress
+from ..dds_convert import DdsToolError, ingest_to_bc3_dds
 
 
 def _safe_int(text: str) -> int | None:
@@ -246,7 +244,7 @@ class TrophyAddDialog(QDialog):
         rare_lay.addWidget(self.rare_combo)
         rare_lay.addWidget(self.rare_auto_label)
         self.image_edit = QLineEdit()
-        self.image_edit.setPlaceholderText("可选：选择称号图片（将转 BC3 DDS）")
+        self.image_edit.setPlaceholderText("可选：选择称号图片或 DDS（DDS 需为 BC3）")
 
         name_hint = QLabel(
             "称号名：请仅输入日语字库内可显示的字符，否则机台界面可能出现□。"
@@ -274,6 +272,7 @@ class TrophyAddDialog(QDialog):
                 dim_hint=(
                     "可选；若使用图片：参考分辨率 608 × 148 像素。"
                     "下方可留空，内容物请靠在整张图最上方排版。"
+                    " 也可直接上传 DDS（必须 BC3/DXT5）。"
                 ),
             ),
         )
@@ -383,14 +382,7 @@ class TrophyAddDialog(QDialog):
                 if not src.exists():
                     raise ValueError("称号图片路径不存在")
                 dds_path = tdir / dds_name
-                ok, dds_msg = run_bc3_jobs_with_progress(
-                    parent=self,
-                    tool_path=self._tool,
-                    jobs=[(src, dds_path)],
-                    title="正在生成称号 DDS",
-                )
-                if not ok:
-                    raise DdsToolError(dds_msg)
+                ingest_to_bc3_dds(tool_path=self._tool, input_path=src, output_dds=dds_path)
                 image_path_xml = dds_name
 
             # 与 A001 一致：有图时为同目录下 CHU_UI_Trophy_XXXXXX.dds；无图时 <path /> 空元素

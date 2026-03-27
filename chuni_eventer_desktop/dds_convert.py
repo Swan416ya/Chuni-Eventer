@@ -1,12 +1,53 @@
 from __future__ import annotations
 
 import subprocess
+import shutil
+import struct
 from pathlib import Path
 from typing import Sequence
 
 
 class DdsToolError(RuntimeError):
     pass
+
+
+def _dds_fourcc(path: Path) -> str | None:
+    """读取 DDS 像素格式 FourCC；非 DDS 或读取失败返回 None。"""
+    try:
+        raw = path.read_bytes()
+    except Exception:
+        return None
+    if len(raw) < 128 or raw[:4] != b"DDS ":
+        return None
+    # DDS_HEADER starts at offset 4; ddspf.dwFourCC at absolute offset 84
+    fourcc = raw[84:88]
+    try:
+        return fourcc.decode("ascii")
+    except Exception:
+        return None
+
+
+def is_bc3_dds(path: Path) -> bool:
+    """
+    仅接受 BC3(DXT5)：
+    - legacy header: FourCC == DXT5
+    - DX10 header: FourCC == DX10 and dxgiFormat == 77 (DXGI_FORMAT_BC3_UNORM)
+    """
+    fourcc = _dds_fourcc(path)
+    if fourcc is None:
+        return False
+    if fourcc == "DXT5":
+        return True
+    if fourcc != "DX10":
+        return False
+    try:
+        raw = path.read_bytes()
+        if len(raw) < 148:
+            return False
+        dxgi_format = struct.unpack_from("<I", raw, 128)[0]
+        return dxgi_format == 77
+    except Exception:
+        return False
 
 
 def validate_compressonator_tool(tool_path: Path) -> None:
@@ -120,4 +161,19 @@ def convert_dds_to_png(*, tool_path: Path | None, input_dds: Path, output_png: P
     if last is not None:
         raise DdsToolError(f"DDS 转 PNG 失败（可能为不支持的 DDS 变体，如 DX10）。\n{hint}\n\n底层错误：{last}") from last
     raise DdsToolError(f"无法预览 DDS：未安装 quicktex 且未配置 compressonatorcli。\n{hint}")
+
+
+def ingest_to_bc3_dds(*, tool_path: Path | None, input_path: Path, output_dds: Path) -> None:
+    """
+    导入到目标 BC3 DDS：
+    - 输入是 .dds：校验必须为 BC3 后直接复制
+    - 其它图片：转换为 BC3 DDS
+    """
+    output_dds.parent.mkdir(parents=True, exist_ok=True)
+    if input_path.suffix.lower() == ".dds":
+        if not is_bc3_dds(input_path):
+            raise DdsToolError("检测到上传的是 DDS，但不是 BC3(DXT5) 格式；请先转换为 BC3 后再导入。")
+        shutil.copy2(input_path, output_dds)
+        return
+    convert_to_bc3_dds(tool_path=tool_path, input_image=input_path, output_dds=output_dds)
 

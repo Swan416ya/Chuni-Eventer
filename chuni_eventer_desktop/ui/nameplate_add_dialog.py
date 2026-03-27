@@ -16,9 +16,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ..dds_convert import DdsToolError
-
-from .dds_progress import run_bc3_jobs_with_progress
+from ..dds_convert import DdsToolError, ingest_to_bc3_dds
 
 
 def _safe_int(text: str) -> int | None:
@@ -43,7 +41,7 @@ class NamePlateAddDialog(QDialog):
         self.sort_edit = QLineEdit()
         self.sort_edit.setPlaceholderText("可不填，默认取名字第1字")
         self.image_edit = QLineEdit()
-        self.image_edit.setPlaceholderText("选择名牌图片（将转 BC3 DDS）")
+        self.image_edit.setPlaceholderText("选择名牌图片或 DDS（DDS 需为 BC3）")
 
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
@@ -57,6 +55,7 @@ class NamePlateAddDialog(QDialog):
                 "选择名牌图片",
                 dim_hint=(
                     "参考分辨率：576 × 228 像素；下方可留空，内容物请靠在整张图最上方排版。"
+                    " 也可直接上传 DDS（必须 BC3/DXT5）。"
                 ),
             ),
         )
@@ -118,14 +117,7 @@ class NamePlateAddDialog(QDialog):
             plate_dir.mkdir(parents=True, exist_ok=True)
             dds_name = f"CHU_UI_NamePlate_{nid:08d}.dds"
             dds_path = plate_dir / dds_name
-            ok, dds_msg = run_bc3_jobs_with_progress(
-                parent=self,
-                tool_path=self._tool,
-                jobs=[(src, dds_path)],
-                title="正在生成名牌 DDS",
-            )
-            if not ok:
-                raise DdsToolError(dds_msg)
+            ingest_to_bc3_dds(tool_path=self._tool, input_path=src, output_dds=dds_path)
 
             xml = f"""<?xml version="1.0" encoding="utf-8"?>
 <NamePlateData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">

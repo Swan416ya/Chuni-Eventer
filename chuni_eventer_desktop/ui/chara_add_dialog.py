@@ -18,10 +18,8 @@ from PyQt6.QtWidgets import (
 )
 
 from ..chuni_formats import ChuniCharaId
-from ..dds_convert import DdsToolError
+from ..dds_convert import DdsToolError, ingest_to_bc3_dds
 from ..xml_writer import write_chara_xml, write_ddsimage_xml
-
-from .dds_progress import run_bc3_jobs_with_progress
 
 
 def _set_idstr(node: ET.Element, val_id: int, val_str: str) -> None:
@@ -112,7 +110,7 @@ class CharaAddDialog(QDialog):
         self.half = QLineEdit()
         self.full = QLineEdit()
         for e in (self.head, self.half, self.full):
-            e.setPlaceholderText("选择图片文件（png/jpg/webp…）")
+            e.setPlaceholderText("选择图片或 DDS（DDS 需为 BC3）")
 
         self.base.textChanged.connect(self._update_preview)
         self.variant.textChanged.connect(self._update_preview)
@@ -130,15 +128,27 @@ class CharaAddDialog(QDialog):
         # A001：CHU_UI_Character_*_00/01/02 = 全身 / 半身 / 大头（与 ddsFile0/1/2 一致）
         form.addRow(
             "全身（_00）",
-            self._file_row(self.full, "选择全身图", dim_hint="参考分辨率（A001）：1493 × 1027 像素"),
+            self._file_row(
+                self.full,
+                "选择全身图",
+                dim_hint="参考分辨率（A001）：1493 × 1027 像素；也可直传 BC3 DDS。",
+            ),
         )
         form.addRow(
             "半身（_01）",
-            self._file_row(self.half, "选择半身图", dim_hint="参考分辨率（A001）：688 × 474 像素"),
+            self._file_row(
+                self.half,
+                "选择半身图",
+                dim_hint="参考分辨率（A001）：688 × 474 像素；也可直传 BC3 DDS。",
+            ),
         )
         form.addRow(
             "大头（_02）",
-            self._file_row(self.head, "选择大头图", dim_hint="参考分辨率（A001）：545 × 375 像素"),
+            self._file_row(
+                self.head,
+                "选择大头图",
+                dim_hint="参考分辨率（A001）：545 × 375 像素；也可直传 BC3 DDS。",
+            ),
         )
 
         ok = QPushButton("生成并写入 ACUS")
@@ -216,14 +226,8 @@ class CharaAddDialog(QDialog):
                 (half, dds_dir / cid.dds_filename(1)),
                 (head, dds_dir / cid.dds_filename(2)),
             ]
-            ok, dds_msg = run_bc3_jobs_with_progress(
-                parent=self,
-                tool_path=self._tool,
-                jobs=jobs,
-                title="正在生成角色 DDS",
-            )
-            if not ok:
-                raise DdsToolError(dds_msg)
+            for src, dst in jobs:
+                ingest_to_bc3_dds(tool_path=self._tool, input_path=src, output_dds=dst)
 
             write_ddsimage_xml(out_dir=self._acus_root, chara_id=cid.raw)
             ill = self.illustrator.text().strip() or None
