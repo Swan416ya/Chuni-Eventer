@@ -23,7 +23,9 @@ from .chara_add_dialog import CharaAddDialog
 from .map_add_dialog import MapAddDialog, RewardCreateDialog, ensure_reward_xml, reward_dialog_bundle
 from .nameplate_add_dialog import NamePlateAddDialog
 from .trophy_add_dialog import TrophyAddDialog
+from .music_add_actions_dialog import MusicAddActionsDialog
 from .music_trophy_dialog import MusicTrophyDialog
+from .swan_sheet_download_dialog import SwanSheetDownloadDialog
 from .save_patch_dialog import SavePatchDialog
 from .event_add_dialog import EventAddDialog
 from .quest_add_dialog import QuestAddDialog
@@ -186,8 +188,16 @@ class MainWindow(MSFluentWindow):
             return
 
         if idx == 4:
-            dlg = MusicTrophyDialog(acus_root=self._acus_root, parent=self)
-            if dlg.exec() == dlg.DialogCode.Accepted:
+            pick = MusicAddActionsDialog(parent=self)
+            if pick.exec() != pick.DialogCode.Accepted:
+                return
+            act = pick.selected_action()
+            if act == "trophy":
+                dlg = MusicTrophyDialog(acus_root=self._acus_root, parent=self)
+                if dlg.exec() == dlg.DialogCode.Accepted:
+                    self._on_refresh()
+            elif act == "swan":
+                SwanSheetDownloadDialog(acus_root=self._acus_root, parent=self).exec()
                 self._on_refresh()
             return
 

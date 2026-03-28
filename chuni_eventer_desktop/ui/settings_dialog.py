@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QDialog, QFileDialog, QHBoxLayout, QVBoxLayout
 
 from qfluentwidgets import BodyLabel, CardWidget, LineEdit, PrimaryPushButton, PushButton
@@ -16,7 +15,7 @@ class SettingsDialog(QDialog):
         super().__init__(parent=parent)
         self.setWindowTitle("设置")
         self.setModal(True)
-        self.resize(520, 200)
+        self.resize(520, 220)
         self._cfg = cfg
 
         hint = BodyLabel(

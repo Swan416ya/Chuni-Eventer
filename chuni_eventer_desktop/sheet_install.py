@@ -1,0 +1,166 @@
+from __future__ import annotations
+
+import re
+import zipfile
+from pathlib import Path
+
+
+# 与 ACUS 根下目录名一致（小写比较）
+_ACUS_TOP_NAMES_LOWER = frozenset(
+    x.lower()
+    for x in (
+        "chara",
+        "ddsImage",
+        "ddsMap",
+        "music",
+        "map",
+        "mapArea",
+        "mapBonus",
+        "event",
+        "course",
+        "reward",
+        "cueFile",
+        "namePlate",
+        "trophy",
+        "quest",
+        "stage",
+    )
+)
+
+# 压缩包顶层为「资源文件夹本体」时（如 music0820、cueFile7013），映射到 ACUS 下的父目录。
+# 顺序：先匹配更长前缀（mapArea 先于 map）。
+_LEAF_FOLDER_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"^maparea\d+$", re.IGNORECASE), "mapArea"),
+    (re.compile(r"^mapbonus\d+$", re.IGNORECASE), "mapBonus"),
+    (re.compile(r"^map\d+$", re.IGNORECASE), "map"),
+    (re.compile(r"^ddsmap\d+$", re.IGNORECASE), "ddsMap"),
+    (re.compile(r"^ddsimage\d+$", re.IGNORECASE), "ddsImage"),
+    (re.compile(r"^music\d+$", re.IGNORECASE), "music"),
+    (re.compile(r"^cuefile\d+$", re.IGNORECASE), "cueFile"),
+    (re.compile(r"^chara\d+$", re.IGNORECASE), "chara"),
+    (re.compile(r"^nameplate\d+$", re.IGNORECASE), "namePlate"),
+    (re.compile(r"^trophy\d+$", re.IGNORECASE), "trophy"),
+    (re.compile(r"^event\d+$", re.IGNORECASE), "event"),
+    (re.compile(r"^course\d+$", re.IGNORECASE), "course"),
+    (re.compile(r"^reward\d+$", re.IGNORECASE), "reward"),
+    (re.compile(r"^quest\d+$", re.IGNORECASE), "quest"),
+    (re.compile(r"^stage\d+$", re.IGNORECASE), "stage"),
+)
+
+
+def _is_junk_member(name: str) -> bool:
+    n = name.replace("\\", "/").strip()
+    if not n:
+        return True
+    if n.startswith("__MACOSX/") or "/__MACOSX/" in n:
+        return True
+    if n.endswith(".DS_Store") or "/.DS_Store" in n:
+        return True
+    if "/._" in n or n.startswith("._"):
+        return True
+    return False
+
+
+def _norm_posix(name: str) -> str:
+    return name.replace("\\", "/").strip()
+
+
+def _strip_acus_prefix(n: str) -> str:
+    p = _norm_posix(n)
+    low = p.lower()
+    if low == "acus":
+        return ""
+    if low.startswith("acus/"):
+        return p[5:]
+    return p
+
+
+def _acus_parent_for_leaf_folder(first_segment: str) -> str | None:
+    for rx, parent in _LEAF_FOLDER_RULES:
+        if rx.match(first_segment):
+            return parent
+    return None
+
+
+def _map_internal_to_rel(p: str) -> Path:
+    """
+    将 zip 内路径（已去 ACUS 前缀）映射为相对于 ACUS 根的路径。
+    """
+    p = _norm_posix(p)
+    if not p or p == ".":
+        return Path(".")
+    parts = p.split("/")
+    head = parts[0]
+    tail = parts[1:]
+
+    parent = _acus_parent_for_leaf_folder(head)
+    if parent is not None:
+        rel = Path(parent) / head
+        if tail:
+            rel = rel.joinpath(*tail)
+        return rel
+
+    if head.lower() in _ACUS_TOP_NAMES_LOWER:
+        return Path(p)
+
+    raise ValueError(
+        f"无法识别压缩包路径的顶层「{head}」。"
+        f"请使用与 ACUS 一致的目录（如 music/…），或顶层为 music编号、cueFile编号、stage编号 等资源文件夹。"
+    )
+
+
+def _mapper_for_zip(namelist: list[str]):
+    names = [_norm_posix(n) for n in namelist if not _is_junk_member(n)]
+    names = [n for n in names if n]
+    if not names:
+        raise ValueError("压缩包内没有可用文件。")
+
+    file_entries = [n.rstrip("/") for n in names if n and not n.endswith("/")]
+    if file_entries and all(
+        x.lower().startswith("acus/") or x.lower() == "acus" for x in file_entries
+    ):
+        names = [_strip_acus_prefix(n) for n in names]
+        names = [n for n in names if n]
+
+    def map_path(zip_internal: str) -> Path:
+        p = _strip_acus_prefix(_norm_posix(zip_internal))
+        return _map_internal_to_rel(p)
+
+    return map_path
+
+
+def install_zip_to_acus(zip_path: Path, acus_root: Path) -> list[str]:
+    """
+    解压 zip 到 ACUS。返回已写入文件的相对路径列表（posix）。
+    """
+    acus_root = acus_root.resolve()
+    written: list[str] = []
+    if not zipfile.is_zipfile(zip_path):
+        raise ValueError("下载的文件不是 zip 压缩包（本站若上传 rar/7z 需先改为 zip）。")
+
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        map_path = _mapper_for_zip(zf.namelist())
+        for name in zf.namelist():
+            if _is_junk_member(name):
+                continue
+            try:
+                rel = map_path(name)
+            except ValueError as e:
+                raise ValueError(f"{e}\n（条目：{name!r}）") from e
+            if str(rel) in (".", ""):
+                continue
+            if name.endswith("/"):
+                dest_dir = (acus_root / rel).resolve()
+                if not str(dest_dir).startswith(str(acus_root)):
+                    raise ValueError(f"非法路径：{name!r}")
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                continue
+            dest = (acus_root / rel).resolve()
+            if not str(dest).startswith(str(acus_root)):
+                raise ValueError(f"非法路径（压缩包路径穿越）：{name!r}")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(name, "r") as src, dest.open("wb") as out:
+                out.write(src.read())
+            written.append(rel.as_posix())
+
+    return written

@@ -59,6 +59,14 @@ class MapItem:
 
 
 @dataclass(frozen=True)
+class StageItem:
+    xml_path: Path
+    name: IdStr
+    notes_field_line: IdStr | None
+    image_path: str
+
+
+@dataclass(frozen=True)
 class CharaItem:
     xml_path: Path
     name: IdStr
@@ -258,6 +266,22 @@ def scan_maps(acus_root: Path) -> list[MapItem]:
                 continue
             mf = _get_idstr(r.find("mapFilterID"))
             items.append(MapItem(p, name, mf))
+        except Exception:
+            continue
+    return sorted(items, key=lambda x: x.name.id)
+
+
+def scan_stages(acus_root: Path) -> list[StageItem]:
+    items: list[StageItem] = []
+    for p in iter_xml_files(acus_root, "stage/**/Stage.xml"):
+        try:
+            r = ET.parse(p).getroot()
+            name = _get_idstr(r.find("name"))
+            if not name:
+                continue
+            nfl = _get_idstr(r.find("notesFieldLine"))
+            image = (r.findtext("image/path") or "").strip()
+            items.append(StageItem(p, name, nfl, image))
         except Exception:
             continue
     return sorted(items, key=lambda x: x.name.id)

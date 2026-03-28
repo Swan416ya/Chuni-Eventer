@@ -46,6 +46,7 @@ def ensure_acus_layout() -> Path:
         "cueFile",
         "namePlate",
         "trophy",
+        "stage",
     ]:
         (root / d).mkdir(parents=True, exist_ok=True)
     # 缓存不再放在 ACUS 内，统一放应用根 .cache
@@ -67,9 +68,7 @@ class AcusConfig:
         if not p.exists():
             return cls()
         data = json.loads(p.read_text(encoding="utf-8"))
-        return cls(
-            compressonatorcli_path=str(data.get("compressonatorcli_path", "")),
-        )
+        return cls(compressonatorcli_path=str(data.get("compressonatorcli_path", "")))
 
     def save(self) -> None:
         p = self.path()
