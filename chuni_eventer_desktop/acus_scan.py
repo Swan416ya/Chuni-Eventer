@@ -157,6 +157,15 @@ class EventItem:
         return "other"
 
 
+@dataclass(frozen=True)
+class QuestItem:
+    xml_path: Path
+    name: IdStr
+    chara_count: int
+    chara_label: str
+    tier_label: str
+
+
 def iter_xml_files(root: Path, rel_glob: str) -> Iterable[Path]:
     yield from root.glob(rel_glob)
 
@@ -264,6 +273,50 @@ def scan_charas(acus_root: Path) -> list[CharaItem]:
                 continue
             default_key = (r.findtext("defaultImages/str") or "").strip()
             items.append(CharaItem(p, name, default_key))
+        except Exception:
+            continue
+    return sorted(items, key=lambda x: x.name.id)
+
+
+def scan_quests(acus_root: Path) -> list[QuestItem]:
+    items: list[QuestItem] = []
+    for p in iter_xml_files(acus_root, "quest/**/Quest.xml"):
+        try:
+            r = ET.parse(p).getroot()
+            name = _get_idstr(r.find("name"))
+            if not name:
+                continue
+            charas = r.findall("charas/list/StringID")
+            n_char = len(charas)
+            if n_char <= 0:
+                cl = "无角色条件"
+            elif n_char <= 3:
+                bits: list[str] = []
+                for c in charas:
+                    ids = _get_idstr(c)
+                    if ids:
+                        bits.append(f"{ids.id}")
+                cl = f"{n_char}名·" + ",".join(bits)
+            else:
+                cl = f"{n_char}名角色"
+            tiers: list[str] = []
+            for block in r.findall("info/QuestRewardDataInfo"):
+                sr = (block.findtext("sumRank") or "").strip()
+                if not sr:
+                    continue
+                t = _get_idstr(block.find("keyTrophyName"))
+                n = _get_idstr(block.find("keyNamePlateName"))
+                c = _get_idstr(block.find("keyCharaName"))
+                if t is not None and t.id != -1:
+                    tiers.append(f"{sr}→称号")
+                elif n is not None and n.id != -1:
+                    tiers.append(f"{sr}→名牌")
+                elif c is not None and c.id != -1:
+                    tiers.append(f"{sr}→角色")
+                else:
+                    tiers.append(f"{sr}→?")
+            tier_label = " | ".join(tiers) if tiers else "—"
+            items.append(QuestItem(p, name, n_char, cl, tier_label))
         except Exception:
             continue
     return sorted(items, key=lambda x: x.name.id)

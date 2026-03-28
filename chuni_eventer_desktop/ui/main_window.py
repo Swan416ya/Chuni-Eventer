@@ -26,6 +26,7 @@ from .trophy_add_dialog import TrophyAddDialog
 from .music_trophy_dialog import MusicTrophyDialog
 from .save_patch_dialog import SavePatchDialog
 from .event_add_dialog import EventAddDialog
+from .quest_add_dialog import QuestAddDialog
 from .fluent_dialogs import fly_message
 
 
@@ -76,6 +77,7 @@ class MainWindow(MSFluentWindow):
             ("nav_chara", FluentIcon.PEOPLE, "角色", "Chara", "角色"),
             ("nav_map", FluentIcon.GAME, "地图", "Map", "地图"),
             ("nav_event", FluentIcon.CALENDAR, "事件", "Event", "事件"),
+            ("nav_quest", FluentIcon.DOCUMENT, "任务", "Quest", "任务"),
             ("nav_music", FluentIcon.MUSIC, "歌曲", "Music", "歌曲"),
             ("nav_trophy", FluentIcon.CERTIFICATE, "称号", "Trophy", "称号"),
             ("nav_nameplate", FluentIcon.EMOJI_TAB_SYMBOLS, "名牌", "NamePlate", "名牌"),
@@ -108,7 +110,7 @@ class MainWindow(MSFluentWindow):
         )
 
         self.switchTo(self._workspace)
-        self._current_category_index = 3
+        self._current_category_index = 4
         self.navigationInterface.setCurrentItem("nav_music")
         self._apply_category("Music", "歌曲")
 
@@ -140,6 +142,7 @@ class MainWindow(MSFluentWindow):
             "Chara": "搜索角色…",
             "Map": "搜索地图…",
             "Event": "搜索事件…",
+            "Quest": "搜索任务…",
             "Trophy": "搜索称号…",
             "NamePlate": "搜索名牌…",
             "Reward": "搜索奖励…",
@@ -167,7 +170,7 @@ class MainWindow(MSFluentWindow):
 
     def _on_add(self) -> None:
         idx = self._current_category_index
-        if idx == 6:
+        if idx == 7:
             music_r, chara_r, trophy_r, np_r, default_id = reward_dialog_bundle(self._acus_root)
             dlg = RewardCreateDialog(
                 default_id=default_id,
@@ -182,8 +185,14 @@ class MainWindow(MSFluentWindow):
                 self._on_refresh()
             return
 
-        if idx == 3:
+        if idx == 4:
             dlg = MusicTrophyDialog(acus_root=self._acus_root, parent=self)
+            if dlg.exec() == dlg.DialogCode.Accepted:
+                self._on_refresh()
+            return
+
+        if idx == 3:
+            dlg = QuestAddDialog(acus_root=self._acus_root, parent=self)
             if dlg.exec() == dlg.DialogCode.Accepted:
                 self._on_refresh()
             return
@@ -217,11 +226,11 @@ class MainWindow(MSFluentWindow):
             dlg = MapAddDialog(acus_root=self._acus_root, tool_path=tool, parent=self)
             if dlg.exec() == dlg.DialogCode.Accepted:
                 self._on_refresh()
-        elif idx == 4:
+        elif idx == 5:
             dlg = TrophyAddDialog(acus_root=self._acus_root, tool_path=tool, parent=self)
             if dlg.exec() == dlg.DialogCode.Accepted:
                 self._on_refresh()
-        elif idx == 5:
+        elif idx == 6:
             dlg = NamePlateAddDialog(acus_root=self._acus_root, tool_path=tool, parent=self)
             if dlg.exec() == dlg.DialogCode.Accepted:
                 self._on_refresh()
@@ -229,6 +238,6 @@ class MainWindow(MSFluentWindow):
             QMessageBox.information(
                 self,
                 "未实现",
-                "当前已实现【新增角色】【新增地图】【新增歌曲课题称号】【新增称号】【新增名牌】【新增奖励】。"
+                "当前已实现【新增角色】【新增地图】【新增事件】【新增任务】【新增歌曲课题称号】【新增称号】【新增名牌】【新增奖励】。"
                 "DDSImage 请直接在 ACUS 目录维护或用其它工具。",
             )

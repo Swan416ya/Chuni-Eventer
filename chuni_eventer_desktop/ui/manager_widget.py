@@ -36,6 +36,7 @@ from ..acus_scan import (
     MapItem,
     MusicItem,
     NamePlateItem,
+    QuestItem,
     RewardItem,
     TrophyItem,
     scan_charas,
@@ -44,6 +45,7 @@ from ..acus_scan import (
     scan_maps,
     scan_music,
     scan_nameplates,
+    scan_quests,
     scan_rewards,
     scan_trophies,
 )
@@ -53,6 +55,7 @@ from ..trophy_preview import load_trophy_frame_pixmap, render_trophy_text_previe
 
 _KIND_DEFS: tuple[tuple[str, str], ...] = (
     ("事件", "Event"),
+    ("任务", "Quest"),
     ("地图", "Map"),
     ("歌曲", "Music"),
     ("角色", "Chara"),
@@ -336,7 +339,9 @@ class ManagerWidget(QWidget):
         k = self._kind_key()
         self.event_bar.setVisible(k == "Event")
 
-        if k == "Music":
+        if k == "Quest":
+            self.model.setHorizontalHeaderLabels(["ID", "名称", "角色条件", "奖励阶段", "来源(XML)"])
+        elif k == "Music":
             self.model.setHorizontalHeaderLabels(["ID", "曲名", "艺术家", "流派", "发布日期", "难度", "CueFile", "来源(XML)"])
         elif k == "Trophy":
             self.model.setHorizontalHeaderLabels(["ID", "名称", "稀有度", "来源(XML)"])
@@ -347,7 +352,12 @@ class ManagerWidget(QWidget):
         else:
             self.model.setHorizontalHeaderLabels(["ID", "名称", "分类", "来源(XML)"])
 
-        if k == "Event":
+        if k == "Quest":
+            items = scan_quests(self._acus_root)
+            self._items = items
+            for it in items:
+                self._append_quest_row(it)
+        elif k == "Event":
             items = scan_events(self._acus_root)
             self._items = []
             bucket_label = self.event_filter.currentText()
@@ -443,6 +453,14 @@ class ManagerWidget(QWidget):
         self.attrs_table.resizeColumnsToContents()
 
     def _attr_rows(self, it: object) -> list[tuple[str, str]]:
+        if isinstance(it, QuestItem):
+            return [
+                ("任务名", it.name.str or "—"),
+                ("任务 ID", str(it.name.id)),
+                ("参与角色", it.chara_label),
+                ("奖励阶段摘要", it.tier_label),
+                ("XML", self._rel_acus_path(it.xml_path)),
+            ]
         if isinstance(it, EventItem):
             et = str(it.event_type) if it.event_type is not None else "—"
             banner = str(it.dds_banner_id) if it.dds_banner_id is not None else "—"
@@ -590,7 +608,7 @@ class ManagerWidget(QWidget):
         return pm, None
 
     def _simple_preview_pixmap_and_hint(self, it: object) -> tuple[QPixmap | None, str | None]:
-        if self._kind_key() in ("Map", "Reward"):
+        if self._kind_key() in ("Map", "Reward", "Quest"):
             return None, None
         if isinstance(it, TrophyItem):
             try:
@@ -664,6 +682,22 @@ class ManagerWidget(QWidget):
             QStandardItem(it.release_date),
             QStandardItem(levels),
             QStandardItem(cue),
+            QStandardItem(src),
+        ]
+        cols[0].setData(it, Qt.ItemDataRole.UserRole)
+        for i, c in enumerate(cols):
+            c.setEditable(False)
+            self.model.setItem(row, i, c)
+
+    def _append_quest_row(self, it: QuestItem) -> None:
+        row = self.model.rowCount()
+        self.model.insertRow(row)
+        src = str(it.xml_path.relative_to(self._acus_root))
+        cols = [
+            QStandardItem(str(it.name.id)),
+            QStandardItem(it.name.str),
+            QStandardItem(it.chara_label),
+            QStandardItem(it.tier_label),
             QStandardItem(src),
         ]
         cols[0].setData(it, Qt.ItemDataRole.UserRole)
