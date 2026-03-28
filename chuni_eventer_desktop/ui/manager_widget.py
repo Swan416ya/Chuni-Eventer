@@ -269,9 +269,26 @@ class ManagerWidget(QWidget):
                 self._append_row(it.name.id, it.name.str, "DDSImage", it.xml_path, it)
 
         self._apply_filter()
-        self.table.resizeColumnsToContents()
+        self._resize_columns_safely()
         if self.proxy.rowCount() > 0:
             self.table.selectRow(0)
+
+    def _resize_columns_safely(self) -> None:
+        """
+        大表格上 `resizeColumnsToContents()` 代价很高，可能导致 UI 长时间无响应。
+        这里对小数据量保留自动适配，大数据量走固定宽度兜底。
+        """
+        rows = self.model.rowCount()
+        cols = self.model.columnCount()
+        if cols <= 0:
+            return
+        if rows <= 300:
+            self.table.resizeColumnsToContents()
+            return
+        # 兜底宽度：避免在大量 XML 条目时卡在全量内容测量
+        widths = [110, 280, 180, 420, 240, 200, 240, 320]
+        for i in range(cols):
+            self.table.setColumnWidth(i, widths[i] if i < len(widths) else 180)
 
     def _append_row(self, id_: int, name: str, kind: str, xml_path: Path, payload: object) -> None:
         row = self.model.rowCount()

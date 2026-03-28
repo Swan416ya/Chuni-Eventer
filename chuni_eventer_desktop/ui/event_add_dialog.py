@@ -129,7 +129,8 @@ class EventAddDialog(QDialog):
 
         hint = QLabel(
             "宣传图要求：1152 × 648 像素。\n"
-            "可上传图片（将转 BC3 DDS）或直接上传 DDS（必须 BC3/DXT5）。"
+            "可上传图片（将转 BC3 DDS）或直接上传 DDS（必须 BC3/DXT5）。\n"
+            "Event 结构与官方「Collaboration 告知」一致：substances/type=1，informationDispType=3。"
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#374151; font-size: 12px;")
@@ -209,7 +210,9 @@ class EventAddDialog(QDialog):
 
             edir = self._acus_root / "event" / f"event{eid:08d}"
             edir.mkdir(parents=True, exist_ok=True)
-            dds_name = f"CHU_UI_Event_{eid:08d}.dds"
+            # 与 A001 event00018076 / 18086 / 18089 一致：宣传图型为 substances/type=1，
+            # informationType=1、informationDispType=3，mapFilterID=Collaboration（非 type=6 + Invalid）
+            dds_name = f"CHU_info_event_custom{eid:08d}.dds"
             ingest_to_bc3_dds(tool_path=self._tool, input_path=src, output_dds=edir / dds_name)
 
             title = _xml_text(name)
@@ -238,17 +241,17 @@ class EventAddDialog(QDialog):
   <isKop>false</isKop>
   <priority>0</priority>
   <substances>
-    <type>6</type>
+    <type>1</type>
     <flag>
       <value>0</value>
     </flag>
     <information>
-      <informationType>0</informationType>
-      <informationDispType>0</informationDispType>
+      <informationType>1</informationType>
+      <informationDispType>3</informationDispType>
       <mapFilterID>
-        <id>-1</id>
-        <str>Invalid</str>
-        <data />
+        <id>0</id>
+        <str>Collaboration</str>
+        <data>イベント</data>
       </mapFilterID>
       <courseNames>
         <list />

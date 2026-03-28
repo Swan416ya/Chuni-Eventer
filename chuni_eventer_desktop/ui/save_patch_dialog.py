@@ -92,20 +92,18 @@ class SavePatchDialog(QDialog):
         tr_lay = QVBoxLayout(tr_page)
         self.tr_current_ids_label = QLabel("当前存档称号 ID：主 - / 副1 - / 副2 -")
         self.tr_current_ids_label.setStyleSheet("color:#6B7280;")
+        self.tr_limit_hint = QLabel("提示：因 rin 服服务器问题，当前仅支持修改主称号。")
+        self.tr_limit_hint.setStyleSheet("color:#B45309;")
+        self.tr_limit_hint.setWordWrap(True)
         form = QFormLayout()
         self.tr_main = QComboBox()
-        self.tr_sub1 = QComboBox()
-        self.tr_sub2 = QComboBox()
-        for cb in (self.tr_main, self.tr_sub1, self.tr_sub2):
+        for cb in (self.tr_main,):
             cb.setEditable(True)
             cb.setMaxVisibleItems(30)
         self._fill_trophy_combo(self.tr_main, with_keep=False)
-        self._fill_trophy_combo(self.tr_sub1, with_keep=True)
-        self._fill_trophy_combo(self.tr_sub2, with_keep=True)
         tr_lay.addWidget(self.tr_current_ids_label)
+        tr_lay.addWidget(self.tr_limit_hint)
         form.addRow("主称号", self.tr_main)
-        form.addRow("副称号 1", self.tr_sub1)
-        form.addRow("副称号 2", self.tr_sub2)
         tr_lay.addLayout(form)
         self.tr_preview = QLabel("预览（主称号）")
         self.tr_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -151,7 +149,7 @@ class SavePatchDialog(QDialog):
         btns.addWidget(apply_btn)
 
         hint = QLabel(
-            "另存时会同时写入：当前选中的名牌 + 主/副称号（副槽可选「保持存档原值」）"
+            "另存时会同时写入：当前选中的名牌 + 主称号（因 rin 服服务器问题，副称号保持存档原值）"
             " + 「企鹅」页各 ID 数量（写入 userItemList，其它物品不动）。"
             " 原 JSON 路径不会被覆盖，请选择新文件名保存。"
         )
@@ -223,8 +221,6 @@ class SavePatchDialog(QDialog):
             cb.setEditText(str(tid))
 
         set_trophy_combo(self.tr_main, ud.get("trophyId"), allow_keep=False)
-        set_trophy_combo(self.tr_sub1, ud.get("trophyIdSub1"), allow_keep=True)
-        set_trophy_combo(self.tr_sub2, ud.get("trophyIdSub2"), allow_keep=True)
 
         self._sync_penguins_from_save()
 
@@ -335,20 +331,8 @@ class SavePatchDialog(QDialog):
         ud = self._data.setdefault("userData", {})
         cur_sub1 = ud.get("trophyIdSub1")
         cur_sub2 = ud.get("trophyIdSub2")
-        sub1_it = self.tr_sub1.currentData()
-        sub2_it = self.tr_sub2.currentData()
-        sub1_typed = self._extract_numeric_id(self.tr_sub1.currentText())
-        sub2_typed = self._extract_numeric_id(self.tr_sub2.currentText())
-        s1 = (
-            sub1_it.name.id
-            if isinstance(sub1_it, TrophyItem)
-            else (sub1_typed if isinstance(sub1_typed, int) else (int(cur_sub1) if isinstance(cur_sub1, int) else -1))
-        )
-        s2 = (
-            sub2_it.name.id
-            if isinstance(sub2_it, TrophyItem)
-            else (sub2_typed if isinstance(sub2_typed, int) else (int(cur_sub2) if isinstance(cur_sub2, int) else -1))
-        )
+        s1 = int(cur_sub1) if isinstance(cur_sub1, int) else -1
+        s2 = int(cur_sub2) if isinstance(cur_sub2, int) else -1
         set_equipped_trophies(self._data, main_id, s1, s2)
 
         stocks = {pid: sp.value() for sp, pid in zip(self._penguin_spins, PENGUIN_ITEM_IDS, strict=True)}
