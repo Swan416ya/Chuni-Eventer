@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import asdict
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -20,7 +19,6 @@ from PyQt6.QtWidgets import (
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -31,6 +29,7 @@ from ..acus_scan import (
     CharaItem,
     DdsImageItem,
     EventItem,
+    IdStr,
     MapItem,
     MusicItem,
     NamePlateItem,
@@ -61,9 +60,123 @@ _KIND_DEFS: tuple[tuple[str, str], ...] = (
 )
 
 
+class WidthScaledPreviewLabel(QLabel):
+    """按容器宽度缩放 DDS 图，避免过宽 pixmap 撑死分割条。"""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self._source: QPixmap | None = None
+
+    def clear_source(self) -> None:
+        self._source = None
+        super().setPixmap(QPixmap())
+        self.setMinimumHeight(0)
+
+    def setSourcePixmap(self, pm: QPixmap | None) -> None:
+        self._source = pm if pm is not None and not pm.isNull() else None
+        self._apply_scale()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._apply_scale()
+
+    def _apply_scale(self) -> None:
+        if self._source is None or self._source.isNull():
+            super().setPixmap(QPixmap())
+            self.setMinimumHeight(0)
+            return
+        w = self.width()
+        if w <= 1:
+            par = self.parentWidget()
+            w = max(120, (par.width() * 4 // 5) if par is not None and par.width() > 0 else 360)
+        scaled = self._source.scaledToWidth(w, Qt.TransformationMode.SmoothTransformation)
+        super().setPixmap(scaled)
+        self.setMinimumHeight(scaled.height())
+
+
+class CharaDdsPreviewWidget(QWidget):
+    """左：ddsFile0；右：ddsFile1 / ddsFile2 上下等高，总高与左侧一致。"""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._pm: tuple[QPixmap | None, QPixmap | None, QPixmap | None] = (None, None, None)
+        self._left = QLabel()
+        self._r1 = QLabel()
+        self._r2 = QLabel()
+        for lb in (self._left, self._r1, self._r2):
+            lb.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lb.setStyleSheet("border: 1px solid #555;")
+        self._right_wrap = QWidget()
+        rv = QVBoxLayout(self._right_wrap)
+        rv.setContentsMargins(0, 0, 0, 0)
+        rv.setSpacing(0)
+        rv.addWidget(self._r1, 1)
+        rv.addWidget(self._r2, 1)
+        lay = QHBoxLayout(self)
+        lay.setSpacing(8)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(self._left, 0, Qt.AlignmentFlag.AlignTop)
+        lay.addWidget(self._right_wrap, 0, Qt.AlignmentFlag.AlignTop)
+
+    def clear(self) -> None:
+        self._pm = (None, None, None)
+        for lb in (self._left, self._r1, self._r2):
+            lb.clear()
+            lb.setText("")
+        self.setMinimumHeight(0)
+
+    def set_pixmaps(self, p0: QPixmap | None, p1: QPixmap | None, p2: QPixmap | None) -> None:
+        self._pm = (p0, p1, p2)
+        self._relayout()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._relayout()
+
+    def _fit_in(self, pm: QPixmap | None, rw: int, rh: int) -> QPixmap:
+        if pm is None or pm.isNull() or rw < 1 or rh < 1:
+            return QPixmap()
+        return pm.scaled(
+            rw,
+            rh,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+
+    def _relayout(self) -> None:
+        W = self.width()
+        if W < 32:
+            return
+        lay = self.layout()
+        gap = lay.spacing() if lay is not None else 8
+        col_w = max(1, (W - gap) // 2)
+        p0, p1, p2 = self._pm
+        if p0 is not None and not p0.isNull():
+            s0 = p0.scaledToWidth(col_w, Qt.TransformationMode.SmoothTransformation)
+            h = max(s0.height(), 1)
+        else:
+            s0 = QPixmap()
+            h = 160
+        h1 = h // 2
+        h2 = h - h1
+        s1 = self._fit_in(p1, col_w, h1)
+        s2 = self._fit_in(p2, col_w, h2)
+        self._left.setPixmap(s0)
+        self._left.setFixedSize(col_w, h)
+        self._right_wrap.setFixedSize(col_w, h)
+        self._r1.setPixmap(s1)
+        self._r1.setFixedSize(col_w, h1)
+        self._r2.setPixmap(s2)
+        self._r2.setFixedSize(col_w, h2)
+        self.setMinimumHeight(h)
+
+
 class ManagerWidget(QWidget):
     """
-    ACUS 浏览器组件（表格 + 详情 + DDS 预览）。
+    ACUS 浏览器组件（表格 + DDS 预览 + 属性表）。
 
     - 可作为独立页面使用（带顶部类型/搜索/刷新）
     - 也可作为“嵌入式”使用（由外层导航控制类型/搜索/刷新）
@@ -129,54 +242,42 @@ class ManagerWidget(QWidget):
         self.table.selectionModel().selectionChanged.connect(self._on_select)
         self.table.doubleClicked.connect(self._on_table_double_clicked)
 
-        self.detail = QTextEdit()
-        self.detail.setReadOnly(True)
-
-        self.preview = QLabel("预览")
-        self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview.setMinimumHeight(340)
-        self.preview.setStyleSheet("border: 1px solid #444;")
-
-        self.chara_panel = QWidget()
-        cp = QVBoxLayout(self.chara_panel)
-        cp.setContentsMargins(0, 0, 0, 0)
-        cp.setSpacing(8)
+        self.preview_section = QWidget()
+        pv = QVBoxLayout(self.preview_section)
+        pv.setContentsMargins(0, 0, 0, 0)
+        pv.setSpacing(8)
+        self.preview_title = CaptionLabel("DDS 预览（quicktex 或 compressonator）")
+        self.simple_preview = WidthScaledPreviewLabel()
         self.chara_variant_tabs = QTabWidget()
         for i in range(10):
             self.chara_variant_tabs.addTab(QWidget(), str(i))
         self.chara_variant_tabs.currentChanged.connect(self._on_chara_variant_changed)
-        cp.addWidget(self.chara_variant_tabs, stretch=0)
-        self.chara_preview0 = QLabel("全身(_00)")
-        self.chara_preview1 = QLabel("半身(_01)")
-        self.chara_preview2 = QLabel("大头(_02)")
-        for lb in (self.chara_preview0, self.chara_preview1, self.chara_preview2):
-            lb.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lb.setMinimumHeight(120)
-            lb.setStyleSheet("border: 1px solid #444;")
-            cp.addWidget(lb, stretch=0)
-        self.chara_meta = QTableWidget(0, 2)
-        self.chara_meta.setHorizontalHeaderLabels(["字段", "值"])
-        self.chara_meta.horizontalHeader().setStretchLastSection(True)
-        self.chara_meta.verticalHeader().setVisible(False)
-        self.chara_meta.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        cp.addWidget(self.chara_meta, stretch=1)
-        self.chara_panel.setVisible(False)
+        self.chara_triple = CharaDdsPreviewWidget()
+        pv.addWidget(self.preview_title)
+        pv.addWidget(self.simple_preview)
+        pv.addWidget(self.chara_variant_tabs)
+        pv.addWidget(self.chara_triple)
+        self.preview_section.setVisible(False)
+
+        self.attrs_table = QTableWidget(0, 2)
+        self.attrs_table.setHorizontalHeaderLabels(["属性", "值"])
+        self.attrs_table.horizontalHeader().setStretchLastSection(True)
+        self.attrs_table.verticalHeader().setVisible(False)
+        self.attrs_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.attrs_table.setAlternatingRowColors(True)
+        self.attrs_table.setWordWrap(True)
+
         self._selected_chara: CharaItem | None = None
         self._chara_variant_map: dict[int, int] = {}
 
-        # right panel "card"
+        # right panel：上 DDS（有则显示），下属性表
         right_card = QFrame()
         right_card.setFrameShape(QFrame.Shape.NoFrame)
         right_layout = QVBoxLayout(right_card)
         right_layout.setContentsMargins(12, 12, 12, 12)
-        right_layout.addWidget(BodyLabel("详情"))
-        right_layout.addWidget(self.detail, stretch=1)
-        self.preview_title = CaptionLabel("DDS 预览（quicktex 或 compressonator）")
-        right_layout.addWidget(self.preview_title)
-        right_layout.addWidget(self.preview, stretch=0)
-        right_layout.addWidget(self.chara_panel, stretch=1)
-
-        self.preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        right_layout.addWidget(self.preview_section, stretch=0)
+        right_layout.addWidget(BodyLabel("属性"))
+        right_layout.addWidget(self.attrs_table, stretch=1)
 
         split = QSplitter()
         split.setOrientation(Qt.Orientation.Horizontal)
@@ -217,19 +318,12 @@ class ManagerWidget(QWidget):
 
     def reload(self) -> None:
         self.model.removeRows(0, self.model.rowCount())
-        self.detail.clear()
-        self.preview.setText("预览")
-        self.preview.clear()
-        self.chara_panel.setVisible(False)
+        self.attrs_table.setRowCount(0)
+        self._hide_preview_section()
+        self.simple_preview.clear_source()
+        self.chara_triple.clear()
 
         k = self._kind_key()
-        if k in ("Map", "Reward"):
-            self.preview_title.setVisible(False)
-            self.preview.setVisible(False)
-        else:
-            self.preview_title.setVisible(True)
-            self.preview.setVisible(True)
-
         self.event_bar.setVisible(k == "Event")
 
         if k == "Music":
@@ -300,6 +394,208 @@ class ManagerWidget(QWidget):
         self._resize_columns_safely()
         if self.proxy.rowCount() > 0:
             self.table.selectRow(0)
+
+    def _hide_preview_section(self) -> None:
+        self.preview_section.setVisible(False)
+        self.preview_title.setVisible(True)
+        self.simple_preview.setVisible(False)
+        self.chara_variant_tabs.setVisible(False)
+        self.chara_triple.setVisible(False)
+
+    def _rel_acus_path(self, p: Path) -> str:
+        try:
+            return str(p.relative_to(self._acus_root))
+        except ValueError:
+            return str(p)
+
+    @staticmethod
+    def _fmt_id_str(x: IdStr | None) -> str:
+        if x is None:
+            return "—"
+        if x.str:
+            return f"{x.id} · {x.str}"
+        return str(x.id)
+
+    def _append_attr_row(self, label: str, value: str) -> None:
+        r = self.attrs_table.rowCount()
+        self.attrs_table.insertRow(r)
+        self.attrs_table.setItem(r, 0, QTableWidgetItem(label))
+        self.attrs_table.setItem(r, 1, QTableWidgetItem(value))
+
+    def _fill_attrs_table(self, it: object) -> None:
+        self.attrs_table.setRowCount(0)
+        for label, val in self._attr_rows(it):
+            self._append_attr_row(label, val)
+        self.attrs_table.resizeColumnsToContents()
+
+    def _attr_rows(self, it: object) -> list[tuple[str, str]]:
+        if isinstance(it, EventItem):
+            et = str(it.event_type) if it.event_type is not None else "—"
+            banner = str(it.dds_banner_id) if it.dds_banner_id is not None else "—"
+            img = it.info_image_path.strip() or "—"
+            return [
+                ("名称", it.name.str or "—"),
+                ("事件 ID", str(it.name.id)),
+                ("substances 类型", et),
+                ("列表分类", it.category_label),
+                ("关联地图", self._fmt_id_str(it.map_name)),
+                ("宣传图路径", img),
+                ("MapFilter", self._fmt_id_str(it.map_filter)),
+                ("Banner ID", banner),
+                ("XML", self._rel_acus_path(it.xml_path)),
+            ]
+        if isinstance(it, MusicItem):
+            artist = it.artist.str if it.artist else "—"
+            genres = " / ".join(it.genres) if it.genres else "—"
+            levels = " | ".join(it.levels) if it.levels else "—"
+            cue = self._fmt_id_str(it.cue_file) if it.cue_file else "—"
+            jacket = it.jacket_path.strip() or "—"
+            stage = self._fmt_id_str(it.stage) if it.stage else "—"
+            ult = "是" if it.has_ultima else "否"
+            return [
+                ("曲名", it.name.str or "—"),
+                ("乐曲 ID", str(it.name.id)),
+                ("艺术家", artist),
+                ("舞台", stage),
+                ("流派", genres),
+                ("发布日期", it.release_date or "—"),
+                ("难度", levels),
+                ("Cue 文件", cue),
+                ("封面 jacket", jacket),
+                ("含 Ultima 谱", ult),
+                ("XML", self._rel_acus_path(it.xml_path)),
+            ]
+        if isinstance(it, MapItem):
+            mf = self._fmt_id_str(it.map_filter) if it.map_filter else "—"
+            return [
+                ("地图名称", it.name.str or "—"),
+                ("地图 ID", str(it.name.id)),
+                ("MapFilter", mf),
+                ("XML", self._rel_acus_path(it.xml_path)),
+            ]
+        if isinstance(it, DdsImageItem):
+            return [
+                ("资源显示名", it.name.str or "—"),
+                ("ddsImage ID", str(it.name.id)),
+                ("ddsFile0", it.dds0 or "—"),
+                ("ddsFile1", it.dds1 or "—"),
+                ("ddsFile2", it.dds2 or "—"),
+                ("XML", self._rel_acus_path(it.xml_path)),
+            ]
+        if isinstance(it, TrophyItem):
+            rare = str(it.rare_type) if it.rare_type is not None else "—"
+            img = it.image_path.strip() or "（无图称号）"
+            return [
+                ("称号名", it.name.str or "—"),
+                ("称号 ID", str(it.name.id)),
+                ("稀有度类型", rare),
+                ("说明", it.explain_text or "—"),
+                ("贴图路径", img),
+                ("XML", self._rel_acus_path(it.xml_path)),
+            ]
+        if isinstance(it, NamePlateItem):
+            img = it.image_path.strip() or "—"
+            return [
+                ("名牌名", it.name.str or "—"),
+                ("名牌 ID", str(it.name.id)),
+                ("图片路径", img),
+                ("XML", self._rel_acus_path(it.xml_path)),
+            ]
+        if isinstance(it, RewardItem):
+            st = str(it.substance_type) if it.substance_type is not None else "—"
+            mc = (
+                f"{it.music_course_id} · {it.music_course_str}"
+                if it.music_course_id is not None
+                else "—"
+            )
+            return [
+                ("奖励名", it.name.str or "—"),
+                ("奖励 ID", str(it.name.id)),
+                ("物质类型代码", st),
+                ("奖励类型", it.type_label),
+                ("关联摘要", it.target_summary),
+                ("课题/关联乐曲", mc),
+                ("XML", self._rel_acus_path(it.xml_path)),
+            ]
+        return [("类型", type(it).__name__), ("摘要", str(it))]
+
+    def _chara_attr_rows(self, it: CharaItem, meta: dict[str, str]) -> list[tuple[str, str]]:
+        return [
+            ("名称", meta.get("name", "—")),
+            ("角色 ID", meta.get("id", "—")),
+            ("默认立绘键", it.default_image_key or "—"),
+            ("发行标签", meta.get("releaseTag", "—")),
+            ("画师", meta.get("illustrator", "—")),
+            ("作品/所属", meta.get("works", "—")),
+            ("XML", self._rel_acus_path(it.xml_path)),
+        ]
+
+    def _resolve_dds_path(self, it: object) -> Path | None:
+        if isinstance(it, DdsImageItem):
+            rel = it.dds0.strip()
+            return it.xml_path.parent / rel if rel else None
+        if isinstance(it, MusicItem) and it.jacket_path.strip():
+            return it.xml_path.parent / it.jacket_path.strip()
+        if isinstance(it, NamePlateItem) and it.image_path.strip():
+            p = it.xml_path.parent / it.image_path.strip()
+            return p if p.is_file() else None
+        if isinstance(it, EventItem):
+            return it.promo_dds_path
+        if isinstance(it, TrophyItem) and it.image_path.strip():
+            p = it.xml_path.parent / it.image_path.strip()
+            return p if p.is_file() else None
+        return None
+
+    def _trophy_source_pixmap(self, it: TrophyItem) -> tuple[QPixmap | None, str | None]:
+        tool = self._get_tool_path()
+        qt_ok = quicktex_available()
+        img_rel = (it.image_path or "").strip()
+        if img_rel:
+            cand = it.xml_path.parent / img_rel
+            if not cand.is_file():
+                return None, "贴图路径指向的文件不存在"
+            if tool is None and not qt_ok:
+                return None, "预览称号贴图需 quicktex 或 compressonatorcli"
+            pm = dds_to_pixmap(
+                acus_root=self._acus_root,
+                compressonatorcli_path=tool,
+                dds_path=cand,
+                restrict=False,
+            )
+            if pm is None or pm.isNull():
+                return None, f"DDS 解码失败：{cand.name}"
+            return pm, None
+        frame_pm = load_trophy_frame_pixmap(it.rare_type)
+        if frame_pm is None:
+            return None, "缺少稀有度底图资源（static/trophy），无法预览无图称号"
+        pm = render_trophy_text_preview(frame=frame_pm, display_name=it.name.str or "—")
+        if pm is None or pm.isNull():
+            return None, "无法生成无图称号预览"
+        return pm, None
+
+    def _simple_preview_pixmap_and_hint(self, it: object) -> tuple[QPixmap | None, str | None]:
+        if self._kind_key() in ("Map", "Reward"):
+            return None, None
+        if isinstance(it, TrophyItem):
+            try:
+                return self._trophy_source_pixmap(it)
+            except Exception as e:
+                return None, f"称号预览异常：{e}"
+        dds_path = self._resolve_dds_path(it)
+        if dds_path is None:
+            return None, None
+        tool = self._get_tool_path()
+        if tool is None and not quicktex_available():
+            return None, "预览需安装 quicktex 或在【设置】中配置 compressonatorcli"
+        pm = dds_to_pixmap(
+            acus_root=self._acus_root,
+            compressonatorcli_path=tool,
+            dds_path=dds_path,
+            restrict=False,
+        )
+        if pm is None or pm.isNull():
+            return None, f"DDS 解码失败：{dds_path.name}"
+        return pm, None
 
     def _resize_columns_safely(self) -> None:
         """
@@ -408,17 +704,20 @@ class ManagerWidget(QWidget):
             self._show_chara_detail(payload)
             return
 
-        self.chara_panel.setVisible(False)
-        self.detail.setVisible(True)
-        show_simple = self._kind_key() not in ("Map", "Reward")
-        self.preview_title.setVisible(show_simple)
-        self.preview.setVisible(show_simple)
-        self.detail.setPlainText(self._format_detail(payload))
-        if show_simple:
-            self._update_preview(payload)
+        self._fill_attrs_table(payload)
+        pm, hint = self._simple_preview_pixmap_and_hint(payload)
+        if hint:
+            self._append_attr_row("预览说明", hint)
+        if pm is not None:
+            self.preview_title.setVisible(True)
+            self.simple_preview.setVisible(True)
+            self.chara_variant_tabs.setVisible(False)
+            self.chara_triple.setVisible(False)
+            self.simple_preview.setSourcePixmap(pm)
+            self.preview_section.setVisible(True)
         else:
-            self.preview.clear()
-            self.preview.setText("")
+            self.simple_preview.clear_source()
+            self._hide_preview_section()
 
     def _on_table_double_clicked(self, proxy_index: QModelIndex) -> None:
         """地图：双击编辑；歌曲：双击生成课题称号。"""
@@ -459,24 +758,18 @@ class ManagerWidget(QWidget):
             if dlg.exec() == QDialog.DialogCode.Accepted:
                 self.reload()
 
-    def _format_detail(self, it: object) -> str:
-        # dataclass -> dict for readability
-        try:
-            d = asdict(it)  # type: ignore[arg-type]
-        except Exception:
-            d = {"value": str(it)}
-        lines = []
-        for k, v in d.items():
-            lines.append(f"{k}: {v}")
-        return "\n".join(lines)
-
     def _show_chara_detail(self, it: CharaItem) -> None:
         self._selected_chara = it
-        self.detail.setVisible(False)
-        self.preview_title.setVisible(False)
-        self.preview.setVisible(False)
-        self.chara_panel.setVisible(True)
         self._chara_variant_map, meta = self._parse_chara_variants_and_meta(it.xml_path)
+        self.attrs_table.setRowCount(0)
+        for label, val in self._chara_attr_rows(it, meta):
+            self._append_attr_row(label, val)
+        self.attrs_table.resizeColumnsToContents()
+
+        self.preview_title.setVisible(True)
+        self.simple_preview.setVisible(False)
+        self.simple_preview.clear_source()
+        self.chara_variant_tabs.setVisible(True)
         cur = self.chara_variant_tabs.currentIndex()
         for i in range(10):
             has_variant = i in self._chara_variant_map
@@ -489,16 +782,9 @@ class ManagerWidget(QWidget):
                     next_idx = i
                     break
             self.chara_variant_tabs.setCurrentIndex(next_idx)
-        self._fill_chara_meta_table(meta)
-        self._update_chara_variant_preview()
 
-    def _fill_chara_meta_table(self, meta: dict[str, str]) -> None:
-        rows = list(meta.items())
-        self.chara_meta.setRowCount(len(rows))
-        for r, (k, v) in enumerate(rows):
-            self.chara_meta.setItem(r, 0, QTableWidgetItem(k))
-            self.chara_meta.setItem(r, 1, QTableWidgetItem(v))
-        self.chara_meta.resizeColumnsToContents()
+        self._update_chara_variant_preview()
+        self.preview_section.setVisible(True)
 
     def _parse_chara_variants_and_meta(self, xml_path: Path) -> tuple[dict[int, int], dict[str, str]]:
         variant_map: dict[int, int] = {}
@@ -534,7 +820,7 @@ class ManagerWidget(QWidget):
         return variant_map, meta
 
     def _on_chara_variant_changed(self, _idx: int) -> None:
-        if self.chara_panel.isVisible():
+        if self._selected_chara is not None:
             self._update_chara_variant_preview()
 
     def _update_chara_variant_preview(self) -> None:
@@ -542,151 +828,61 @@ class ManagerWidget(QWidget):
             return
         var = self.chara_variant_tabs.currentIndex()
         cid = self._chara_variant_map.get(var)
+        tool = self._get_tool_path()
         if cid is None:
-            for lb in (self.chara_preview0, self.chara_preview1, self.chara_preview2):
-                lb.setText("该变体不存在")
-                lb.setPixmap(QPixmap())
+            self.chara_triple.clear()
+            self.chara_triple.setVisible(False)
+            self._upsert_chara_preview_hint("当前变体索引无对应立绘 ID。")
             return
         dds_xml = self._acus_root / "ddsImage" / f"ddsImage{cid:06d}" / "DDSImage.xml"
         if not dds_xml.exists():
-            for lb in (self.chara_preview0, self.chara_preview1, self.chara_preview2):
-                lb.setText(f"缺少 ddsImage{cid:06d}")
-                lb.setPixmap(QPixmap())
+            self.chara_triple.clear()
+            self.chara_triple.setVisible(False)
+            self._upsert_chara_preview_hint(f"缺少 ddsImage{cid:06d} / DDSImage.xml。")
+            return
+        if tool is None and not quicktex_available():
+            self.chara_triple.clear()
+            self.chara_triple.setVisible(False)
+            self._upsert_chara_preview_hint("预览需 quicktex 或【设置】中的 compressonatorcli。")
             return
         root = ET.parse(dds_xml).getroot()
         d0 = (root.findtext("ddsFile0/path") or "").strip()
         d1 = (root.findtext("ddsFile1/path") or "").strip()
         d2 = (root.findtext("ddsFile2/path") or "").strip()
-        tool = self._get_tool_path()
-        if tool is None and not quicktex_available():
-            for lb in (self.chara_preview0, self.chara_preview1, self.chara_preview2):
-                lb.setText("未配置解码工具（quicktex/compressonator）")
-                lb.setPixmap(QPixmap())
-            return
-        pairs = (
-            (self.chara_preview0, d0),
-            (self.chara_preview1, d1),
-            (self.chara_preview2, d2),
-        )
-        for lb, rel in pairs:
+        pms: list[QPixmap | None] = []
+        for rel in (d0, d1, d2):
             if not rel:
-                lb.setText("无路径")
-                lb.setPixmap(QPixmap())
+                pms.append(None)
                 continue
             p = dds_xml.parent / rel
-            pm = dds_to_pixmap(acus_root=self._acus_root, compressonatorcli_path=tool, dds_path=p, max_w=380, max_h=150)
-            if pm is None:
-                lb.setText(f"预览失败：{p.name}")
-                lb.setPixmap(QPixmap())
-            else:
-                lb.setPixmap(pm)
-                lb.setText("")
-
-    def _update_preview(self, it: object) -> None:
-        if isinstance(it, TrophyItem):
-            self._preview_trophy(it)
-            return
-
-        tool = self._get_tool_path()
-        if tool is None and not quicktex_available():
-            self.preview.setText(
-                "无法预览 DDS：未安装 quicktex，且未在【设置】中配置有效的 compressonatorcli。\n"
-                "推荐：pip install quicktex；或选择 compressonator 可执行文件（不要填「.」或文件夹）。"
-            )
-            self.preview.clear()
-            return
-
-        dds_path: Path | None = None
-
-        if isinstance(it, DdsImageItem):
-            # 默认预览 ddsFile0（角色立绘：全身 / _00）
-            dds_path = it.xml_path.parent / it.dds0
-        elif isinstance(it, MusicItem) and it.jacket_path:
-            # jacket is a .dds file in music folder
-            dds_path = it.xml_path.parent / it.jacket_path
-        elif isinstance(it, CharaItem):
-            # 通过 defaultImages.str 找到匹配的 DDSImage.xml，再取 ddsFile0（全身）
-            for d in scan_dds_images(self._acus_root):
-                if d.name.str == it.default_image_key:
-                    dds_path = d.xml_path.parent / d.dds0
-                    break
-        elif isinstance(it, NamePlateItem):
-            if it.image_path:
-                dds_path = it.xml_path.parent / it.image_path
-        elif isinstance(it, EventItem):
-            dds_path = it.promo_dds_path
-        elif isinstance(it, MapItem):
-            dds_path = None
-        elif isinstance(it, RewardItem):
-            dds_path = None
-
-        if dds_path is None:
-            self.preview.setText("该条目无可预览 DDS")
-            self.preview.clear()
-            return
-
-        pm = dds_to_pixmap(acus_root=self._acus_root, compressonatorcli_path=tool, dds_path=dds_path)
-        if pm is None:
-            self.preview.setText(f"预览失败：{dds_path.name}")
-            self.preview.clear()
-            return
-        self.preview.setPixmap(pm)
-        self.preview.setText("")
-
-    def _preview_trophy(self, it: TrophyItem) -> None:
-        """
-        无图称号：稀有度底图 + 居中显示名。
-        有图（DDS）称号：仅显示 DDS 内容，不叠稀有度条底图。
-        """
-        try:
-            self._preview_trophy_impl(it)
-        except Exception as e:
-            self.preview.clear()
-            self.preview.setText(f"称号预览异常：{e}")
-
-    def _preview_trophy_impl(self, it: TrophyItem) -> None:
-        tool = self._get_tool_path()
-        qt_ok = quicktex_available()
-
-        img_rel = (it.image_path or "").strip()
-        dds_path: Path | None = None
-        if img_rel:
-            cand = it.xml_path.parent / img_rel
-            if cand.is_file():
-                dds_path = cand
-
-        if dds_path is not None:
-            if tool is None and not qt_ok:
-                self.preview.setText(
-                    "无法预览称号 DDS：未安装 quicktex，且未在【设置】中配置 compressonatorcli。"
-                )
-                self.preview.clear()
-                return
             pm = dds_to_pixmap(
                 acus_root=self._acus_root,
                 compressonatorcli_path=tool,
-                dds_path=dds_path,
-                max_w=640,
-                max_h=200,
+                dds_path=p,
+                restrict=False,
             )
-            if pm is None:
-                self.preview.setText(f"预览失败：{dds_path.name}")
-                self.preview.clear()
-                return
-        else:
-            frame_pm = load_trophy_frame_pixmap(it.rare_type)
-            if frame_pm is None:
-                self.preview.setText("缺少稀有度底图资源（static/trophy），无法预览无图称号")
-                self.preview.clear()
-                return
-            pm = render_trophy_text_preview(frame=frame_pm, display_name=it.name.str or "—")
-            if pm is None:
-                self.preview.setText("该称号无法生成预览")
-                self.preview.clear()
-                return
+            pms.append(pm if pm is not None and not pm.isNull() else None)
+        self._remove_chara_preview_hint()
+        if not any(x is not None for x in pms):
+            self.chara_triple.clear()
+            self.chara_triple.setVisible(False)
+            self._upsert_chara_preview_hint("三张 DDS 均解码失败或路径为空。")
+            return
+        self.chara_triple.setVisible(True)
+        self.chara_triple.set_pixmaps(pms[0], pms[1], pms[2])
 
-        if pm.width() > 640:
-            pm = pm.scaledToWidth(640, Qt.TransformationMode.SmoothTransformation)
-        self.preview.setPixmap(pm)
-        self.preview.setText("")
+    def _upsert_chara_preview_hint(self, text: str) -> None:
+        for r in range(self.attrs_table.rowCount()):
+            it0 = self.attrs_table.item(r, 0)
+            if it0 is not None and it0.text() == "预览说明":
+                self.attrs_table.setItem(r, 1, QTableWidgetItem(text))
+                return
+        self._append_attr_row("预览说明", text)
+
+    def _remove_chara_preview_hint(self) -> None:
+        for r in range(self.attrs_table.rowCount() - 1, -1, -1):
+            it0 = self.attrs_table.item(r, 0)
+            if it0 is not None and it0.text() == "预览说明":
+                self.attrs_table.removeRow(r)
+                return
 

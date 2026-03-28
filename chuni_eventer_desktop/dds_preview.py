@@ -23,10 +23,12 @@ def dds_to_pixmap(
     dds_path: Path,
     max_w: int = 320,
     max_h: int = 320,
+    restrict: bool = True,
 ) -> QPixmap | None:
     """
     Convert DDS -> PNG (cached) -> QPixmap for UI display.
     优先 quicktex；否则使用已配置的 compressonatorcli。
+    restrict=False 时返回原图尺寸，由界面按容器宽度自行缩放。
     """
     if not dds_path.exists():
         return None
@@ -46,5 +48,7 @@ def dds_to_pixmap(
     pm = QPixmap(str(png_path))
     if pm.isNull():
         return None
+    if not restrict:
+        return pm
     return pm.scaled(max_w, max_h, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
 
