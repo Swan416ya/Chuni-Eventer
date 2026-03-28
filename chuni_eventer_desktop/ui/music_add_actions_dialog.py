@@ -3,43 +3,71 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtCore import QSize, Qt
-from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QDialog, QGridLayout, QSizePolicy, QToolButton, QVBoxLayout
+from PyQt6.QtGui import QColor, QIcon
+from PyQt6.QtWidgets import (
+    QDialog,
+    QGraphicsDropShadowEffect,
+    QHBoxLayout,
+    QSizePolicy,
+    QToolButton,
+    QVBoxLayout,
+)
 
-from qfluentwidgets import BodyLabel, PushButton
+from qfluentwidgets import CardWidget, PushButton, SubtitleLabel
 
 
 def _logo_path(filename: str) -> Path:
     return Path(__file__).resolve().parents[1] / "static" / "logo" / filename
 
 
-# 按钮为横向长方形：宽:高 = 2.5:1
+# 渠道按钮：宽:高 = 2.5:1，单行三个
 _BTN_H = 44
 _BTN_W = int(round(_BTN_H * 2.5))
 
 
-class MusicAddActionsDialog(QDialog):
-    """乐曲页「新增」：四个图标入口（两行 × 每行两个，2.5:1 矩形按钮）。"""
+class MusicSheetChannelsDialog(QDialog):
+    """
+    乐曲页「新增」：自制谱下载渠道（Fluent 无系统标题栏，居中卡片）。
+    """
 
     def __init__(self, *, parent=None) -> None:
         super().__init__(parent=parent)
-        self.setWindowTitle("新增 — 歌曲")
+        self.setWindowTitle("")
         self.setModal(True)
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog
+        )
+        self.setObjectName("musicSheetChannelsDialog")
+        self.setStyleSheet(
+            "#musicSheetChannelsDialog { background-color: #ffffff; border: 1px solid #e5e5e5; }"
+        )
+
         self._action: str | None = None
 
-        hint = BodyLabel("请选择操作：")
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.addStretch(1)
+
+        mid = QHBoxLayout()
+        mid.addStretch(1)
+
+        card = CardWidget(self)
+        card.setObjectName("musicSheetChannelsCard")
+        self._card = card
+        cly = QVBoxLayout(card)
+        cly.setContentsMargins(24, 22, 24, 20)
+        cly.setSpacing(18)
+
+        hint = SubtitleLabel("请选择自制谱下载渠道", card)
         hint.setWordWrap(True)
 
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(14)
-        grid.setVerticalSpacing(14)
-        grid.setContentsMargins(0, 0, 0, 0)
-
-        # 图标区域略小于按钮，留出边距
+        row = QHBoxLayout()
+        row.setSpacing(12)
+        row.setContentsMargins(0, 0, 0, 0)
         icon_sz = QSize(_BTN_W - 12, _BTN_H - 8)
 
         def mk(fname: str, tip: str, *, enabled: bool, act: str) -> QToolButton:
-            b = QToolButton(self)
+            b = QToolButton(card)
             b.setToolTip(tip)
             b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
             p = _logo_path(fname)
@@ -53,25 +81,53 @@ class MusicAddActionsDialog(QDialog):
                 b.clicked.connect(lambda _=False, a=act: self._pick(a))
             return b
 
-        # 第一行：课题称号、Swan
-        grid.addWidget(mk("add_trophy.jpg", "增加课题称号（奖杯 XML）", enabled=True, act="trophy"), 0, 0)
-        grid.addWidget(mk("SwanSite.png", "从 Swan 站下载铺面", enabled=True, act="swan"), 0, 1)
-        # 第二行：pjsk、pgko（未实现）
-        grid.addWidget(mk("pjsk.png", "从 Project SEKAI 获取（尚未支持）", enabled=False, act="pjsk"), 1, 0)
-        grid.addWidget(mk("pgko.jpg", "从 pgko 获取（尚未支持）", enabled=False, act="pgko"), 1, 1)
+        row.addWidget(mk("SwanSite.png", "从 Swan 站获取自制谱", enabled=True, act="swan"))
+        row.addWidget(
+            mk("pjsk.png", "从 Project SEKAI 获取（尚未支持）", enabled=False, act="pjsk")
+        )
+        row.addWidget(mk("pgko.jpg", "从 pgko 获取（尚未支持）", enabled=False, act="pgko"))
 
-        cancel = PushButton("取消", self)
-        cancel.clicked.connect(self.reject)
+        cly.addWidget(hint)
+        cly.addLayout(row)
 
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(20, 20, 20, 20)
-        lay.setSpacing(16)
-        lay.addWidget(hint)
-        lay.addLayout(grid)
-        lay.addStretch(1)
-        lay.addWidget(cancel)
+        foot = QHBoxLayout()
+        foot.addStretch(1)
+        close_btn = PushButton("关闭", card)
+        close_btn.clicked.connect(self.reject)
+        foot.addWidget(close_btn)
+        cly.addLayout(foot)
 
-        self.setMinimumWidth(_BTN_W * 2 + 14 + 40)
+        sh = QGraphicsDropShadowEffect(card)
+        sh.setBlurRadius(36)
+        sh.setOffset(0, 10)
+        sh.setColor(QColor(0, 0, 0, 85))
+        card.setGraphicsEffect(sh)
+
+        mid.addWidget(card, alignment=Qt.AlignmentFlag.AlignCenter)
+        mid.addStretch(1)
+        root.addLayout(mid)
+        root.addStretch(1)
+
+        min_w = _BTN_W * 3 + 12 * 2 + 48
+        card.setMinimumWidth(min_w)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        win = self.parentWidget()
+        if win is not None:
+            top = win.window()
+            self.adjustSize()
+            g = top.frameGeometry()
+            sz = self.size()
+            x = g.x() + max(0, (g.width() - sz.width()) // 2)
+            y = g.y() + max(0, (g.height() - sz.height()) // 2)
+            self.move(x, y)
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key.Key_Escape:
+            self.reject()
+            return
+        super().keyPressEvent(event)
 
     def _pick(self, act: str) -> None:
         self._action = act

@@ -25,6 +25,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from qfluentwidgets import Action, FluentIcon as FIF, MenuAnimationType, RoundMenu
+
 
 from ..acus_scan import MusicItem
 from ..dds_preview import dds_to_pixmap
@@ -78,6 +80,8 @@ class FlipMusicCard(QFrame):
     """正方形卡片，点击绕 Y 轴翻转；正面封面，背面曲目信息。"""
 
     doubleClickedMusic = pyqtSignal(object)
+    deleteRequested = pyqtSignal(object)
+    trophyRequested = pyqtSignal(object)
 
     def __init__(
         self,
@@ -128,6 +132,27 @@ class FlipMusicCard(QFrame):
         if event.button() == Qt.MouseButton.LeftButton:
             self.doubleClickedMusic.emit(self._item)
         super().mouseDoubleClickEvent(event)
+
+    def contextMenuEvent(self, event) -> None:
+        menu = RoundMenu(parent=self)
+        menu.setItemHeight(36)
+        vf = menu.view.font()
+        vf.setPointSize(max(12, vf.pointSize()))
+        menu.view.setFont(vf)
+
+        act_trophy = Action(FIF.TAG, "生成课题称号…", self)
+        act_del = Action(FIF.DELETE, "删除乐曲…", self)
+        act_trophy.triggered.connect(
+            lambda: self.trophyRequested.emit(self._item)
+        )
+        act_del.triggered.connect(lambda: self.deleteRequested.emit(self._item))
+        menu.addAction(act_trophy)
+        menu.addAction(act_del)
+        menu.exec(
+            event.globalPos(),
+            ani=True,
+            aniType=MenuAnimationType.DROP_DOWN,
+        )
 
     @staticmethod
     def _draw_cover_shadow(
@@ -363,6 +388,8 @@ class MusicCardsView(QWidget):
     """正方形卡片网格，随宽度换列，纵向滚动。"""
 
     doubleClickedMusic = pyqtSignal(object)
+    musicDeleteRequested = pyqtSignal(object)
+    musicTrophyRequested = pyqtSignal(object)
 
     def __init__(
         self,
@@ -493,6 +520,8 @@ class MusicCardsView(QWidget):
                         self._jacket_cache[it.name.id] = jacket
             card = FlipMusicCard(it, jacket, card_size)
             card.doubleClickedMusic.connect(self.doubleClickedMusic.emit)
+            card.deleteRequested.connect(self.musicDeleteRequested.emit)
+            card.trophyRequested.connect(self.musicTrophyRequested.emit)
             self._cards.append(card)
             row, col = divmod(idx, cols)
             self._grid.addWidget(

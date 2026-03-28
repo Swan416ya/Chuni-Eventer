@@ -5,7 +5,9 @@ import tempfile
 from pathlib import Path
 
 from PyQt6.QtCore import QThread, QTimer, pyqtSignal, Qt
+from PyQt6.QtGui import QPalette
 from PyQt6.QtWidgets import (
+    QApplication,
     QAbstractItemView,
     QDialog,
     QHBoxLayout,
@@ -15,7 +17,13 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from qfluentwidgets import BodyLabel, PrimaryPushButton, PushButton
+from qfluentwidgets import (
+    BodyLabel,
+    CardWidget,
+    FluentStyleSheet,
+    PrimaryPushButton,
+    PushButton,
+)
 
 from ..sheet_install import install_zip_to_acus
 from ..swan_sheet_client import (
@@ -80,19 +88,27 @@ class SwanSheetDownloadDialog(QDialog):
         self.setWindowTitle("从 Swan 站下载铺面")
         self.setModal(True)
         self.resize(720, 520)
+        self.setObjectName("swanSheetDownloadDialog")
+        win_bg = QApplication.palette().color(QPalette.ColorRole.Window).name()
+        self.setStyleSheet(
+            f"#swanSheetDownloadDialog {{ background-color: {win_bg}; }}"
+        )
         self._acus_root = acus_root
         self._base_url = SWAN_SHEET_API_BASE_URL
         self._entries: list[SheetListEntry] = []
         self._fetch_thread: _FetchSheetsThread | None = None
         self._install_thread: _InstallSheetThread | None = None
 
+        card = CardWidget(self)
+
         hint = BodyLabel(
-            "列表为 Swan 站（api.swan416.top）上已配置下载包（packageUrl）的谱面。"
+            "以下为站点上已配置下载包的自制谱列表。"
             "选择一行后点击「下载并解压到 ACUS」。若加载失败请检查网络或服务是否可用。"
         )
         hint.setWordWrap(True)
 
-        self._table = QTableWidget(0, 3, self)
+        self._table = QTableWidget(0, 3, card)
+        FluentStyleSheet.TABLE_VIEW.apply(self._table)
         self._table.setHorizontalHeaderLabels(["曲名", "艺术家", "网页标题"])
         for col in range(3):
             self._table.horizontalHeader().setSectionResizeMode(
@@ -103,8 +119,15 @@ class SwanSheetDownloadDialog(QDialog):
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.doubleClicked.connect(lambda _i: self._on_install())
 
-        self._status = BodyLabel("点击「刷新列表」加载。", self)
+        self._status = BodyLabel("点击「刷新列表」加载。", card)
         self._status.setWordWrap(True)
+
+        cly = QVBoxLayout(card)
+        cly.setContentsMargins(16, 16, 16, 16)
+        cly.setSpacing(10)
+        cly.addWidget(hint)
+        cly.addWidget(self._table, stretch=1)
+        cly.addWidget(self._status)
 
         refresh = PushButton("刷新列表", self)
         refresh.clicked.connect(self._on_refresh)
@@ -114,6 +137,7 @@ class SwanSheetDownloadDialog(QDialog):
         close.clicked.connect(self.reject)
 
         btns = QHBoxLayout()
+        btns.setContentsMargins(0, 0, 0, 0)
         btns.addWidget(refresh)
         btns.addStretch(1)
         btns.addWidget(install)
@@ -121,10 +145,8 @@ class SwanSheetDownloadDialog(QDialog):
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(16, 16, 16, 16)
-        lay.setSpacing(10)
-        lay.addWidget(hint)
-        lay.addWidget(self._table, stretch=1)
-        lay.addWidget(self._status)
+        lay.setSpacing(12)
+        lay.addWidget(card, stretch=1)
         lay.addLayout(btns)
 
         QTimer.singleShot(0, self._on_refresh)

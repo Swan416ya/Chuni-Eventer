@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QSizePolicy,
     QSplitter,
@@ -28,6 +29,7 @@ from qfluentwidgets import BodyLabel, CaptionLabel, ComboBox as FluentComboBox, 
 
 from .music_cards_view import MusicCardsView
 
+from ..music_delete import execute_music_deletion, plan_music_deletion
 from ..acus_scan import (
     CharaItem,
     DdsImageItem,
@@ -294,6 +296,8 @@ class ManagerWidget(QWidget):
 
         self.music_cards_view = MusicCardsView(acus_root=self._acus_root)
         self.music_cards_view.doubleClickedMusic.connect(self._on_music_card_double_clicked)
+        self.music_cards_view.musicDeleteRequested.connect(self._on_music_delete_requested)
+        self.music_cards_view.musicTrophyRequested.connect(self._on_music_trophy_requested)
 
         self._main_stack = QStackedWidget()
         self._main_stack.addWidget(split)
@@ -770,6 +774,48 @@ class ManagerWidget(QWidget):
         )
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.reload()
+
+    def _on_music_trophy_requested(self, it: object) -> None:
+        if not isinstance(it, MusicItem):
+            return
+        from .music_trophy_dialog import MusicTrophyDialog
+
+        dlg = MusicTrophyDialog(
+            acus_root=self._acus_root,
+            preselect=it,
+            parent=self.window(),
+        )
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.reload()
+
+    def _on_music_delete_requested(self, it: object) -> None:
+        if not isinstance(it, MusicItem):
+            return
+        plan = plan_music_deletion(self._acus_root, it)
+        if plan.music_dir is None or not plan.music_dir.is_dir():
+            QMessageBox.warning(
+                self.window(),
+                "无法删除",
+                "未找到该乐曲在 ACUS/music 下的目录，已中止。",
+            )
+            return
+        lines = plan.summary_lines()
+        body = "将执行以下操作：\n\n• " + "\n• ".join(lines) + "\n\n此操作不可撤销，确定删除？"
+        r = QMessageBox.question(
+            self.window(),
+            "删除乐曲",
+            body,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if r != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            execute_music_deletion(plan)
+        except Exception as e:
+            QMessageBox.critical(self.window(), "删除失败", str(e))
+            return
+        self.reload()
 
     def _on_select(self, *_args) -> None:
         sel = self.table.selectionModel()
