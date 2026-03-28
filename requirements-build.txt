@@ -1,5 +1,6 @@
 # Build Windows exe (ASCII-only file for pip on cp936 consoles)
 PyQt6>=6.10.0
+PyQt6-Fluent-Widgets>=1.7.0
 Pillow>=12.0.0
 quicktex>=0.3.0
 pyinstaller>=6.3.0

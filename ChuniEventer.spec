@@ -17,7 +17,7 @@ datas = [
 binaries: list = []
 hiddenimports: list = []
 
-for pkg in ("PyQt6", "quicktex", "PIL"):
+for pkg in ("PyQt6", "qfluentwidgets", "qframelesswindow", "quicktex", "PIL"):
     p_d, p_bin, p_hi = collect_all(pkg)
     datas += p_d
     binaries += p_bin

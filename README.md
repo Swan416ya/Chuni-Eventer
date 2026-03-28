@@ -2,6 +2,8 @@
 
 这是一个 Python 桌面端工具（**PyQt6**），用于把你的自制资源按 **CHUNITHM A001** 的目录结构写入程序自带的 **`ACUS/` 工作区**，并提供“管理页”快速查看已存在的 XML 内容与 DDS 预览。
 
+**界面**：主窗口使用 [QFluentWidgets](https://qfluentwidgets.com/zh/pages/about)（PyPI：`PyQt6-Fluent-Widgets`）的 Fluent Design 组件。该库对 **非商用** Python 项目采用 **GPLv3**；若你分发本程序的二进制或完整源码，需遵守 GPLv3（用户须能获得对应源代码等）。商用需自行向作者购买商业授权，详见 [QFluentWidgets 简介](https://qfluentwidgets.com/zh/pages/about)。
+
 **DDS 预览与 BC3 生成**：默认随依赖安装 **quicktex**（纯 Python 包，内置 C++ 编码器），**可以不装 compressonator**。仍可在【设置】里配置 `compressonatorcli` 作为备选或对照。
 
 ---
@@ -42,7 +44,7 @@ cd "/Users/mac/code/chuni eventer/desktop"
 python3 -m pip install -r requirements.txt
 ```
 
-> 依赖清单见 `requirements.txt`（PyQt6、Pillow、**quicktex**）。
+> 依赖清单见 `requirements.txt`（PyQt6、**PyQt6-Fluent-Widgets**、Pillow、**quicktex**）。
 
 ### 1.2（可选）安装 Compressonator CLI
 

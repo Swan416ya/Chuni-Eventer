@@ -3,18 +3,16 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QListWidget,
-    QListWidgetItem,
-    QMainWindow,
-    QMessageBox,
-    QPushButton,
-    QSplitter,
-    QVBoxLayout,
-    QWidget,
+from PyQt6.QtWidgets import QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
+
+from qfluentwidgets import (
+    FluentIcon,
+    MSFluentWindow,
+    NavigationItemPosition,
+    PrimaryPushButton,
+    PushButton,
+    SearchLineEdit,
+    SubtitleLabel,
 )
 
 from ..acus_workspace import AcusConfig, ensure_acus_layout
@@ -30,87 +28,88 @@ from .save_patch_dialog import SavePatchDialog
 from .event_add_dialog import EventAddDialog
 
 
-class MainWindow(QMainWindow):
+class MainWindow(MSFluentWindow):
+    """主窗口：Fluent 底栏导航 + 单一内容区（ACUS 管理）。"""
+
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("chuni eventer desktop (ACUS)")
-        self.resize(1100, 650)
+        self.setWindowTitle("Chuni Eventer")
+        self.resize(1160, 720)
 
         self._acus_root = ensure_acus_layout()
         self._cfg = AcusConfig.load()
 
-        # Left nav
-        self.nav = QListWidget()
-        self.nav.setFixedWidth(180)
-        self.nav.addItem(QListWidgetItem("角色"))
-        self.nav.addItem(QListWidgetItem("地图"))
-        self.nav.addItem(QListWidgetItem("Event"))
-        self.nav.addItem(QListWidgetItem("歌曲"))
-        self.nav.addItem(QListWidgetItem("称号"))
-        self.nav.addItem(QListWidgetItem("名牌"))
-        self.nav.addItem(QListWidgetItem("奖励"))
-        self.nav.currentRowChanged.connect(self._on_nav_changed)
-
-        self.settings_btn = QPushButton("设置")
-        self.settings_btn.clicked.connect(self._open_settings)
-        self.settings_btn.setStyleSheet("background: #FFFFFF; color: #111827; border: 1px solid #E5E7EB;")
-
-        self.save_patch_btn = QPushButton("存档装备")
-        self.save_patch_btn.clicked.connect(self._open_save_patch)
-        self.save_patch_btn.setStyleSheet("background: #FFFFFF; color: #111827; border: 1px solid #E5E7EB;")
-
-        left = QWidget()
-        left_layout = QVBoxLayout(left)
-        left_layout.setContentsMargins(12, 12, 12, 12)
-        left_layout.addWidget(QLabel("导航"))
-        left_layout.addWidget(self.nav, stretch=1)
-        left_layout.addStretch(1)
-        left_layout.addWidget(self.save_patch_btn)
-        left_layout.addWidget(self.settings_btn)
-
-        # Right header
-        self.title = QLabel("角色")
-        self.title.setStyleSheet("font-size: 18px; font-weight: 700;")
-
-        self.search = QLineEdit()
-        self.search.setPlaceholderText("搜索当前列表…")
-
-        self.refresh_btn = QPushButton("刷新")
-        self.refresh_btn.clicked.connect(self._on_refresh)
-        self.refresh_btn.setStyleSheet("background: #FFFFFF; color: #111827; border: 1px solid #E5E7EB;")
-
-        self.add_btn = QPushButton("新增")
-        self.add_btn.clicked.connect(self._on_add)
+        self._workspace = QWidget()
+        self._workspace.setObjectName("acusWorkspace")
+        wlay = QVBoxLayout(self._workspace)
+        wlay.setContentsMargins(24, 8, 24, 16)
+        wlay.setSpacing(12)
 
         header = QHBoxLayout()
-        header.addWidget(self.title)
+        self._title_lbl = SubtitleLabel("角色")
+        self._search = SearchLineEdit()
+        self._search.setPlaceholderText("搜索当前列表…")
+        self._search.setFixedWidth(300)
+        self._refresh_btn = PushButton("刷新")
+        self._refresh_btn.clicked.connect(self._on_refresh)
+        self._add_btn = PrimaryPushButton("新增")
+        self._add_btn.clicked.connect(self._on_add)
+        header.addWidget(self._title_lbl, alignment=Qt.AlignmentFlag.AlignVCenter)
         header.addStretch(1)
-        header.addWidget(self.search, stretch=1)
-        header.addWidget(self.refresh_btn)
-        header.addWidget(self.add_btn)
+        header.addWidget(self._search, alignment=Qt.AlignmentFlag.AlignVCenter)
+        header.addWidget(self._refresh_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
+        header.addWidget(self._add_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
+        wlay.addLayout(header)
 
-        self.manager = ManagerWidget(acus_root=self._acus_root, get_tool_path=self._get_tool_path_or_none, embedded=True)
-        self.search.textChanged.connect(self.manager.set_search_text)
+        self._manager = ManagerWidget(
+            acus_root=self._acus_root,
+            get_tool_path=self._get_tool_path_or_none,
+            embedded=True,
+        )
+        self._search.textChanged.connect(self._manager.set_search_text)
+        wlay.addWidget(self._manager, stretch=1)
 
-        right = QWidget()
-        right_layout = QVBoxLayout(right)
-        right_layout.setContentsMargins(12, 12, 12, 12)
-        right_layout.addLayout(header)
-        right_layout.addWidget(self.manager, stretch=1)
+        self.stackedWidget.addWidget(self._workspace)
 
-        split = QSplitter()
-        split.setOrientation(Qt.Orientation.Horizontal)
-        split.addWidget(left)
-        split.addWidget(right)
-        split.setStretchFactor(0, 0)
-        split.setStretchFactor(1, 1)
+        self._nav_specs: list[tuple[str, FluentIcon, str, str, str]] = [
+            ("nav_chara", FluentIcon.PEOPLE, "角色", "Chara", "角色"),
+            ("nav_map", FluentIcon.GAME, "地图", "Map", "地图"),
+            ("nav_event", FluentIcon.CALENDAR, "Event", "Event", "Event"),
+            ("nav_music", FluentIcon.MUSIC, "歌曲", "Music", "歌曲"),
+            ("nav_trophy", FluentIcon.CERTIFICATE, "称号", "Trophy", "称号"),
+            ("nav_nameplate", FluentIcon.EMOJI_TAB_SYMBOLS, "名牌", "NamePlate", "名牌"),
+            ("nav_reward", FluentIcon.SHOPPING_CART, "奖励", "Reward", "奖励"),
+        ]
+        for route_key, icon, text, kind, title in self._nav_specs:
+            self.navigationInterface.addItem(
+                routeKey=route_key,
+                icon=icon,
+                text=text,
+                onClick=lambda _=False, k=kind, t=title, r=route_key: self._select_category(r, k, t),
+                position=NavigationItemPosition.TOP,
+            )
 
-        root = QWidget()
-        layout = QVBoxLayout(root)
-        layout.addWidget(split)
-        self.setCentralWidget(root)
+        self.navigationInterface.addItem(
+            routeKey="nav_save_patch",
+            icon=FluentIcon.SAVE,
+            text="存档装备",
+            onClick=self._open_save_patch,
+            position=NavigationItemPosition.BOTTOM,
+            selectable=False,
+        )
+        self.navigationInterface.addItem(
+            routeKey="nav_settings",
+            icon=FluentIcon.SETTING,
+            text="设置",
+            onClick=self._open_settings,
+            position=NavigationItemPosition.BOTTOM,
+            selectable=False,
+        )
 
-        self.nav.setCurrentRow(0)
+        self.switchTo(self._workspace)
+        self._current_category_index = 0
+        self.navigationInterface.setCurrentItem("nav_chara")
+        self._apply_category("Chara", "角色")
 
     def _get_tool_path_or_none(self) -> Path | None:
         raw = (self._cfg.compressonatorcli_path or "").strip()
@@ -121,8 +120,21 @@ class MainWindow(QMainWindow):
             p = p.resolve(strict=False)
         except OSError:
             return None
-        # 误填「.」或目录时 exists 为真但不可执行，预览会崩；必须指向普通文件
         return p if p.is_file() else None
+
+    def _select_category(self, route_key: str, kind: str, title: str) -> None:
+        self.switchTo(self._workspace)
+        self.navigationInterface.setCurrentItem(route_key)
+        for i, (rk, *_rest) in enumerate(self._nav_specs):
+            if rk == route_key:
+                self._current_category_index = i
+                break
+        self._apply_category(kind, title)
+
+    def _apply_category(self, kind: str, title: str) -> None:
+        self._search.setText("")
+        self._title_lbl.setText(title)
+        self._manager.set_kind(kind)
 
     def _open_save_patch(self) -> None:
         dlg = SavePatchDialog(
@@ -140,37 +152,10 @@ class MainWindow(QMainWindow):
             self._on_refresh()
 
     def _on_refresh(self) -> None:
-        self.manager.reload()
-
-    def _on_nav_changed(self, idx: int) -> None:
-        self.search.setText("")
-        if idx == 0:
-            self.title.setText("角色")
-            self.manager.set_kind("Chara")
-        elif idx == 1:
-            self.title.setText("地图")
-            self.manager.set_kind("Map")
-        elif idx == 2:
-            self.title.setText("Event")
-            self.manager.set_kind("Event")
-        elif idx == 3:
-            self.title.setText("歌曲")
-            self.manager.set_kind("Music")
-        elif idx == 4:
-            self.title.setText("称号")
-            self.manager.set_kind("Trophy")
-        elif idx == 5:
-            self.title.setText("名牌")
-            self.manager.set_kind("NamePlate")
-        elif idx == 6:
-            self.title.setText("奖励")
-            self.manager.set_kind("Reward")
-        else:
-            self.title.setText("角色")
-            self.manager.set_kind("Chara")
+        self._manager.reload()
 
     def _on_add(self) -> None:
-        idx = self.nav.currentRow()
+        idx = self._current_category_index
         if idx == 6:
             music_r, chara_r, trophy_r, np_r, default_id = reward_dialog_bundle(self._acus_root)
             dlg = RewardCreateDialog(
@@ -209,7 +194,7 @@ class MainWindow(QMainWindow):
                 "无法生成 DDS",
                 "请任选其一：\n"
                 "• 运行 pip install quicktex（推荐，可不装 compressonator）\n"
-                "• 或在左下角【设置】里配置 compressonatorcli 可执行文件路径",
+                "• 或在【设置】里配置 compressonatorcli 可执行文件路径",
             )
             return
 
@@ -236,4 +221,3 @@ class MainWindow(QMainWindow):
                 "当前已实现【新增角色】【新增地图】【新增歌曲课题称号】【新增称号】【新增名牌】【新增奖励】。"
                 "DDSImage 请直接在 ACUS 目录维护或用其它工具。",
             )
-
