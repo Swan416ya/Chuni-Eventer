@@ -47,9 +47,9 @@ class MainWindow(MSFluentWindow):
         wlay.setSpacing(12)
 
         header = QHBoxLayout()
-        self._title_lbl = SubtitleLabel("角色")
+        self._title_lbl = SubtitleLabel("歌曲")
         self._search = SearchLineEdit()
-        self._search.setPlaceholderText("搜索当前列表…")
+        self._search.setPlaceholderText("搜索乐曲、艺术家、流派…")
         self._search.setFixedWidth(300)
         self._refresh_btn = PushButton("刷新")
         self._refresh_btn.clicked.connect(self._on_refresh)
@@ -108,9 +108,9 @@ class MainWindow(MSFluentWindow):
         )
 
         self.switchTo(self._workspace)
-        self._current_category_index = 0
-        self.navigationInterface.setCurrentItem("nav_chara")
-        self._apply_category("Chara", "角色")
+        self._current_category_index = 3
+        self.navigationInterface.setCurrentItem("nav_music")
+        self._apply_category("Music", "歌曲")
 
     def _get_tool_path_or_none(self) -> Path | None:
         raw = (self._cfg.compressonatorcli_path or "").strip()
@@ -135,6 +135,16 @@ class MainWindow(MSFluentWindow):
     def _apply_category(self, kind: str, title: str) -> None:
         self._search.setText("")
         self._title_lbl.setText(title)
+        placeholders = {
+            "Music": "搜索乐曲、艺术家、流派…",
+            "Chara": "搜索角色…",
+            "Map": "搜索地图…",
+            "Event": "搜索事件…",
+            "Trophy": "搜索称号…",
+            "NamePlate": "搜索名牌…",
+            "Reward": "搜索奖励…",
+        }
+        self._search.setPlaceholderText(placeholders.get(kind, "搜索当前列表…"))
         self._manager.set_kind(kind)
 
     def _open_save_patch(self) -> None:

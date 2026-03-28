@@ -41,7 +41,8 @@ class MusicItem:
     name: IdStr
     artist: IdStr | None
     genres: tuple[str, ...]
-    release_date: str
+    release_date: str  # Music.xml releaseDate
+    release_tag: IdStr | None  # releaseTagName；UI「版本」用 str
     stage: IdStr | None
     cue_file: IdStr | None
     levels: tuple[str, ...]
@@ -192,6 +193,7 @@ def scan_music(acus_root: Path) -> list[MusicItem]:
                 if s:
                     genre_names.append(s)
             release_date = (r.findtext("releaseDate") or "").strip()
+            release_tag = _get_idstr(r.find("releaseTagName"))
             stage = _get_idstr(r.find("stageName"))
             cue_file = _get_idstr(r.find("cueFileName"))
             levels: list[str] = []
@@ -224,6 +226,7 @@ def scan_music(acus_root: Path) -> list[MusicItem]:
                     artist=artist,
                     genres=tuple(genre_names),
                     release_date=release_date,
+                    release_tag=release_tag,
                     stage=stage,
                     cue_file=cue_file,
                     levels=tuple(levels),

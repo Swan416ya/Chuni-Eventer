@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSplitter,
+    QStackedWidget,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -24,6 +25,8 @@ from PyQt6.QtWidgets import (
 )
 
 from qfluentwidgets import BodyLabel, CaptionLabel, ComboBox as FluentComboBox, TableView
+
+from .music_cards_view import MusicCardsView
 
 from ..acus_scan import (
     CharaItem,
@@ -286,11 +289,18 @@ class ManagerWidget(QWidget):
         split.setStretchFactor(0, 3)
         split.setStretchFactor(1, 4)
 
+        self.music_cards_view = MusicCardsView(acus_root=self._acus_root)
+        self.music_cards_view.doubleClickedMusic.connect(self._on_music_card_double_clicked)
+
+        self._main_stack = QStackedWidget()
+        self._main_stack.addWidget(split)
+        self._main_stack.addWidget(self.music_cards_view)
+
         layout = QVBoxLayout(self)
         if not self._embedded:
             layout.addLayout(top)
         layout.addWidget(self.event_bar)
-        layout.addWidget(split, stretch=1)
+        layout.addWidget(self._main_stack, stretch=1)
 
         self._items: list[object] = []
         self.reload()
@@ -361,8 +371,6 @@ class ManagerWidget(QWidget):
         elif k == "Music":
             items = scan_music(self._acus_root)
             self._items = items
-            for it in items:
-                self._append_music_row(it)
         elif k == "Chara":
             items = scan_charas(self._acus_root)
             self._items = items
@@ -390,9 +398,15 @@ class ManagerWidget(QWidget):
             for it in items:
                 self._append_row(it.name.id, it.name.str, "DDSImage", it.xml_path, it)
 
+        if k == "Music":
+            self._main_stack.setCurrentIndex(1)
+        else:
+            self._main_stack.setCurrentIndex(0)
+            self.music_cards_view.set_items([], self._get_tool_path)
+
         self._apply_filter()
         self._resize_columns_safely()
-        if self.proxy.rowCount() > 0:
+        if k != "Music" and self.proxy.rowCount() > 0:
             self.table.selectRow(0)
 
     def _hide_preview_section(self) -> None:
@@ -452,12 +466,14 @@ class ManagerWidget(QWidget):
             jacket = it.jacket_path.strip() or "—"
             stage = self._fmt_id_str(it.stage) if it.stage else "—"
             ult = "是" if it.has_ultima else "否"
+            ver = it.release_tag.str if it.release_tag else "—"
             return [
                 ("曲名", it.name.str or "—"),
                 ("乐曲 ID", str(it.name.id)),
                 ("艺术家", artist),
                 ("舞台", stage),
                 ("流派", genres),
+                ("版本", ver),
                 ("发布日期", it.release_date or "—"),
                 ("难度", levels),
                 ("Cue 文件", cue),
@@ -683,7 +699,43 @@ class ManagerWidget(QWidget):
         self.model.setItem(row, 1, c1)
 
     def _apply_filter(self) -> None:
-        self.proxy.setFilterFixedString(self.search.text().strip())
+        if self._kind_key() == "Music":
+            self._rebuild_music_cards()
+        else:
+            self.proxy.setFilterFixedString(self.search.text().strip())
+
+    def _music_matches(self, it: MusicItem, needle: str) -> bool:
+        if not needle:
+            return True
+        parts = [
+            str(it.name.id),
+            (it.name.str or "").lower(),
+            (it.artist.str.lower() if it.artist else ""),
+            " / ".join(it.genres).lower(),
+            (it.release_date or "").lower(),
+            (it.release_tag.str.lower() if it.release_tag else ""),
+            " | ".join(it.levels).lower(),
+            self._rel_acus_path(it.xml_path).lower(),
+        ]
+        return any(needle in p for p in parts)
+
+    def _rebuild_music_cards(self) -> None:
+        needle = self.search.text().strip().lower()
+        items = [it for it in self._items if isinstance(it, MusicItem) and self._music_matches(it, needle)]
+        self.music_cards_view.set_items(items, self._get_tool_path)
+
+    def _on_music_card_double_clicked(self, it: object) -> None:
+        if not isinstance(it, MusicItem):
+            return
+        from .music_trophy_dialog import MusicTrophyDialog
+
+        dlg = MusicTrophyDialog(
+            acus_root=self._acus_root,
+            preselect=it,
+            parent=self.window(),
+        )
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.reload()
 
     def _on_select(self, *_args) -> None:
         sel = self.table.selectionModel()
