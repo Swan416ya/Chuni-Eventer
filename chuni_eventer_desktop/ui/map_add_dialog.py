@@ -1611,11 +1611,11 @@ class MapAddDialog(QDialog):
         self.map_name = QLineEdit()
         self.map_name.setPlaceholderText("可不填，默认 Map{id}")
 
-        self.create_unlock_event = QCheckBox("同时生成地图解锁 Event（event/ + EventSort.xml）")
+        self.create_unlock_event = QCheckBox("同时生成地图解锁事件（event/ + EventSort.xml）")
         self.create_unlock_event.setChecked(True)
         self.create_unlock_event.toggled.connect(self._sync_event_id_enabled)
         self.event_id = QLineEdit()
-        self.event_id.setPlaceholderText("留空则自动分配：从 70000 开始取未占用 ID，可手填 Event ID")
+        self.event_id.setPlaceholderText("留空则自动分配：从 70000 开始取未占用 ID，可手填事件 ID")
         if self._edit_mode:
             self.create_unlock_event.setVisible(False)
             self.event_id.setVisible(False)
@@ -1635,7 +1635,7 @@ class MapAddDialog(QDialog):
         top.addRow("Map ID", self.map_id)
         top.addRow("Map 名称", self.map_name)
         top.addRow("", self.create_unlock_event)
-        top.addRow("解锁 Event ID", self.event_id)
+        top.addRow("解锁事件 ID", self.event_id)
 
         area_btns = QHBoxLayout()
         area_btns.addWidget(add_area_btn)
@@ -1652,7 +1652,7 @@ class MapAddDialog(QDialog):
         glyph_warn = QLabel("提示：Map 名称、奖励名称、乐曲名称等文本请尽量使用日语字库内字符；否则游戏内可能显示异常。")
         glyph_warn.setStyleSheet("color:#B45309;")
 
-        ok = QPushButton("保存修改" if self._edit_mode else "生成 Map + MapArea + Reward (+Event)")
+        ok = QPushButton("保存修改" if self._edit_mode else "生成 Map + MapArea + Reward (+解锁事件)")
         ok.clicked.connect(self._generate)
         cancel = QPushButton("取消")
         cancel.clicked.connect(self.reject)
@@ -2509,14 +2509,14 @@ class MapAddDialog(QDialog):
             eid_in = _safe_int(self.event_id.text())
             event_id = eid_in if eid_in is not None else self._next_available_unlock_event_id()
             if event_id < 0:
-                QMessageBox.critical(self, "错误", "解锁 Event ID 必须为非负整数")
+                QMessageBox.critical(self, "错误", "解锁事件 ID 必须为非负整数")
                 return
             try:
                 self._write_map_unlock_event(map_id=map_id, map_name=map_name, event_id=event_id)
                 self._append_event_sort(event_id)
-                msg += f"\n已生成地图解锁 Event：event{event_id:08d}"
+                msg += f"\n已生成地图解锁事件：event{event_id:08d}"
             except Exception as e:
-                QMessageBox.warning(self, "Event 未完整写入", f"地图已生成，但 Event/EventSort 写入失败：\n{e}")
+                QMessageBox.warning(self, "事件未完整写入", f"地图已生成，但 Event/EventSort 写入失败：\n{e}")
 
         QMessageBox.information(self, "完成", msg)
         self.accept()

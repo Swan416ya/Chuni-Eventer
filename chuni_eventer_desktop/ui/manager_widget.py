@@ -7,6 +7,7 @@ import xml.etree.ElementTree as ET
 from PyQt6.QtCore import Qt, QModelIndex, QSortFilterProxyModel
 from PyQt6.QtGui import QPixmap, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
+    QAbstractItemView,
     QComboBox,
     QDialog,
     QFrame,
@@ -17,13 +18,14 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QSplitter,
     QTabWidget,
-    QTableView,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
+
+from qfluentwidgets import BodyLabel, CaptionLabel, ComboBox as FluentComboBox, TableView
 
 from ..acus_scan import (
     CharaItem,
@@ -47,6 +49,17 @@ from ..dds_preview import dds_to_pixmap
 from ..dds_quicktex import quicktex_available
 from ..trophy_preview import load_trophy_frame_pixmap, render_trophy_text_preview
 
+_KIND_DEFS: tuple[tuple[str, str], ...] = (
+    ("事件", "Event"),
+    ("地图", "Map"),
+    ("歌曲", "Music"),
+    ("角色", "Chara"),
+    ("称号", "Trophy"),
+    ("名牌", "NamePlate"),
+    ("奖励", "Reward"),
+    ("DDS 贴图", "DDSImage"),
+)
+
 
 class ManagerWidget(QWidget):
     """
@@ -62,9 +75,12 @@ class ManagerWidget(QWidget):
         self._get_tool_path = get_tool_path  # callable returning Path|None
         self._embedded = embedded
 
-        self.kind = QComboBox()
-        self.kind.addItems(["Event", "Map", "Music", "Chara", "Trophy", "NamePlate", "Reward", "DDSImage"])
-        self.kind.currentTextChanged.connect(self.reload)
+        self.kind = FluentComboBox()
+        self.kind.blockSignals(True)
+        for label, key in _KIND_DEFS:
+            self.kind.addItem(label, None, key)
+        self.kind.blockSignals(False)
+        self.kind.currentIndexChanged.connect(self.reload)
 
         self.event_filter = QComboBox()
         self.event_filter.addItems(["全部", "ULT/WE曲解锁", "地图解禁", "宣传(含DDS)", "其它"])
@@ -72,7 +88,7 @@ class ManagerWidget(QWidget):
         self.event_bar = QWidget()
         ev_row = QHBoxLayout(self.event_bar)
         ev_row.setContentsMargins(0, 0, 0, 0)
-        ev_row.addWidget(QLabel("Event 分类"))
+        ev_row.addWidget(QLabel("事件分类"))
         ev_row.addWidget(self.event_filter, stretch=1)
         self.event_bar.setVisible(False)
 
@@ -101,10 +117,10 @@ class ManagerWidget(QWidget):
         self.proxy.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         self.proxy.setFilterKeyColumn(-1)  # all columns
 
-        self.table = QTableView()
+        self.table = TableView(self)
         self.table.setModel(self.proxy)
-        self.table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QTableView.SelectionMode.SingleSelection)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setAlternatingRowColors(True)
         self.table.setSortingEnabled(True)
         self.table.verticalHeader().setVisible(False)
@@ -153,9 +169,10 @@ class ManagerWidget(QWidget):
         right_card.setFrameShape(QFrame.Shape.NoFrame)
         right_layout = QVBoxLayout(right_card)
         right_layout.setContentsMargins(12, 12, 12, 12)
-        right_layout.addWidget(QLabel("详情"))
+        right_layout.addWidget(BodyLabel("详情"))
         right_layout.addWidget(self.detail, stretch=1)
-        right_layout.addWidget(QLabel("DDS 预览（quicktex 或 compressonator）"))
+        self.preview_title = CaptionLabel("DDS 预览（quicktex 或 compressonator）")
+        right_layout.addWidget(self.preview_title)
         right_layout.addWidget(self.preview, stretch=0)
         right_layout.addWidget(self.chara_panel, stretch=1)
 
@@ -179,14 +196,18 @@ class ManagerWidget(QWidget):
 
     def set_kind(self, kind: str) -> None:
         """
-        kind: Event / Map / Music / Chara / …
+        kind: Event / Map / Music / Chara / …（内部英文 key，与导航一致）
         """
-        idx = self.kind.findText(kind)
+        idx = self.kind.findData(kind)
         if idx >= 0 and idx != self.kind.currentIndex():
             self.kind.setCurrentIndex(idx)
         else:
             # still reload if same kind (e.g. external refresh)
             self.reload()
+
+    def _kind_key(self) -> str:
+        d = self.kind.currentData()
+        return str(d) if d is not None else "Event"
 
     def set_search_text(self, text: str) -> None:
         if self.search.text() != text:
@@ -201,7 +222,14 @@ class ManagerWidget(QWidget):
         self.preview.clear()
         self.chara_panel.setVisible(False)
 
-        k = self.kind.currentText()
+        k = self._kind_key()
+        if k in ("Map", "Reward"):
+            self.preview_title.setVisible(False)
+            self.preview.setVisible(False)
+        else:
+            self.preview_title.setVisible(True)
+            self.preview.setVisible(True)
+
         self.event_bar.setVisible(k == "Event")
 
         if k == "Music":
@@ -378,18 +406,25 @@ class ManagerWidget(QWidget):
             return
         if isinstance(payload, CharaItem):
             self._show_chara_detail(payload)
+            return
+
+        self.chara_panel.setVisible(False)
+        self.detail.setVisible(True)
+        show_simple = self._kind_key() not in ("Map", "Reward")
+        self.preview_title.setVisible(show_simple)
+        self.preview.setVisible(show_simple)
+        self.detail.setPlainText(self._format_detail(payload))
+        if show_simple:
+            self._update_preview(payload)
         else:
-            self.chara_panel.setVisible(False)
-            self.detail.setVisible(True)
-            self.preview.setVisible(True)
-            self.detail.setPlainText(self._format_detail(payload))
-        self._update_preview(payload)
+            self.preview.clear()
+            self.preview.setText("")
 
     def _on_table_double_clicked(self, proxy_index: QModelIndex) -> None:
         """地图：双击编辑；歌曲：双击生成课题称号。"""
         if not proxy_index.isValid():
             return
-        k = self.kind.currentText()
+        k = self._kind_key()
         if k not in ("Map", "Music"):
             return
         src_idx = self.proxy.mapToSource(proxy_index)
@@ -438,6 +473,7 @@ class ManagerWidget(QWidget):
     def _show_chara_detail(self, it: CharaItem) -> None:
         self._selected_chara = it
         self.detail.setVisible(False)
+        self.preview_title.setVisible(False)
         self.preview.setVisible(False)
         self.chara_panel.setVisible(True)
         self._chara_variant_map, meta = self._parse_chara_variants_and_meta(it.xml_path)

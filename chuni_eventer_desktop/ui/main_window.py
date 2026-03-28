@@ -26,6 +26,7 @@ from .trophy_add_dialog import TrophyAddDialog
 from .music_trophy_dialog import MusicTrophyDialog
 from .save_patch_dialog import SavePatchDialog
 from .event_add_dialog import EventAddDialog
+from .fluent_dialogs import fly_message
 
 
 class MainWindow(MSFluentWindow):
@@ -74,7 +75,7 @@ class MainWindow(MSFluentWindow):
         self._nav_specs: list[tuple[str, FluentIcon, str, str, str]] = [
             ("nav_chara", FluentIcon.PEOPLE, "角色", "Chara", "角色"),
             ("nav_map", FluentIcon.GAME, "地图", "Map", "地图"),
-            ("nav_event", FluentIcon.CALENDAR, "Event", "Event", "Event"),
+            ("nav_event", FluentIcon.CALENDAR, "事件", "Event", "事件"),
             ("nav_music", FluentIcon.MUSIC, "歌曲", "Music", "歌曲"),
             ("nav_trophy", FluentIcon.CERTIFICATE, "称号", "Trophy", "称号"),
             ("nav_nameplate", FluentIcon.EMOJI_TAB_SYMBOLS, "名牌", "NamePlate", "名牌"),
@@ -148,7 +149,7 @@ class MainWindow(MSFluentWindow):
         dlg = SettingsDialog(cfg=self._cfg, parent=self)
         if dlg.exec() == dlg.DialogCode.Accepted:
             dlg.apply()
-            QMessageBox.information(self, "已保存", "设置已保存。")
+            fly_message(self, "已保存", "设置已保存。")
             self._on_refresh()
 
     def _on_refresh(self) -> None:

@@ -114,7 +114,7 @@ def append_event_sort(acus_root: Path, event_id: int) -> None:
 class EventAddDialog(QDialog):
     def __init__(self, *, acus_root: Path, tool_path: Path | None, parent=None) -> None:
         super().__init__(parent=parent)
-        self.setWindowTitle("新建宣传 Event")
+        self.setWindowTitle("新建宣传事件")
         self.setModal(True)
         self._acus_root = acus_root
         self._tool = tool_path
@@ -130,7 +130,7 @@ class EventAddDialog(QDialog):
         hint = QLabel(
             "宣传图要求：1152 × 648 像素。\n"
             "可上传图片（将转 BC3 DDS）或直接上传 DDS（必须 BC3/DXT5）。\n"
-            "Event 结构与官方「Collaboration 告知」一致：substances/type=1，informationDispType=3。"
+            "事件结构与官方「Collaboration 告知」一致：substances/type=1，informationDispType=3。"
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#374151; font-size: 12px;")
@@ -138,7 +138,7 @@ class EventAddDialog(QDialog):
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         form.addRow("", hint)
-        form.addRow("Event ID", self.id_edit)
+        form.addRow("事件 ID", self.id_edit)
         form.addRow("标题", self.name_edit)
         form.addRow("宣传图", self._file_row(self.image_edit, "选择宣传图"))
 
@@ -201,8 +201,8 @@ class EventAddDialog(QDialog):
             if eid is None:
                 eid = next_custom_event_id(self._acus_root)
             if eid < 0:
-                raise ValueError("Event ID 必须为非负整数")
-            name = self.name_edit.text().strip() or f"宣传Event{eid}"
+                raise ValueError("事件 ID 必须为非负整数")
+            name = self.name_edit.text().strip() or f"宣传事件{eid}"
             src = Path(self.image_edit.text().strip()).expanduser()
             if not src.is_file():
                 raise ValueError("请选择有效的宣传图文件")

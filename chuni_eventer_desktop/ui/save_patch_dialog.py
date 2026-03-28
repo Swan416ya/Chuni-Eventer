@@ -5,19 +5,26 @@ import re
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QComboBox,
     QDialog,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
-    QMessageBox,
-    QPushButton,
-    QSpinBox,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
+)
+
+from qfluentwidgets import (
+    BodyLabel,
+    CaptionLabel,
+    CardWidget,
+    EditableComboBox,
+    PrimaryPushButton,
+    PushButton,
+    SearchLineEdit,
+    SpinBox,
+    TabWidget,
+    isDarkTheme,
 )
 
 from ..acus_scan import NamePlateItem, TrophyItem, scan_nameplates, scan_trophies
@@ -34,6 +41,13 @@ from ..chusan_save import (
 )
 from ..dds_preview import dds_to_pixmap
 from ..dds_quicktex import quicktex_available
+from .fluent_dialogs import fly_critical, fly_message, fly_warning
+
+
+def _preview_frame_style() -> str:
+    b = "#3A3A3A" if isDarkTheme() else "#D1D5DB"
+    bg = "#2D2D2D" if isDarkTheme() else "#F9FAFB"
+    return f"QLabel {{ border: 1px solid {b}; border-radius: 8px; background: {bg}; }}"
 
 
 class SavePatchDialog(QDialog):
@@ -45,7 +59,7 @@ class SavePatchDialog(QDialog):
         super().__init__(parent=parent)
         self.setWindowTitle("存档装备（名牌 / 称号 / 企鹅）")
         self.setModal(True)
-        self.resize(720, 640)
+        self.resize(760, 680)
         self._acus_root = acus_root
         self._get_tool_path = get_tool_path
         self._save_path: Path | None = None
@@ -54,80 +68,82 @@ class SavePatchDialog(QDialog):
         self._nameplates = scan_nameplates(acus_root)
         self._trophies = scan_trophies(acus_root)
 
-        self.path_label = QLabel("未选择文件")
+        self.path_label = CaptionLabel("未选择文件", self)
         self.path_label.setWordWrap(True)
-        self.path_label.setStyleSheet("color:#6B7280;")
 
-        pick_btn = QPushButton("选择存档 JSON…")
+        pick_btn = PrimaryPushButton("选择存档 JSON…", self)
         pick_btn.clicked.connect(self._pick_save)
 
-        self.tabs = QTabWidget()
+        self.tabs = TabWidget(self)
 
         # --- 名牌 ---
         np_page = QWidget()
         np_lay = QVBoxLayout(np_page)
-        self.np_current_id_label = QLabel("当前存档名牌 ID：-")
-        self.np_current_id_label.setStyleSheet("color:#6B7280;")
-        self.np_filter = QLineEdit()
+        np_lay.setContentsMargins(8, 8, 8, 8)
+        np_lay.setSpacing(10)
+        self.np_current_id_label = CaptionLabel("当前存档名牌 ID：-", self)
+        self.np_filter = SearchLineEdit(self)
         self.np_filter.setPlaceholderText("筛选名牌：ID 或名称")
         self.np_filter.textChanged.connect(self._filter_nameplates)
-        self.np_combo = QComboBox()
-        self.np_combo.setEditable(True)
+        self.np_combo = EditableComboBox(self)
         self.np_combo.setMaxVisibleItems(30)
         for np in self._nameplates:
-            self.np_combo.addItem(f"{np.name.id} | {np.name.str}", np)
+            self.np_combo.addItem(f"{np.name.id} | {np.name.str}", None, np)
         np_lay.addWidget(self.np_current_id_label)
         np_lay.addWidget(self.np_filter)
         np_lay.addWidget(self.np_combo)
-        self.np_preview = QLabel("预览")
+        self.np_preview = QLabel("预览", self)
         self.np_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.np_preview.setMinimumHeight(200)
-        self.np_preview.setStyleSheet("border:1px solid #444;")
+        self.np_preview.setStyleSheet(_preview_frame_style())
         np_lay.addWidget(self.np_preview)
         self.np_combo.currentIndexChanged.connect(self._on_np_changed)
+        self.np_combo.currentTextChanged.connect(lambda _t: self._on_np_changed())
         self.tabs.addTab(np_page, "名牌")
 
-        # --- 称号 三槽 ---
+        # --- 称号 ---
         tr_page = QWidget()
         tr_lay = QVBoxLayout(tr_page)
-        self.tr_current_ids_label = QLabel("当前存档称号 ID：主 - / 副1 - / 副2 -")
-        self.tr_current_ids_label.setStyleSheet("color:#6B7280;")
-        self.tr_limit_hint = QLabel("提示：因 rin 服服务器问题，当前仅支持修改主称号。")
-        self.tr_limit_hint.setStyleSheet("color:#B45309;")
+        tr_lay.setContentsMargins(8, 8, 8, 8)
+        tr_lay.setSpacing(10)
+        self.tr_current_ids_label = CaptionLabel("当前存档称号 ID：主 - / 副1 - / 副2 -", self)
+        self.tr_limit_hint = BodyLabel("提示：因 rin 服服务器问题，当前仅支持修改主称号。", self)
         self.tr_limit_hint.setWordWrap(True)
+        self.tr_limit_hint.setStyleSheet("color: #CA8A04;")
         form = QFormLayout()
-        self.tr_main = QComboBox()
-        for cb in (self.tr_main,):
-            cb.setEditable(True)
-            cb.setMaxVisibleItems(30)
+        self.tr_main = EditableComboBox(self)
+        self.tr_main.setMaxVisibleItems(30)
         self._fill_trophy_combo(self.tr_main, with_keep=False)
         tr_lay.addWidget(self.tr_current_ids_label)
         tr_lay.addWidget(self.tr_limit_hint)
         form.addRow("主称号", self.tr_main)
         tr_lay.addLayout(form)
-        self.tr_preview = QLabel("预览（主称号）")
+        self.tr_preview = QLabel("预览（主称号）", self)
         self.tr_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.tr_preview.setMinimumHeight(200)
-        self.tr_preview.setStyleSheet("border:1px solid #444;")
+        self.tr_preview.setStyleSheet(_preview_frame_style())
         tr_lay.addWidget(self.tr_preview)
         self.tr_main.currentIndexChanged.connect(self._on_tr_main_changed)
+        self.tr_main.currentTextChanged.connect(lambda _t: self._on_tr_main_changed())
         self.tabs.addTab(tr_page, "称号")
 
-        # --- 企鹅（userItemList：itemKind=5，isValid=true，stock=数量）---
+        # --- 企鹅 ---
         pg_page = QWidget()
         pg_lay = QVBoxLayout(pg_page)
-        pg_hint = QLabel(
+        pg_lay.setContentsMargins(8, 8, 8, 8)
+        pg_lay.setSpacing(10)
+        pg_hint = BodyLabel(
             "对应导出存档 userItemList：itemKind=5，itemId 8000 金企鹅 / 8010 小企鹅 / 8020 企鹅之魂 / 8030 彩色企鹅，"
             "isValid 固定为 true，stock 为数量（含 0）。"
-            " 修改后须点击底部「另存为」写入新 JSON，不会改动原文件。"
+            " 修改后须点击底部「另存为」写入新 JSON，不会改动原文件。",
+            self,
         )
         pg_hint.setWordWrap(True)
-        pg_hint.setStyleSheet("color:#6B7280;")
         pg_lay.addWidget(pg_hint)
         pg_form = QFormLayout()
-        self._penguin_spins: list[QSpinBox] = []
+        self._penguin_spins: list[SpinBox] = []
         for pid in PENGUIN_ITEM_IDS:
-            sp = QSpinBox()
+            sp = SpinBox(self)
             sp.setRange(0, 9_999_999)
             sp.setSingleStep(1)
             sp.setKeyboardTracking(False)
@@ -138,40 +154,49 @@ class SavePatchDialog(QDialog):
         pg_lay.addStretch(1)
         self.tabs.addTab(pg_page, "企鹅")
 
-        apply_btn = QPushButton("写入并另存为…")
+        apply_btn = PrimaryPushButton("写入并另存为…", self)
         apply_btn.clicked.connect(self._apply)
-        cancel_btn = QPushButton("取消")
+        cancel_btn = PushButton("取消", self)
         cancel_btn.clicked.connect(self.reject)
 
         btns = QHBoxLayout()
+        btns.setSpacing(8)
         btns.addStretch(1)
         btns.addWidget(cancel_btn)
         btns.addWidget(apply_btn)
 
-        hint = QLabel(
+        hint = BodyLabel(
             "另存时会同时写入：当前选中的名牌 + 主称号（因 rin 服服务器问题，副称号保持存档原值）"
             " + 「企鹅」页各 ID 数量（写入 userItemList，其它物品不动）。"
-            " 原 JSON 路径不会被覆盖，请选择新文件名保存。"
+            " 原 JSON 路径不会被覆盖，请选择新文件名保存。",
+            self,
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet("color:#B45309;")
+        hint.setStyleSheet("color: #CA8A04;")
+
+        tabs_card = CardWidget(self)
+        tc_lay = QVBoxLayout(tabs_card)
+        tc_lay.setContentsMargins(12, 12, 12, 12)
+        tc_lay.addWidget(self.tabs)
 
         root = QVBoxLayout(self)
+        root.setContentsMargins(20, 20, 20, 20)
+        root.setSpacing(14)
         root.addWidget(pick_btn)
         root.addWidget(self.path_label)
         root.addWidget(hint)
-        root.addWidget(self.tabs, stretch=1)
+        root.addWidget(tabs_card, stretch=1)
         root.addLayout(btns)
 
         self._filter_nameplates()
         self._on_np_changed()
         self._on_tr_main_changed()
 
-    def _fill_trophy_combo(self, cb: QComboBox, *, with_keep: bool) -> None:
+    def _fill_trophy_combo(self, cb: EditableComboBox, *, with_keep: bool) -> None:
         if with_keep:
-            cb.addItem("（保持存档原值）", None)
+            cb.addItem("（保持存档原值）", None, None)
         for t in self._trophies:
-            cb.addItem(f"{t.name.id} | {t.name.str}", t)
+            cb.addItem(f"{t.name.id} | {t.name.str}", None, t)
 
     def _pick_save(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "选择导出存档", "", "JSON (*.json);;All (*)")
@@ -183,7 +208,7 @@ class SavePatchDialog(QDialog):
             if "userData" not in self._data:
                 raise ValueError("不是有效的导出存档：缺少 userData")
         except Exception as e:
-            QMessageBox.critical(self, "读取失败", str(e))
+            fly_critical(self, "读取失败", str(e))
             self._data = None
             self._save_path = None
             self.path_label.setText("读取失败")
@@ -201,14 +226,14 @@ class SavePatchDialog(QDialog):
         nid = ud.get("nameplateId")
         if isinstance(nid, int):
             for i in range(self.np_combo.count()):
-                np: NamePlateItem = self.np_combo.itemData(i)
+                np: NamePlateItem | None = self.np_combo.itemData(i)
                 if np and np.name.id == nid:
                     self.np_combo.setCurrentIndex(i)
                     break
             else:
-                self.np_combo.setEditText(str(nid))
+                self.np_combo.setText(str(nid))
 
-        def set_trophy_combo(cb: QComboBox, tid: object, *, allow_keep: bool) -> None:
+        def set_trophy_combo(cb: EditableComboBox, tid: object, *, allow_keep: bool) -> None:
             if not isinstance(tid, int):
                 return
             for i in range(cb.count()):
@@ -218,7 +243,7 @@ class SavePatchDialog(QDialog):
                 if isinstance(it, TrophyItem) and it.name.id == tid:
                     cb.setCurrentIndex(i)
                     return
-            cb.setEditText(str(tid))
+            cb.setText(str(tid))
 
         set_trophy_combo(self.tr_main, ud.get("trophyId"), allow_keep=False)
 
@@ -272,10 +297,10 @@ class SavePatchDialog(QDialog):
             blob = f"{np.name.id} {np.name.str}".lower()
             if q and q not in blob:
                 continue
-            self.np_combo.addItem(f"{np.name.id} | {np.name.str}", np)
+            self.np_combo.addItem(f"{np.name.id} | {np.name.str}", None, np)
         self.np_combo.blockSignals(False)
         if self.np_combo.count() == 0:
-            self.np_combo.addItem("(无匹配)", None)
+            self.np_combo.addItem("(无匹配)", None, None)
         self._on_np_changed()
 
     def _tool(self) -> Path | None:
@@ -315,17 +340,17 @@ class SavePatchDialog(QDialog):
 
     def _apply(self) -> None:
         if not self._data:
-            QMessageBox.warning(self, "提示", "请先选择存档 JSON")
+            fly_warning(self, "提示", "请先选择存档 JSON")
             return
         np: NamePlateItem | None = self.np_combo.currentData()
         np_id = np.name.id if isinstance(np, NamePlateItem) else self._extract_numeric_id(self.np_combo.currentText())
         if np_id is None:
-            QMessageBox.warning(self, "提示", "请选择名牌，或在下拉框里输入名牌 ID")
+            fly_warning(self, "提示", "请选择名牌，或在下拉框里输入名牌 ID")
             return
         main: TrophyItem | None = self.tr_main.currentData()
         main_id = main.name.id if isinstance(main, TrophyItem) else self._extract_numeric_id(self.tr_main.currentText())
         if main_id is None:
-            QMessageBox.warning(self, "提示", "请选择主称号，或在下拉框里输入称号 ID")
+            fly_warning(self, "提示", "请选择主称号，或在下拉框里输入称号 ID")
             return
         set_equipped_nameplate(self._data, np_id)
         ud = self._data.setdefault("userData", {})
@@ -349,7 +374,7 @@ class SavePatchDialog(QDialog):
         try:
             save_save(out, self._data, indent=None)
         except Exception as e:
-            QMessageBox.critical(self, "写入失败", str(e))
+            fly_critical(self, "写入失败", str(e))
             return
-        QMessageBox.information(self, "完成", f"已写入：\n{out}")
+        fly_message(self, "完成", f"已写入：\n{out}")
         self.accept()
