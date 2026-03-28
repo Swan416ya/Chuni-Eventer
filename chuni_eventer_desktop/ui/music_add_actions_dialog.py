@@ -83,7 +83,12 @@ class MusicSheetChannelsDialog(QDialog):
 
         row.addWidget(mk("SwanSite.png", "从 Swan 站获取自制谱", enabled=True, act="swan"))
         row.addWidget(
-            mk("pjsk.png", "从 Project SEKAI 获取（尚未支持）", enabled=False, act="pjsk")
+            mk(
+                "pjsk.png",
+                "从 Project SEKAI 导出游戏内谱面（SUS 文本）",
+                enabled=True,
+                act="pjsk",
+            )
         )
         row.addWidget(mk("pgko.jpg", "从 pgko 获取（尚未支持）", enabled=False, act="pgko"))
 

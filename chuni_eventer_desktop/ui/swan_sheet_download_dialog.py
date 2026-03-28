@@ -17,13 +17,9 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from qfluentwidgets import (
-    BodyLabel,
-    CardWidget,
-    FluentStyleSheet,
-    PrimaryPushButton,
-    PushButton,
-)
+from qfluentwidgets import BodyLabel, CardWidget, PrimaryPushButton, PushButton
+
+from .fluent_table import apply_fluent_sheet_table
 
 from ..sheet_install import install_zip_to_acus
 from ..swan_sheet_client import (
@@ -108,7 +104,7 @@ class SwanSheetDownloadDialog(QDialog):
         hint.setWordWrap(True)
 
         self._table = QTableWidget(0, 3, card)
-        FluentStyleSheet.TABLE_VIEW.apply(self._table)
+        apply_fluent_sheet_table(self._table)
         self._table.setHorizontalHeaderLabels(["曲名", "艺术家", "网页标题"])
         for col in range(3):
             self._table.horizontalHeader().setSectionResizeMode(

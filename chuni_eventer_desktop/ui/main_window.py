@@ -24,6 +24,7 @@ from .map_add_dialog import MapAddDialog, RewardCreateDialog, ensure_reward_xml,
 from .nameplate_add_dialog import NamePlateAddDialog
 from .trophy_add_dialog import TrophyAddDialog
 from .music_add_actions_dialog import MusicSheetChannelsDialog
+from .pjsk_sus_download_dialog import PjskSusDownloadDialog
 from .swan_sheet_download_dialog import SwanSheetDownloadDialog
 from .save_patch_dialog import SavePatchDialog
 from .event_add_dialog import EventAddDialog
@@ -190,9 +191,12 @@ class MainWindow(MSFluentWindow):
             pick = MusicSheetChannelsDialog(parent=self)
             if pick.exec() != pick.DialogCode.Accepted:
                 return
-            if pick.selected_action() == "swan":
+            act = pick.selected_action()
+            if act == "swan":
                 SwanSheetDownloadDialog(acus_root=self._acus_root, parent=self).exec()
                 self._on_refresh()
+            elif act == "pjsk":
+                PjskSusDownloadDialog(acus_root=self._acus_root, parent=self).exec()
             return
 
         if idx == 3:
