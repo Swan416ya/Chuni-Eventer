@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
-from PyQt6.QtCore import QPoint, QThread, QTimer, pyqtSignal, Qt
+from PyQt6.QtCore import QObject, QPoint, QThread, QTimer, pyqtSignal, Qt
 from PyQt6.QtGui import QPalette
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -11,6 +12,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLineEdit,
+    QProgressBar,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -50,7 +52,8 @@ class _LoadCatalogThread(QThread):
 class _PjskCacheThread(QThread):
     ok = pyqtSignal(str)
     fail = pyqtSignal(str)
-    progress = pyqtSignal(str)
+    # (状态文案, 进度 0~1；-1.0 表示不确定：连接中、换镜像、或无 Content-Length)
+    progress = pyqtSignal(str, float)
 
     def __init__(
         self,
@@ -71,6 +74,11 @@ class _PjskCacheThread(QThread):
 
     def run(self) -> None:
         try:
+
+            def _prog(msg: str, ratio: float | None = None) -> None:
+                r = -1.0 if ratio is None else float(max(0.0, min(1.0, ratio)))
+                self.progress.emit(msg, r)
+
             save_pjsk_bundle_to_cache(
                 self._acus_root,
                 music_id=self._row.music_id,
@@ -78,7 +86,7 @@ class _PjskCacheThread(QThread):
                 composer=self._row.composer,
                 assetbundle_name=self._row.assetbundle_name,
                 available_pjsk_difficulties=self._available_diffs,
-                progress=self.progress.emit,
+                progress=_prog,
                 vocal_assetbundle=self._vocal_ab,
                 vocal_caption=self._vocal_cap,
             )
@@ -91,7 +99,13 @@ class _PjskCacheThread(QThread):
 class PjskSusDownloadDialog(QDialog):
     """PJSK：缓存封面、曲绘与固定难度 SUS，并尝试生成实验性 c2s。"""
 
-    def __init__(self, *, acus_root: Path, parent=None) -> None:
+    def __init__(
+        self,
+        *,
+        acus_root: Path,
+        parent=None,
+        on_installed: Callable[[], None] | None = None,
+    ) -> None:
         super().__init__(parent=parent)
         self.setWindowTitle("从 Project SEKAI 缓存资源（实验性）")
         self.setModal(True)
@@ -105,9 +119,7 @@ class PjskSusDownloadDialog(QDialog):
         self._load_thread: _LoadCatalogThread | None = None
         self._cache_thread: _PjskCacheThread | None = None
         self._sus_c2s_debug_win: SusC2sDebugDialog | None = None
-        self._header_debug_timer = QTimer(self)
-        self._header_debug_timer.setSingleShot(True)
-        self._header_debug_timer.timeout.connect(self._open_sus_c2s_debug)
+        self._on_installed = on_installed
 
         card = CardWidget(self)
 
@@ -124,7 +136,7 @@ class PjskSusDownloadDialog(QDialog):
             "将自动下载：封面.png、曲绘.png（与封面同源或第二镜像），"
             "谱面 normal / hard / expert / master / append（曲目上存在的才会下载；无 append 则无 ULTIMA 对应 sus），"
             "以及完整音频：若该曲在 PJSK 有多个 musicVocals 版本，下载前会弹出列表供选择；仅 1 个版本时自动选用。"
-            "原始音频为 flac/wav/mp3（视镜像），中二机内 ACB/AWB 需另用 PenguinTools 等工具转换。"
+            "原始音频为 flac/wav/mp3（视镜像）；若本机已装 ffmpeg 与 PyCriCodecsEx，将尝试自动生成修剪后的 48k WAV 与中二用 ACB/AWB。"
             f"保存目录与 ACUS 同级：{(_cache_root / 'pjsk_曲目ID').as_posix()}"
         )
         hint.setWordWrap(True)
@@ -150,6 +162,13 @@ class PjskSusDownloadDialog(QDialog):
         self._status = BodyLabel("正在加载曲目列表…", card)
         self._status.setWordWrap(True)
 
+        self._dl_progress = QProgressBar(card)
+        self._dl_progress.setRange(0, 100)
+        self._dl_progress.setValue(0)
+        self._dl_progress.setTextVisible(True)
+        self._dl_progress.setFormat("")
+        self._dl_progress.setFixedHeight(22)
+
         cly = QVBoxLayout(card)
         cly.setContentsMargins(16, 16, 16, 16)
         cly.setSpacing(10)
@@ -158,6 +177,7 @@ class PjskSusDownloadDialog(QDialog):
         cly.addWidget(self._filter)
         cly.addWidget(self._table, stretch=1)
         cly.addWidget(self._status)
+        cly.addWidget(self._dl_progress)
 
         refresh = PushButton("重新加载列表", self)
         refresh.clicked.connect(self._on_reload)
@@ -352,6 +372,7 @@ class PjskSusDownloadDialog(QDialog):
                 vocal_ab = dlg.selected.assetbundle_name
                 vocal_cap = dlg.selected.caption
 
+        self._reset_cache_progress_bar()
         self._status.setText("正在下载…")
         th = _PjskCacheThread(
             acus_root=self._acus_root,
@@ -362,16 +383,37 @@ class PjskSusDownloadDialog(QDialog):
             parent=self,
         )
         self._cache_thread = th
-        th.progress.connect(self._status.setText)
+        th.progress.connect(self._on_cache_progress)
         th.ok.connect(self._on_cache_ok)
         th.fail.connect(self._on_cache_fail)
         th.finished.connect(lambda t=th: self._release_pjsk_cache_thread(t))
         th.start()
 
+    def _on_cache_progress(self, text: str, ratio: float) -> None:
+        self._status.setText(text)
+        if ratio < 0:
+            self._dl_progress.setRange(0, 0)
+            self._dl_progress.setFormat("")
+        else:
+            self._dl_progress.setRange(0, 1000)
+            self._dl_progress.setValue(min(1000, int(ratio * 1000)))
+            self._dl_progress.setFormat(f"{ratio * 100:.1f}%")
+
+    def _reset_cache_progress_bar(self) -> None:
+        self._dl_progress.setRange(0, 100)
+        self._dl_progress.setValue(0)
+        self._dl_progress.setFormat("")
+
     def _on_cache_ok(self, path: str) -> None:
         self._status.setText("已写入缓存。")
+        self._dl_progress.setRange(0, 100)
+        self._dl_progress.setValue(100)
+        self._dl_progress.setFormat("100%")
         fly_message(self, "完成", f"已缓存到：\n{path}")
+        if self._on_installed:
+            self._on_installed()
 
     def _on_cache_fail(self, msg: str) -> None:
         self._status.setText("下载失败。")
+        self._reset_cache_progress_bar()
         fly_critical(self, "缓存失败", msg)

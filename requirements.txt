@@ -4,3 +4,5 @@ PyQt6-Fluent-Widgets>=1.7.0
 Pillow>=12.0.0
 # quicktex: BC3 DDS encode/decode without compressonator (optional fallback in settings)
 quicktex>=0.3.0
+# PJSK long audio -> CHUNITHM ACB/AWB (optional; needs ffmpeg on PATH too)
+PyCriCodecsEx>=0.0.5

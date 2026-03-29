@@ -72,6 +72,44 @@ def _http_get_bytes(url: str, timeout: float = 90.0) -> bytes:
         return resp.read()
 
 
+def _http_get_bytes_chunked(
+    url: str,
+    *,
+    timeout: float = 180.0,
+    chunk_size: int = 65536,
+    on_chunk: Callable[[int, int | None], None] | None = None,
+) -> bytes:
+    """
+    流式下载；若响应含 Content-Length，则 on_chunk(current_bytes, total_bytes)；
+    否则 on_chunk(current_bytes, None)。total 为解压后的完整长度（urllib 已透明解压 gzip）。
+    """
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": _USER_AGENT},
+        method="GET",
+    )
+    ctx = ssl.create_default_context()
+    with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+        cl = resp.headers.get("Content-Length")
+        total: int | None = None
+        if cl:
+            try:
+                n = int(cl)
+                if n > 0:
+                    total = n
+            except ValueError:
+                pass
+        buf = bytearray()
+        while True:
+            chunk = resp.read(chunk_size)
+            if not chunk:
+                break
+            buf.extend(chunk)
+            if on_chunk:
+                on_chunk(len(buf), total)
+        return bytes(buf)
+
+
 def jacket_png_urls(assetbundle_name: str) -> tuple[str, ...]:
     """封面用 PNG；与 SusPatcher.js 一致。"""
     ab = (assetbundle_name or "").strip()
@@ -155,17 +193,112 @@ class PjskVocalRow:
     music_id: int
     assetbundle_name: str
     caption: str
+    tooltip: str = ""
 
 
-def _vocal_row_caption(row: dict[str, Any]) -> str:
-    ab = (row.get("assetbundleName") or "").strip()
-    vt = (row.get("musicVocalType") or row.get("vocalType") or "").strip()
-    if vt and ab:
-        return f"{vt} · {ab}"
-    return ab or vt or "unknown"
+def _try_api_data_list(url: str, *, timeout: float = 60.0) -> list[dict[str, Any]] | None:
+    try:
+        data = _http_get_json(url, timeout=timeout)
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError, ValueError):
+        return None
+    if isinstance(data, dict) and isinstance(data.get("data"), list):
+        return [x for x in data["data"] if isinstance(x, dict)]
+    return None
 
 
-def _vocal_from_json_row(row: dict[str, Any]) -> PjskVocalRow | None:
+_game_characters_by_id: dict[int, dict[str, Any]] | None = None
+_outside_characters_by_id: dict[int, dict[str, Any]] | None = None
+
+
+def _game_characters_by_id_map() -> dict[int, dict[str, Any]]:
+    global _game_characters_by_id
+    if _game_characters_by_id is not None:
+        return _game_characters_by_id
+    rows = _try_api_data_list(f"{PJSK_API_DB_BASE}/gameCharacters?$limit=500")
+    if rows is None:
+        raw = _http_get_json(f"{PJSK_SEKAI_MASTER_JSON_BASE}/gameCharacters.json", timeout=120.0)
+        rows = raw if isinstance(raw, list) else []
+    m: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            m[int(row["id"])] = row
+        except (KeyError, TypeError, ValueError):
+            continue
+    _game_characters_by_id = m
+    return m
+
+
+def _outside_characters_by_id_map() -> dict[int, dict[str, Any]]:
+    global _outside_characters_by_id
+    if _outside_characters_by_id is not None:
+        return _outside_characters_by_id
+    rows = _try_api_data_list(f"{PJSK_API_DB_BASE}/outsideCharacters?$limit=500")
+    if rows is None:
+        raw = _http_get_json(f"{PJSK_SEKAI_MASTER_JSON_BASE}/outsideCharacters.json", timeout=120.0)
+        rows = raw if isinstance(raw, list) else []
+    m: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            m[int(row["id"])] = row
+        except (KeyError, TypeError, ValueError):
+            continue
+    _outside_characters_by_id = m
+    return m
+
+
+def _pjsk_character_display_name(ch: dict[str, Any]) -> str:
+    n = (ch.get("name") or "").strip()
+    if n:
+        return n
+    fn = (ch.get("firstName") or "").strip()
+    gn = (ch.get("givenName") or "").strip()
+    return f"{fn} {gn}".strip() or str(ch.get("id", ""))
+
+
+def _resolve_vocal_character_entry(
+    m: dict[str, Any],
+    game: dict[int, dict[str, Any]],
+    outside: dict[int, dict[str, Any]],
+) -> dict[str, Any] | None:
+    ctype = (m.get("characterType") or "").strip().lower()
+    try:
+        cid = int(m["characterId"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if ctype in ("game_character", "gamecharacter", "game"):
+        return game.get(cid)
+    if ctype in ("outside_character", "outsidecharacter", "outside"):
+        return outside.get(cid)
+    return game.get(cid) or outside.get(cid)
+
+
+def _vocal_cast_names(
+    row: dict[str, Any],
+    game: dict[int, dict[str, Any]],
+    outside: dict[int, dict[str, Any]],
+) -> list[str]:
+    chars = row.get("characters")
+    if not isinstance(chars, list):
+        return []
+    names: list[str] = []
+    for m in chars:
+        if not isinstance(m, dict):
+            continue
+        ent = _resolve_vocal_character_entry(m, game, outside)
+        if ent:
+            names.append(_pjsk_character_display_name(ent))
+    return names
+
+
+def _build_vocal_row(
+    row: dict[str, Any],
+    game: dict[int, dict[str, Any]],
+    outside: dict[int, dict[str, Any]],
+) -> PjskVocalRow | None:
     try:
         mid = int(row["musicId"])
     except (KeyError, TypeError, ValueError):
@@ -173,10 +306,35 @@ def _vocal_from_json_row(row: dict[str, Any]) -> PjskVocalRow | None:
     ab = (row.get("assetbundleName") or "").strip()
     if not ab:
         return None
+    cap = (row.get("caption") or "").strip()
+    vt = (row.get("musicVocalType") or row.get("vocalType") or "").strip()
+    cast = _vocal_cast_names(row, game, outside)
+    cast_s = " / ".join(cast) if cast else ""
+
+    if cast_s and cap:
+        main_caption = f"{cast_s} — {cap}"
+    elif cast_s:
+        main_caption = cast_s
+    elif cap:
+        main_caption = cap
+    elif vt:
+        main_caption = f"{vt} · {ab}"
+    else:
+        main_caption = ab
+
+    tip_lines: list[str] = [f"资源包名（assetbundleName）\n{ab}"]
+    if vt:
+        tip_lines.append(f"musicVocalType：{vt}")
+    if cap and cap not in main_caption:
+        tip_lines.append(f"caption：{cap}")
+    if cast_s:
+        tip_lines.append(f"角色解析：{cast_s}")
+
     return PjskVocalRow(
         music_id=mid,
         assetbundle_name=ab,
-        caption=_vocal_row_caption(row),
+        caption=main_caption,
+        tooltip="\n".join(tip_lines),
     )
 
 
@@ -205,8 +363,13 @@ def _all_music_vocals_from_sekai_json() -> list[dict[str, Any]]:
 
 def load_music_vocals_for_music(music_id: int) -> list[PjskVocalRow]:
     """
-    查询指定乐曲的所有人声版本（与 PjskSUSPatcher loadVocals 同源：API 优先，失败则 musics.json）。
+    查询指定乐曲的所有人声版本（与 PjskSUSPatcher loadVocals 同源：API 优先，失败则 JSON）。
+
+    列表文案：`characters` → gameCharacters/outsideCharacters 解析演唱者名，并拼接官方 `caption`
+   （如「セカイver.」「バーチャル・シンガーver.」）；悬停可见 assetbundleName。
     """
+    game = _game_characters_by_id_map()
+    outside = _outside_characters_by_id_map()
     raw = _try_music_vocals_from_api(music_id)
     if raw is None:
         raw = [r for r in _all_music_vocals_from_sekai_json() if int(r.get("musicId", -1)) == int(music_id)]
@@ -215,7 +378,7 @@ def load_music_vocals_for_music(music_id: int) -> list[PjskVocalRow]:
     for row in raw:
         if not isinstance(row, dict):
             continue
-        v = _vocal_from_json_row(row)
+        v = _build_vocal_row(row, game, outside)
         if v is None or v.assetbundle_name in seen:
             continue
         seen.add(v.assetbundle_name)
@@ -239,16 +402,47 @@ def pjsk_long_music_download_urls(assetbundle_name: str) -> tuple[tuple[str, str
     )
 
 
-def download_pjsk_long_music(assetbundle_name: str) -> tuple[bytes, str]:
-    """依次尝试各镜像与格式，返回 (字节, 扩展名)。"""
+def download_pjsk_long_music(
+    assetbundle_name: str,
+    *,
+    on_progress: Callable[[str, float | None], None] | None = None,
+) -> tuple[bytes, str]:
+    """
+    依次尝试各镜像与格式，返回 (字节, 扩展名)。
+    on_progress(说明文案, 已下比例 0~1 或 None 表示总长未知/不定)。
+    """
     last_err: Exception | None = None
     for ext, url in pjsk_long_music_download_urls(assetbundle_name):
+        mirror = "pjsek.ai" if "pjsek.ai" in url else "sekai.best"
+
+        def chunk_cb(nread: int, ntotal: int | None) -> None:
+            if not on_progress:
+                return
+            if ntotal and ntotal > 0:
+                r = min(1.0, nread / float(ntotal))
+                on_progress(
+                    f"音频 .{ext}（{mirror}）— {r * 100:.1f}% "
+                    f"（{nread // 1024} / {ntotal // 1024} KiB）",
+                    r,
+                )
+            else:
+                on_progress(
+                    f"音频 .{ext}（{mirror}）— 已接收 {nread // 1024} KiB（无 Content-Length，不显示总百分比）",
+                    None,
+                )
+
+        if on_progress:
+            on_progress(f"音频 .{ext}（{mirror}）— 正在连接…", None)
         try:
-            data = _http_get_bytes(url, timeout=180.0)
+            data = _http_get_bytes_chunked(url, timeout=300.0, on_chunk=chunk_cb)
             if len(data) >= 512:
+                if on_progress:
+                    on_progress(f"音频 .{ext} — 完成（共 {len(data) // 1024} KiB）", 1.0)
                 return data, ext
         except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError) as e:
             last_err = e
+            if on_progress:
+                on_progress(f"音频 .{ext}（{mirror}）失败，尝试下一镜像…", None)
             continue
     raise RuntimeError(
         f"无法下载人声资源 {assetbundle_name!r}（已尝试 flac/wav/mp3 全部镜像）。"
@@ -375,21 +569,23 @@ def save_pjsk_bundle_to_cache(
     composer: str,
     assetbundle_name: str,
     available_pjsk_difficulties: set[str],
-    progress: Callable[[str], None] | None = None,
+    progress: Callable[[str, float | None], None] | None = None,
     vocal_assetbundle: str | None = None,
     vocal_caption: str | None = None,
 ) -> Path:
     """下载封面、曲绘、可选完整音频与固定 PJSK 难度的 SUS 到 pjsk_cache/；c2s 见 sus_to_c2s。
 
     完整音频：与 PjskSUSPatcher 一致，来自 `musicVocals` 的 `assetbundleName` 与 long 音频 URL。
-    中二机内格式（48kHz 立体声 WAV → HCA / ACB·AWB）需用 [PenguinTools](https://github.com/Foahh/PenguinTools)
-    的 MusicConverter 等工具处理，本函数只保存原始 flac/wav/mp3。
+    若已安装 ffmpeg 与 PyCriCodecsEx，会在同目录下额外生成去掉前 9 秒后的 48k WAV，
+    以及 ``chuni_cue/cueFileXXXXXX/`` 下的 ``musicXXXX.acb`` / ``.awb``（逻辑对齐
+    [PenguinTools MusicConverter](https://github.com/Foahh/PenguinTools/blob/main/PenguinTools.Core/Media/MusicConverter.cs)）。
     """
+    from . import pjsk_audio_chuni as pjsk_ac
     from . import sus_to_c2s as s2c
 
-    def p(msg: str) -> None:
+    def p(msg: str, ratio: float | None = None) -> None:
         if progress:
-            progress(msg)
+            progress(msg, ratio)
 
     base = pjsk_cache_root(acus_root)
     base.mkdir(parents=True, exist_ok=True)
@@ -401,12 +597,12 @@ def save_pjsk_bundle_to_cache(
     sus_dir.mkdir(exist_ok=True)
     chuni_dir.mkdir(exist_ok=True)
 
-    p("下载封面 / 曲绘 …")
+    p("下载封面 / 曲绘 …", None)
     cover, illust = download_jacket_images(assetbundle_name)
     if cover:
         (root / "封面.png").write_bytes(cover)
     else:
-        p("（未获取到封面 PNG）")
+        p("（未获取到封面 PNG）", None)
     if illust:
         (root / "曲绘.png").write_bytes(illust)
 
@@ -416,23 +612,42 @@ def save_pjsk_bundle_to_cache(
 
     vab = (vocal_assetbundle or "").strip()
     if vab:
-        p(f"下载完整音频（{vab}）…")
+        p(f"下载完整音频（{vab}）…", None)
         audio_dir.mkdir(exist_ok=True)
-        audio_bytes, ext = download_pjsk_long_music(vab)
+
+        def _audio_p(msg: str, ratio: float | None) -> None:
+            p(msg, ratio)
+
+        audio_bytes, ext = download_pjsk_long_music(vab, on_progress=_audio_p)
         stem = sanitize_filename_stem(vab, max_len=120)
         audio_path = audio_dir / f"{stem}.{ext}"
         audio_path.write_bytes(audio_bytes)
         audio_rel = audio_path.relative_to(root).as_posix()
-        audio_manifest = {
+        audio_manifest: dict[str, object] = {
             "assetbundleName": vab,
             "caption": (vocal_caption or "").strip() or vab,
             "file": audio_rel,
             "format": ext,
-            "chuniPipelineNote": (
-                "CHUNITHM 需 48kHz 立体声 WAV 后经 HCA 封进 ACB/AWB；"
-                "可参考 Foahh/PenguinTools PenguinTools.Core/Media/MusicConverter.cs。"
-            ),
         }
+        p("生成中二用 WAV / ACB·AWB（若环境齐全）…", None)
+        try:
+            chuni_extra = pjsk_ac.try_pipeline_pjsk_audio_to_chuni(
+                src_audio=audio_path,
+                music_id=music_id,
+                cache_root=root,
+                trim_leading_sec=pjsk_ac.PJSK_AUDIO_TRIM_LEADING_SEC,
+                on_log=lambda m: p(m, None),
+            )
+        except Exception as ex:
+            chuni_extra = None
+            p(f"中二音频管线跳过：{ex}", None)
+        if chuni_extra:
+            audio_manifest["chuni"] = chuni_extra
+        else:
+            audio_manifest["chuniPipelineNote"] = (
+                "可选：安装 ffmpeg（PATH）与 pip install PyCriCodecsEx，"
+                "并保留 chuni_eventer_desktop/data/dummy.acb 模板，即可自动生成 ACB/AWB。"
+            )
 
     for pj in s2c.PJSK_CHUNI_DOWNLOAD_ORDER:
         if pj not in av:
@@ -440,12 +655,12 @@ def save_pjsk_bundle_to_cache(
         slot = s2c.chuni_slot_name_for_pjsk(pj)
         if slot is None:
             continue
-        p(f"下载谱面 {pj} …")
+        p(f"下载谱面 {pj} …", None)
         try:
             text = fetch_chart_sus(music_id, pj)
         except Exception:
             if pj == "append":
-                p("append 谱面不可用（视为无该难度），已跳过。")
+                p("append 谱面不可用（视为无该难度），已跳过。", None)
                 continue
             raise
         (sus_dir / f"{pj}.sus").write_text(text, encoding="utf-8")
@@ -468,7 +683,8 @@ def save_pjsk_bundle_to_cache(
         "本目录为 PJSK 资源缓存（与 ACUS 同级的 pjsk_cache 下，不在 ACUS 内）。\n"
         "完成 SUS→中二 c2s 并整理为游戏所需结构后，再复制进 ACUS；在此之前请勿把本目录当 ACUS 使用。\n"
         "- sus/ ：原始 SUS（normal / hard / expert / master / append，按曲目实际存在项下载）。\n"
-        "- audio/ ：若选择了人声版本，则为完整曲长音频（flac/wav/mp3，视镜像而定）。\n"
+        "- audio/ ：若选择了人声版本，则为完整曲长音频（flac/wav/mp3，视镜像而定）；"
+        "环境齐全时另有 48k 修剪 WAV 与 chuni_cue/ 下 ACB·AWB。\n"
         "- chuni/ ：中二 c2s（由 sus_to_c2s 从 SUS 生成的实验性文本谱；不保证与官机完全一致）。\n"
         "- 与 CHUNITHM 槽位对应：normal→BASIC(Easy)，hard→ADVANCED，expert→EXPERT，"
         "master→MASTER；有 append 时→ULTIMA，无 append 则无 ULTIMA 对应文件。\n"

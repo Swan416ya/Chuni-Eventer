@@ -35,8 +35,10 @@ class PjskVocalPickDialog(QDialog):
         self.selected: PjskVocalRow | None = None
 
         tip = BodyLabel(
-            "该曲目在 PJSK 中有多个音频版本（不同组合 / 声部等）。"
-            "请选择要下载的一条完整音频，或选择「不下载音频」仅拉取封面与谱面。"
+            "该曲目在 PJSK 中有多个音频版本（不同演唱组合、セカイ版、虚拟歌手版等）。"
+            "列表中会尽量显示角色名与官方 caption（来自 musicVocals）；"
+            "鼠标悬停一行可查看资源包名 assetbundleName。"
+            "请选择要下载的一条完整音频，或「不下载音频」仅拉取封面与谱面。"
         )
         tip.setWordWrap(True)
 
@@ -44,6 +46,7 @@ class PjskVocalPickDialog(QDialog):
         for v in vocals:
             it = QListWidgetItem(v.caption)
             it.setData(Qt.ItemDataRole.UserRole, v)
+            it.setToolTip(v.tooltip if v.tooltip else v.assetbundle_name)
             self._list.addItem(it)
         if self._list.count():
             self._list.setCurrentRow(0)
