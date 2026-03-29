@@ -331,13 +331,14 @@ def save_pjsk_bundle_to_cache(
         "本目录为 PJSK 资源缓存（与 ACUS 同级的 pjsk_cache 下，不在 ACUS 内）。\n"
         "完成 SUS→中二 c2s 并整理为游戏所需结构后，再复制进 ACUS；在此之前请勿把本目录当 ACUS 使用。\n"
         "- sus/ ：原始 SUS（normal / hard / expert / master / append，按曲目实际存在项下载）。\n"
-        "- chuni/ ：中二 c2s（转换逻辑未实现时为空）。\n"
+        "- chuni/ ：中二 c2s（由 sus_to_c2s 从 SUS 生成的实验性文本谱；不保证与官机完全一致）。\n"
         "- 与 CHUNITHM 槽位对应：normal→BASIC(Easy)，hard→ADVANCED，expert→EXPERT，"
         "master→MASTER；有 append 时→ULTIMA，无 append 则无 ULTIMA 对应文件。\n"
         "详见 manifest.json。\n"
     )
     (root / "说明.txt").write_text(readme, encoding="utf-8")
 
+    has_c2s = any(s.get("c2sFile") for s in manifest_slots)
     manifest: dict[str, object] = {
         "musicId": music_id,
         "title": title,
@@ -346,7 +347,7 @@ def save_pjsk_bundle_to_cache(
         "cacheRoot": str(base),
         "outsideAcus": True,
         "slots": manifest_slots,
-        "c2sConversionImplemented": False,
+        "c2sConversionImplemented": has_c2s,
     }
     (root / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2),

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal, Qt
+from PyQt6.QtCore import QPoint, QThread, QTimer, pyqtSignal, Qt
 from PyQt6.QtGui import QPalette
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -29,6 +29,7 @@ from ..pjsk_sheet_client import (
 )
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
 from .fluent_table import apply_fluent_sheet_table
+from .sus_c2s_debug_dialog import SusC2sDebugDialog
 
 
 class _LoadCatalogThread(QThread):
@@ -80,7 +81,7 @@ class _PjskCacheThread(QThread):
 
 
 class PjskSusDownloadDialog(QDialog):
-    """PJSK：缓存封面、曲绘与固定难度 SUS（c2s 转换未完成）。"""
+    """PJSK：缓存封面、曲绘与固定难度 SUS，并尝试生成实验性 c2s。"""
 
     def __init__(self, *, acus_root: Path, parent=None) -> None:
         super().__init__(parent=parent)
@@ -95,14 +96,17 @@ class PjskSusDownloadDialog(QDialog):
         self._diff_index: dict[int, list[PjskDifficultyRow]] = {}
         self._load_thread: _LoadCatalogThread | None = None
         self._cache_thread: _PjskCacheThread | None = None
+        self._sus_c2s_debug_win: SusC2sDebugDialog | None = None
+        self._header_debug_timer = QTimer(self)
+        self._header_debug_timer.setSingleShot(True)
+        self._header_debug_timer.timeout.connect(self._open_sus_c2s_debug)
 
         card = CardWidget(self)
 
         warn = BodyLabel(
-            "【实验 / 未完成】本渠道仅将资源缓存到本地，SUS→中二 c2s 尚未实现，"
-            "谱面可能出现无理键型或与街机不一致等问题。"
-            "若需要可直接游玩的谱面包，建议先在「新增」里选择 Swan 站渠道，"
-            "查找是否已有他人转好的铺面。"
+            "【实验】本渠道将资源缓存到本地，并会用内置规则从 SUS 生成 UTF-8 文本 c2s（chuni/ 下各难度）。"
+            "转换为首版逻辑：时间轴、滑条链、天空键等与官谱或编辑器可能仍有差异，需在目标环境中自行验证。"
+            "若需要可直接游玩的谱面包，也可在「新增」里选择 Swan 站渠道查找现成资源。"
         )
         warn.setWordWrap(True)
         warn.setStyleSheet("color: #b45309;")
@@ -131,6 +135,8 @@ class PjskSusDownloadDialog(QDialog):
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.doubleClicked.connect(lambda _i: self._on_download())
+        self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._table.customContextMenuRequested.connect(self._on_table_context_menu)
 
         self._status = BodyLabel("正在加载曲目列表…", card)
         self._status.setWordWrap(True)
@@ -165,6 +171,23 @@ class PjskSusDownloadDialog(QDialog):
         lay.addLayout(btns)
 
         QTimer.singleShot(0, self._on_reload)
+
+    def _on_table_context_menu(self, pos: QPoint) -> None:
+        idx = self._table.indexAt(pos)
+        if not idx.isValid() or idx.column() != 0:
+            return
+        self._open_sus_c2s_debug()
+
+    def _open_sus_c2s_debug(self) -> None:
+        dlg = SusC2sDebugDialog(
+            acus_root=self._acus_root,
+            selected_music_id_fn=self._selected_music_id,
+            parent=self,
+        )
+        dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
 
     def _on_reload(self) -> None:
         if self._pjsk_load_thread_busy():
