@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import QSize, Qt
-from PyQt6.QtGui import QColor, QIcon
+from PyQt6.QtCore import QEvent, QSize, Qt
+from PyQt6.QtGui import QColor, QIcon, QMouseEvent
 from PyQt6.QtWidgets import (
     QDialog,
     QGraphicsDropShadowEffect,
@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QToolButton,
     QVBoxLayout,
+    QWidget,
 )
 
 from qfluentwidgets import CardWidget, PushButton, SubtitleLabel
@@ -82,24 +83,24 @@ class MusicSheetChannelsDialog(QDialog):
             return b
 
         row.addWidget(mk("SwanSite.png", "从 Swan 站获取自制谱", enabled=True, act="swan"))
-        row.addWidget(
-            mk(
-                "pjsk.png",
-                "从 Project SEKAI 导出游戏内谱面（SUS 文本）",
-                enabled=True,
-                act="pjsk",
-            )
-        )
         row.addWidget(mk("pgko.jpg", "从 pgko 获取（尚未支持）", enabled=False, act="pgko"))
 
         cly.addWidget(hint)
         cly.addLayout(row)
 
         foot = QHBoxLayout()
-        foot.addStretch(1)
-        close_btn = PushButton("关闭", card)
-        close_btn.clicked.connect(self.reject)
-        foot.addWidget(close_btn)
+        foot.setContentsMargins(0, 0, 0, 0)
+        self._close_btn = PushButton("关闭", card)
+        self._close_btn.setToolTip(
+            "左键：关闭。右键：从本地 ZIP 导入（与 Swan 下载后相同的自动解压逻辑）。"
+        )
+        self._close_btn.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
+        self._close_btn.clicked.connect(self.reject)
+        self._close_btn.installEventFilter(self)
+        foot.addWidget(self._close_btn, stretch=1)
         cly.addLayout(foot)
 
         sh = QGraphicsDropShadowEffect(card)
@@ -113,7 +114,7 @@ class MusicSheetChannelsDialog(QDialog):
         root.addLayout(mid)
         root.addStretch(1)
 
-        min_w = _BTN_W * 3 + 12 * 2 + 48
+        min_w = _BTN_W * 2 + 12 * 1 + 48
         card.setMinimumWidth(min_w)
 
     def showEvent(self, event) -> None:
@@ -133,6 +134,14 @@ class MusicSheetChannelsDialog(QDialog):
             self.reject()
             return
         super().keyPressEvent(event)
+
+    def eventFilter(self, obj: QWidget | None, event: QEvent | None) -> bool:
+        if obj is self._close_btn and event is not None and event.type() == QEvent.Type.MouseButtonPress:
+            me = event
+            if isinstance(me, QMouseEvent) and me.button() == Qt.MouseButton.RightButton:
+                self._pick("local_zip")
+                return True
+        return super().eventFilter(obj, event)
 
     def _pick(self, act: str) -> None:
         self._action = act

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# SwanSite 谱面 HTTP 客户端；端点与字段说明见仓库 docs/swan_sheet_api_zh.md
+
 import json
 import ssl
 import urllib.request

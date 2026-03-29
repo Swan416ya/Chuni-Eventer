@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
 
 from qfluentwidgets import (
     FluentIcon,
@@ -16,6 +16,7 @@ from qfluentwidgets import (
 )
 
 from ..acus_workspace import AcusConfig, ensure_acus_layout
+from ..sheet_install import install_zip_to_acus
 from ..dds_quicktex import quicktex_available
 from .manager_widget import ManagerWidget
 from .settings_dialog import SettingsDialog
@@ -24,12 +25,11 @@ from .map_add_dialog import MapAddDialog, RewardCreateDialog, ensure_reward_xml,
 from .nameplate_add_dialog import NamePlateAddDialog
 from .trophy_add_dialog import TrophyAddDialog
 from .music_add_actions_dialog import MusicSheetChannelsDialog
-from .pjsk_hub_dialog import PjskHubDialog
 from .swan_sheet_download_dialog import SwanSheetDownloadDialog
 from .save_patch_dialog import SavePatchDialog
 from .event_add_dialog import EventAddDialog
 from .quest_add_dialog import QuestAddDialog
-from .fluent_dialogs import fly_message
+from .fluent_dialogs import fly_critical, fly_message
 
 
 class MainWindow(MSFluentWindow):
@@ -161,7 +161,12 @@ class MainWindow(MSFluentWindow):
         dlg.exec()
 
     def _open_settings(self) -> None:
-        dlg = SettingsDialog(cfg=self._cfg, parent=self)
+        dlg = SettingsDialog(
+            cfg=self._cfg,
+            acus_root=self._acus_root,
+            get_tool_path=self._get_tool_path_or_none,
+            parent=self,
+        )
         if dlg.exec() == dlg.DialogCode.Accepted:
             dlg.apply()
             fly_message(self, "已保存", "设置已保存。")
@@ -195,12 +200,25 @@ class MainWindow(MSFluentWindow):
             if act == "swan":
                 SwanSheetDownloadDialog(acus_root=self._acus_root, parent=self).exec()
                 self._on_refresh()
-            elif act == "pjsk":
-                PjskHubDialog(
-                    acus_root=self._acus_root,
-                    get_tool_path=self._get_tool_path_or_none,
-                    parent=self,
-                ).exec()
+            elif act == "local_zip":
+                path, _ = QFileDialog.getOpenFileName(
+                    self,
+                    "选择自制谱压缩包",
+                    "",
+                    "ZIP 压缩包 (*.zip);;所有文件 (*.*)",
+                )
+                if not path.strip():
+                    return
+                zp = Path(path).expanduser().resolve()
+                try:
+                    written = install_zip_to_acus(zp, self._acus_root)
+                    fly_message(
+                        self,
+                        "已导入",
+                        f"已写入 {len(written)} 个文件到 ACUS。",
+                    )
+                except Exception as e:
+                    fly_critical(self, "导入失败", str(e))
                 self._on_refresh()
             return
 

@@ -82,6 +82,7 @@ class FlipMusicCard(QFrame):
     doubleClickedMusic = pyqtSignal(object)
     deleteRequested = pyqtSignal(object)
     trophyRequested = pyqtSignal(object)
+    jacketReplaceRequested = pyqtSignal(object)
 
     def __init__(
         self,
@@ -140,12 +141,17 @@ class FlipMusicCard(QFrame):
         vf.setPointSize(max(12, vf.pointSize()))
         menu.view.setFont(vf)
 
+        act_jacket = Action(FIF.PHOTO, "更换封面…", self)
         act_trophy = Action(FIF.TAG, "生成课题称号…", self)
         act_del = Action(FIF.DELETE, "删除乐曲…", self)
+        act_jacket.triggered.connect(
+            lambda: self.jacketReplaceRequested.emit(self._item)
+        )
         act_trophy.triggered.connect(
             lambda: self.trophyRequested.emit(self._item)
         )
         act_del.triggered.connect(lambda: self.deleteRequested.emit(self._item))
+        menu.addAction(act_jacket)
         menu.addAction(act_trophy)
         menu.addAction(act_del)
         menu.exec(
@@ -390,6 +396,7 @@ class MusicCardsView(QWidget):
     doubleClickedMusic = pyqtSignal(object)
     musicDeleteRequested = pyqtSignal(object)
     musicTrophyRequested = pyqtSignal(object)
+    musicJacketReplaceRequested = pyqtSignal(object)
 
     def __init__(
         self,
@@ -522,6 +529,7 @@ class MusicCardsView(QWidget):
             card.doubleClickedMusic.connect(self.doubleClickedMusic.emit)
             card.deleteRequested.connect(self.musicDeleteRequested.emit)
             card.trophyRequested.connect(self.musicTrophyRequested.emit)
+            card.jacketReplaceRequested.connect(self.musicJacketReplaceRequested.emit)
             self._cards.append(card)
             row, col = divmod(idx, cols)
             self._grid.addWidget(

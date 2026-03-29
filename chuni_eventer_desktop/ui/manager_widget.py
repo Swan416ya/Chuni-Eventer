@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
     QDialog,
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -27,6 +28,7 @@ from PyQt6.QtWidgets import (
 
 from qfluentwidgets import BodyLabel, CaptionLabel, ComboBox as FluentComboBox, TableView
 
+from .fluent_dialogs import fly_critical, fly_message
 from .music_cards_view import MusicCardsView
 
 from ..music_delete import execute_music_deletion, plan_music_deletion
@@ -298,6 +300,9 @@ class ManagerWidget(QWidget):
         self.music_cards_view.doubleClickedMusic.connect(self._on_music_card_double_clicked)
         self.music_cards_view.musicDeleteRequested.connect(self._on_music_delete_requested)
         self.music_cards_view.musicTrophyRequested.connect(self._on_music_trophy_requested)
+        self.music_cards_view.musicJacketReplaceRequested.connect(
+            self._on_music_jacket_replace_requested
+        )
 
         self._main_stack = QStackedWidget()
         self._main_stack.addWidget(split)
@@ -787,6 +792,37 @@ class ManagerWidget(QWidget):
         )
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.reload()
+
+    def _on_music_jacket_replace_requested(self, it: object) -> None:
+        if not isinstance(it, MusicItem):
+            return
+        tool = self._get_tool_path()
+        if tool is None and not quicktex_available():
+            QMessageBox.critical(
+                self.window(),
+                "无法更换封面",
+                "未安装 quicktex 且未在【设置】中配置 compressonatorcli，无法将图片转为 BC3 DDS。",
+            )
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self.window(),
+            "选择封面（图片或 BC3 DDS）",
+            "",
+            "图片 (*.png *.jpg *.jpeg *.webp *.bmp);;BC3 DDS (*.dds);;所有文件 (*.*)",
+        )
+        if not path:
+            return
+        from ..music_jacket_replace import apply_music_jacket_image
+
+        try:
+            out = apply_music_jacket_image(
+                item=it, source=Path(path), tool_path=tool
+            )
+        except Exception as e:
+            fly_critical(self.window(), "更换封面失败", str(e))
+            return
+        fly_message(self.window(), "已更新封面", f"已写入：\n{out.name}")
+        self.reload()
 
     def _on_music_delete_requested(self, it: object) -> None:
         if not isinstance(it, MusicItem):

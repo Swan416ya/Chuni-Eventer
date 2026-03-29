@@ -21,8 +21,8 @@
   - 扫描 `ACUS/` 里现有 XML：`Event / Map / Music / Chara / …`
   - **Event** 支持地图解禁 / 宣传(含 DDS) 等分类标注与筛选
   - 支持搜索、查看字段、DDS 预览（会缓存）
-- **Project SEKAI（PJSK）谱面缓存与转写**
-  - 下载 SUS、转写进 ACUS 时的 **SUS→c2s** 转换逻辑派生自开源工具 [Soyandroid/suspect](https://github.com/Soyandroid/suspect)（在本仓库 `chuni_eventer_desktop/_suspect/` 中做了小节时间轴与轨位等补丁）。
+- **Project SEKAI（PJSK）烤谱（实验）**
+  - 入口在 **【设置】**（歌曲页「新增」仅保留可玩的 **Swan 站** 渠道）。下载 SUS、转写 ACUS 时的 **SUS→c2s** 派生自 [Soyandroid/suspect](https://github.com/Soyandroid/suspect)（见 `chuni_eventer_desktop/_suspect/`）。
 
 ---
 
