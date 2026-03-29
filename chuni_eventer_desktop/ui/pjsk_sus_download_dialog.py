@@ -22,6 +22,7 @@ from ..pjsk_sheet_client import (
     PjskDifficultyRow,
     PjskMusicRow,
     load_difficulties_index,
+    load_music_vocals_for_music,
     load_musics_catalog,
     pjsk_cache_root,
     pjsk_song_cache_dir,
@@ -29,6 +30,7 @@ from ..pjsk_sheet_client import (
 )
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
 from .fluent_table import apply_fluent_sheet_table
+from .pjsk_vocal_pick_dialog import PjskVocalPickDialog
 from .sus_c2s_debug_dialog import SusC2sDebugDialog
 
 
@@ -56,12 +58,16 @@ class _PjskCacheThread(QThread):
         acus_root: Path,
         row: PjskMusicRow,
         available_diffs: set[str],
+        vocal_assetbundle: str | None,
+        vocal_caption: str | None,
         parent=None,
     ) -> None:
         super().__init__(parent=parent)
         self._acus_root = acus_root
         self._row = row
         self._available_diffs = available_diffs
+        self._vocal_ab = vocal_assetbundle
+        self._vocal_cap = vocal_caption
 
     def run(self) -> None:
         try:
@@ -73,6 +79,8 @@ class _PjskCacheThread(QThread):
                 assetbundle_name=self._row.assetbundle_name,
                 available_pjsk_difficulties=self._available_diffs,
                 progress=self.progress.emit,
+                vocal_assetbundle=self._vocal_ab,
+                vocal_caption=self._vocal_cap,
             )
             root = pjsk_song_cache_dir(self._acus_root, self._row.music_id)
             self.ok.emit(str(root.resolve()))
@@ -114,8 +122,9 @@ class PjskSusDownloadDialog(QDialog):
         _cache_root = pjsk_cache_root(self._acus_root)
         hint = BodyLabel(
             "将自动下载：封面.png、曲绘.png（与封面同源或第二镜像），"
-            "以及谱面 normal / hard / expert / master / append（曲目上存在的才会下载；"
-            "无 append 则无 ULTIMA 对应 sus）。"
+            "谱面 normal / hard / expert / master / append（曲目上存在的才会下载；无 append 则无 ULTIMA 对应 sus），"
+            "以及完整音频：若该曲在 PJSK 有多个 musicVocals 版本，下载前会弹出列表供选择；仅 1 个版本时自动选用。"
+            "原始音频为 flac/wav/mp3（视镜像），中二机内 ACB/AWB 需另用 PenguinTools 等工具转换。"
             f"保存目录与 ACUS 同级：{(_cache_root / 'pjsk_曲目ID').as_posix()}"
         )
         hint.setWordWrap(True)
@@ -313,11 +322,43 @@ class PjskSusDownloadDialog(QDialog):
         avail = {d.music_difficulty.strip().lower() for d in diffs}
         if self._pjsk_cache_thread_busy():
             return
+
+        self._status.setText("正在查询人声版本（musicVocals）…")
+        QApplication.processEvents()
+        try:
+            vocals = load_music_vocals_for_music(mid)
+        except Exception as e:
+            self._status.setText("人声索引失败。")
+            fly_critical(self, "无法加载 musicVocals", str(e))
+            return
+
+        vocal_ab: str | None = None
+        vocal_cap: str | None = None
+        if not vocals:
+            self._status.setText("未找到人声版本条目，将仅下载封面与谱面。")
+        elif len(vocals) == 1:
+            vocal_ab = vocals[0].assetbundle_name
+            vocal_cap = vocals[0].caption
+        else:
+            dlg = PjskVocalPickDialog(vocals, parent=self)
+            code = dlg.exec()
+            if code != QDialog.DialogCode.Accepted:
+                self._status.setText("已取消下载。")
+                return
+            if dlg.skip_audio:
+                vocal_ab = None
+                vocal_cap = None
+            elif dlg.selected is not None:
+                vocal_ab = dlg.selected.assetbundle_name
+                vocal_cap = dlg.selected.caption
+
         self._status.setText("正在下载…")
         th = _PjskCacheThread(
             acus_root=self._acus_root,
             row=row,
             available_diffs=avail,
+            vocal_assetbundle=vocal_ab,
+            vocal_caption=vocal_cap,
             parent=self,
         )
         self._cache_thread = th

@@ -148,6 +148,114 @@ class PjskDifficultyRow:
     play_level: int
 
 
+@dataclass(frozen=True)
+class PjskVocalRow:
+    """对应 PJSK `musicVocals` 的一条人声/伴奏版本（同一曲可有多条）。"""
+
+    music_id: int
+    assetbundle_name: str
+    caption: str
+
+
+def _vocal_row_caption(row: dict[str, Any]) -> str:
+    ab = (row.get("assetbundleName") or "").strip()
+    vt = (row.get("musicVocalType") or row.get("vocalType") or "").strip()
+    if vt and ab:
+        return f"{vt} · {ab}"
+    return ab or vt or "unknown"
+
+
+def _vocal_from_json_row(row: dict[str, Any]) -> PjskVocalRow | None:
+    try:
+        mid = int(row["musicId"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    ab = (row.get("assetbundleName") or "").strip()
+    if not ab:
+        return None
+    return PjskVocalRow(
+        music_id=mid,
+        assetbundle_name=ab,
+        caption=_vocal_row_caption(row),
+    )
+
+
+def _try_music_vocals_from_api(music_id: int) -> list[dict[str, Any]] | None:
+    url = f"{PJSK_API_DB_BASE}/musicVocals?musicId={int(music_id)}&$limit=200"
+    try:
+        data = _http_get_json(url, timeout=45.0)
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError, ValueError):
+        return None
+    if isinstance(data, dict) and isinstance(data.get("data"), list):
+        return data["data"]
+    return None
+
+
+_music_vocals_json_cache: list[dict[str, Any]] | None = None
+
+
+def _all_music_vocals_from_sekai_json() -> list[dict[str, Any]]:
+    global _music_vocals_json_cache
+    if _music_vocals_json_cache is None:
+        url = f"{PJSK_SEKAI_MASTER_JSON_BASE}/musicVocals.json"
+        rows = _http_get_json(url, timeout=120.0)
+        _music_vocals_json_cache = rows if isinstance(rows, list) else []
+    return _music_vocals_json_cache
+
+
+def load_music_vocals_for_music(music_id: int) -> list[PjskVocalRow]:
+    """
+    查询指定乐曲的所有人声版本（与 PjskSUSPatcher loadVocals 同源：API 优先，失败则 musics.json）。
+    """
+    raw = _try_music_vocals_from_api(music_id)
+    if raw is None:
+        raw = [r for r in _all_music_vocals_from_sekai_json() if int(r.get("musicId", -1)) == int(music_id)]
+    seen: set[str] = set()
+    out: list[PjskVocalRow] = []
+    for row in raw:
+        if not isinstance(row, dict):
+            continue
+        v = _vocal_from_json_row(row)
+        if v is None or v.assetbundle_name in seen:
+            continue
+        seen.add(v.assetbundle_name)
+        out.append(v)
+    return out
+
+
+def pjsk_long_music_download_urls(assetbundle_name: str) -> tuple[tuple[str, str], ...]:
+    """
+    完整曲长音频 URL 尝试顺序（与 SusPatcher.js 一致）。
+    返回 (扩展名不含点, url) 元组列表。
+    """
+    ab = (assetbundle_name or "").strip()
+    if not ab:
+        return ()
+    return (
+        ("flac", f"{ASSET_PJSEKAI}/ondemand/music/long/{ab}/{ab}.flac"),
+        ("wav", f"{ASSET_PJSEKAI}/ondemand/music/long/{ab}/{ab}.wav"),
+        ("flac", f"{ASSET_SEKAIBEST}/music/long/{ab}/{ab}.flac"),
+        ("mp3", f"{ASSET_SEKAIBEST}/music/long/{ab}/{ab}.mp3"),
+    )
+
+
+def download_pjsk_long_music(assetbundle_name: str) -> tuple[bytes, str]:
+    """依次尝试各镜像与格式，返回 (字节, 扩展名)。"""
+    last_err: Exception | None = None
+    for ext, url in pjsk_long_music_download_urls(assetbundle_name):
+        try:
+            data = _http_get_bytes(url, timeout=180.0)
+            if len(data) >= 512:
+                return data, ext
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError) as e:
+            last_err = e
+            continue
+    raise RuntimeError(
+        f"无法下载人声资源 {assetbundle_name!r}（已尝试 flac/wav/mp3 全部镜像）。"
+        f" 最后错误：{last_err!r}"
+    ) from last_err
+
+
 def _musics_from_sekai_json(rows: list[dict[str, Any]]) -> list[PjskMusicRow]:
     out: list[PjskMusicRow] = []
     for row in rows:
@@ -268,8 +376,15 @@ def save_pjsk_bundle_to_cache(
     assetbundle_name: str,
     available_pjsk_difficulties: set[str],
     progress: Callable[[str], None] | None = None,
+    vocal_assetbundle: str | None = None,
+    vocal_caption: str | None = None,
 ) -> Path:
-    """下载封面、曲绘与固定 PJSK 难度的 SUS 到 ACUS 同级 pjsk_cache/；c2s 见 sus_to_c2s。"""
+    """下载封面、曲绘、可选完整音频与固定 PJSK 难度的 SUS 到 pjsk_cache/；c2s 见 sus_to_c2s。
+
+    完整音频：与 PjskSUSPatcher 一致，来自 `musicVocals` 的 `assetbundleName` 与 long 音频 URL。
+    中二机内格式（48kHz 立体声 WAV → HCA / ACB·AWB）需用 [PenguinTools](https://github.com/Foahh/PenguinTools)
+    的 MusicConverter 等工具处理，本函数只保存原始 flac/wav/mp3。
+    """
     from . import sus_to_c2s as s2c
 
     def p(msg: str) -> None:
@@ -282,6 +397,7 @@ def save_pjsk_bundle_to_cache(
     root.mkdir(parents=True, exist_ok=True)
     sus_dir = root / "sus"
     chuni_dir = root / "chuni"
+    audio_dir = root / "audio"
     sus_dir.mkdir(exist_ok=True)
     chuni_dir.mkdir(exist_ok=True)
 
@@ -296,6 +412,27 @@ def save_pjsk_bundle_to_cache(
 
     av = {x.strip().lower() for x in available_pjsk_difficulties}
     manifest_slots: list[dict[str, object]] = []
+    audio_manifest: dict[str, object] | None = None
+
+    vab = (vocal_assetbundle or "").strip()
+    if vab:
+        p(f"下载完整音频（{vab}）…")
+        audio_dir.mkdir(exist_ok=True)
+        audio_bytes, ext = download_pjsk_long_music(vab)
+        stem = sanitize_filename_stem(vab, max_len=120)
+        audio_path = audio_dir / f"{stem}.{ext}"
+        audio_path.write_bytes(audio_bytes)
+        audio_rel = audio_path.relative_to(root).as_posix()
+        audio_manifest = {
+            "assetbundleName": vab,
+            "caption": (vocal_caption or "").strip() or vab,
+            "file": audio_rel,
+            "format": ext,
+            "chuniPipelineNote": (
+                "CHUNITHM 需 48kHz 立体声 WAV 后经 HCA 封进 ACB/AWB；"
+                "可参考 Foahh/PenguinTools PenguinTools.Core/Media/MusicConverter.cs。"
+            ),
+        }
 
     for pj in s2c.PJSK_CHUNI_DOWNLOAD_ORDER:
         if pj not in av:
@@ -331,6 +468,7 @@ def save_pjsk_bundle_to_cache(
         "本目录为 PJSK 资源缓存（与 ACUS 同级的 pjsk_cache 下，不在 ACUS 内）。\n"
         "完成 SUS→中二 c2s 并整理为游戏所需结构后，再复制进 ACUS；在此之前请勿把本目录当 ACUS 使用。\n"
         "- sus/ ：原始 SUS（normal / hard / expert / master / append，按曲目实际存在项下载）。\n"
+        "- audio/ ：若选择了人声版本，则为完整曲长音频（flac/wav/mp3，视镜像而定）。\n"
         "- chuni/ ：中二 c2s（由 sus_to_c2s 从 SUS 生成的实验性文本谱；不保证与官机完全一致）。\n"
         "- 与 CHUNITHM 槽位对应：normal→BASIC(Easy)，hard→ADVANCED，expert→EXPERT，"
         "master→MASTER；有 append 时→ULTIMA，无 append 则无 ULTIMA 对应文件。\n"
@@ -349,6 +487,8 @@ def save_pjsk_bundle_to_cache(
         "slots": manifest_slots,
         "c2sConversionImplemented": has_c2s,
     }
+    if audio_manifest is not None:
+        manifest["audio"] = audio_manifest
     (root / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2),
         encoding="utf-8",
