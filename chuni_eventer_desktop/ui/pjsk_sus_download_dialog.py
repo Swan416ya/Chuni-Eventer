@@ -124,9 +124,9 @@ class PjskSusDownloadDialog(QDialog):
         card = CardWidget(self)
 
         warn = BodyLabel(
-            "【实验】本渠道将资源缓存到本地，并会用内置规则从 SUS 生成 UTF-8 文本 c2s（chuni/ 下各难度）。"
-            "转换为首版逻辑：时间轴、滑条链、天空键等与官谱或编辑器可能仍有差异，需在目标环境中自行验证。"
-            "若需要可直接游玩的谱面包，也可在「新增」里选择 Swan 站渠道查找现成资源。"
+            "【重要】当前内置 SUS→c2s 转谱逻辑完全不可用，生成的 chuni/*.c2s 仅作占位，不可指望可玩。"
+            "详见 docs/sus_to_c2s_implementation_detailed_zh.md。"
+            "本窗口仍会下载 SUS/封面/音频等；若需要可玩中二谱面，请用其它成熟工具链或在「新增」中选 Swan 等渠道。"
         )
         warn.setWordWrap(True)
         warn.setStyleSheet("color: #b45309;")

@@ -21,6 +21,8 @@
   - 扫描 `ACUS/` 里现有 XML：`Event / Map / Music / Chara / …`
   - **Event** 支持地图解禁 / 宣传(含 DDS) 等分类标注与筛选
   - 支持搜索、查看字段、DDS 预览（会缓存）
+- **Project SEKAI（PJSK）谱面缓存与转写**
+  - 下载 SUS、转写进 ACUS 时的 **SUS→c2s** 转换逻辑派生自开源工具 [Soyandroid/suspect](https://github.com/Soyandroid/suspect)（在本仓库 `chuni_eventer_desktop/_suspect/` 中做了小节时间轴与轨位等补丁）。
 
 ---
 
@@ -245,4 +247,10 @@ python -m venv .venv-build
 GitHub Release 可只上传 **`ChuniEventer.exe`**；说明中提醒用户：首次运行在同目录生成 `ACUS/`，按需自备或配置 compressonator。
 
 可选：附简短 `README` 片段或链到本仓库说明。
+
+---
+
+## 9. 第三方参考（节选）
+
+- [Soyandroid/suspect](https://github.com/Soyandroid/suspect)：`.sus` 与 `.c2s` 等 CHUNITHM / Seaurchin 相关文本谱工具；本项目的 SUS→c2s 以该仓库实现为基准重写并集成。
 

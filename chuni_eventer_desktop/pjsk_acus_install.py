@@ -18,7 +18,7 @@ from typing import Any, Callable
 
 from . import pjsk_audio_chuni as pjsk_ac
 from .dds_convert import DdsToolError, convert_to_bc3_dds
-from .sus_to_c2s import PJSK_TO_CHUNI_SLOT
+from .sus_to_c2s import try_convert_sus_to_c2s_bytes
 
 XSI = "http://www.w3.org/2001/XMLSchema-instance"
 XSD = "http://www.w3.org/2001/XMLSchema"
@@ -194,7 +194,44 @@ def append_event_sort(acus_root: Path, event_id: int) -> None:
     ET.ElementTree(root).write(sort_path, encoding="utf-8", xml_declaration=True)
 
 
-def _build_slot_map(bundle: PjskLocalBundle) -> dict[str, Path]:
+def _slot_has_chart_source(root: Path, s: dict) -> bool:
+    rel_c2s = s.get("c2sFile")
+    if rel_c2s and (root / str(rel_c2s)).is_file():
+        return True
+    rel_sus = s.get("susFile")
+    return bool(rel_sus and (root / str(rel_sus)).is_file())
+
+
+def _materialize_c2s_for_slot(
+    bundle: PjskLocalBundle, slot: str, s: dict, log: Callable[[str], None]
+) -> Path:
+    root = bundle.root
+    rel_c2s = s.get("c2sFile")
+    if rel_c2s:
+        p = (root / str(rel_c2s)).resolve()
+        if p.is_file():
+            return p
+    rel_sus = s.get("susFile")
+    if not rel_sus:
+        raise ValueError(f"manifest 槽位 {slot} 缺少 susFile / c2sFile。")
+    p_sus = (root / str(rel_sus)).resolve()
+    if not p_sus.is_file():
+        raise FileNotFoundError(f"缺少 SUS：{p_sus}")
+    text = p_sus.read_text(encoding="utf-8")
+    c2s_bytes = try_convert_sus_to_c2s_bytes(text)
+    if c2s_bytes is None:
+        raise ValueError(f"SUS→c2s 转换失败：{slot}（{rel_sus}）")
+    chuni_dir = root / "chuni"
+    chuni_dir.mkdir(parents=True, exist_ok=True)
+    out = chuni_dir / f"{slot}.c2s"
+    out.write_bytes(c2s_bytes)
+    log(f"已从 SUS 生成 {out.relative_to(root)}")
+    return out
+
+
+def _build_slot_map(
+    bundle: PjskLocalBundle, log: Callable[[str], None]
+) -> dict[str, Path]:
     root = bundle.root
     slots = bundle.manifest.get("slots")
     out: dict[str, Path] = {}
@@ -204,12 +241,9 @@ def _build_slot_map(bundle: PjskLocalBundle) -> dict[str, Path]:
         if not isinstance(s, dict):
             continue
         slot = str(s.get("chuniSlot") or "").strip().upper()
-        rel = s.get("c2sFile")
-        if not slot or not rel:
+        if not slot or not _slot_has_chart_source(root, s):
             continue
-        p = (root / str(rel)).resolve()
-        if p.is_file():
-            out[slot] = p
+        out[slot] = _materialize_c2s_for_slot(bundle, slot, s, log)
     return out
 
 
@@ -218,10 +252,19 @@ def _has_ultima(slot_map: dict[str, Path]) -> bool:
 
 
 def chuni_slots_with_c2s(bundle: PjskLocalBundle) -> list[str]:
-    """Present chart slots in display order (BASIC … ULTIMA)."""
-    sm = _build_slot_map(bundle)
+    """Slots that have SUS or c2s on disk (UI / install prep), display order BASIC … ULTIMA."""
+    root = bundle.root
+    slots = bundle.manifest.get("slots")
+    have: set[str] = set()
+    if isinstance(slots, list):
+        for s in slots:
+            if not isinstance(s, dict):
+                continue
+            slot = str(s.get("chuniSlot") or "").strip().upper()
+            if slot and _slot_has_chart_source(root, s):
+                have.add(slot)
     order = ("BASIC", "ADVANCED", "EXPERT", "MASTER", "ULTIMA")
-    return [s for s in order if s in sm]
+    return [x for x in order if x in have]
 
 
 def _resolve_wav_for_acb(bundle: PjskLocalBundle, log: Callable[[str], None]) -> Path:
@@ -492,9 +535,11 @@ def install_pjsk_bundle_to_acus(
     if mdir.exists():
         raise FileExistsError(f"已存在乐曲目录：{mdir}")
 
-    slot_map = _build_slot_map(bundle)
+    slot_map = _build_slot_map(bundle, log)
     if not slot_map:
-        raise ValueError("manifest 中没有任何可用的 c2s（请先完成 SUS 转换下载）。")
+        raise ValueError(
+            "manifest 中没有任何可用谱面（请确认 sus/ 下已有 SUS，或 chuni/ 下已有 c2s）。"
+        )
     if not any(slot_map.get(s) for s in ("BASIC", "ADVANCED", "EXPERT", "MASTER")):
         raise ValueError("至少需要 Basic～Master 中一张谱面才能写入 Music.xml。")
 

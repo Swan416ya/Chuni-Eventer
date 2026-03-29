@@ -146,7 +146,7 @@ class PjskInstallToAcusDialog(QDialog):
         present = chuni_slots_with_c2s(bundle)
         if not present:
             levels_grid.addWidget(
-                QLabel("当前缓存无 c2s，请先下载并转换谱面后再转写。", levels_box),
+                QLabel("当前缓存无可用 SUS/c2s，请先下载谱面后再转写。", levels_box),
                 0,
                 0,
                 1,
@@ -220,7 +220,7 @@ class PjskInstallToAcusDialog(QDialog):
             fly_warning(self, "ID 冲突", f"目录已存在：{mdir}")
             return
         if not self._level_spins:
-            fly_warning(self, "无谱面", "当前缓存没有可用的 c2s，无法转写。")
+            fly_warning(self, "无谱面", "当前缓存没有可用的 SUS/c2s，无法转写。")
             return
         fumen_levels: dict[str, tuple[int, int]] = {}
         for slot, (w_lv, w_dec) in self._level_spins.items():
@@ -303,6 +303,14 @@ class PjskHubDialog(QDialog):
         self._bundles: list[PjskLocalBundle] = []
 
         card = CardWidget(self)
+        c2s_unusable = BodyLabel(
+            "【重要】当前内置的 SUS→c2s 转谱逻辑完全不可用：时间轴、Hold/Slide、流速等与官谱差距极大，"
+            "请勿指望生成的 c2s 可正常游玩。详细说明见仓库内 docs/sus_to_c2s_implementation_detailed_zh.md。"
+            "封面、音频与「转写到 ACUS」中的元数据/ACB 流程与上述转谱无关。"
+        )
+        c2s_unusable.setWordWrap(True)
+        c2s_unusable.setStyleSheet("color: #b91c1c; font-weight: 600;")
+
         top = BodyLabel(
             f"下列为已下载到本地的 PJSK 资源（{self._cache_root.as_posix()}）。"
             "选中一行后可「转写到 ACUS」生成 music、cueFile、Music.xml 与 ACB/AWB；"
@@ -332,6 +340,7 @@ class PjskHubDialog(QDialog):
         cly = QVBoxLayout(card)
         cly.setContentsMargins(16, 16, 16, 16)
         cly.setSpacing(10)
+        cly.addWidget(c2s_unusable)
         cly.addWidget(top)
         cly.addWidget(self._empty_hint)
         cly.addWidget(self._table, stretch=1)
@@ -364,17 +373,9 @@ class PjskHubDialog(QDialog):
         self._bundles = iter_local_pjsk_bundles(self._cache_root)
         self._table.setRowCount(len(self._bundles))
         for i, b in enumerate(self._bundles):
-            slots = b.manifest.get("slots")
-            n_c2s = 0
-            has_ult = False
-            if isinstance(slots, list):
-                for s in slots:
-                    if not isinstance(s, dict):
-                        continue
-                    if s.get("c2sFile"):
-                        n_c2s += 1
-                    if str(s.get("chuniSlot") or "").upper() == "ULTIMA":
-                        has_ult = True
+            present_slots = chuni_slots_with_c2s(b)
+            n_charts = len(present_slots)
+            has_ult = "ULTIMA" in present_slots
             audio = b.manifest.get("audio")
             acb_ok = False
             if isinstance(audio, dict):
@@ -384,7 +385,7 @@ class PjskHubDialog(QDialog):
             self._table.setItem(i, 0, QTableWidgetItem(str(b.pjsk_music_id)))
             self._table.setItem(i, 1, QTableWidgetItem(b.title))
             self._table.setItem(i, 2, QTableWidgetItem(b.composer))
-            slot_txt = f"{n_c2s} 档" + (" · ULT" if has_ult else "")
+            slot_txt = f"{n_charts} 档" + (" · ULT" if has_ult else "")
             self._table.setItem(i, 3, QTableWidgetItem(slot_txt))
             self._table.setItem(i, 4, QTableWidgetItem("有" if acb_ok else "无"))
             for c in range(5):

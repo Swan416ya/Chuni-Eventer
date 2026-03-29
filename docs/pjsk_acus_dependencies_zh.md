@@ -43,3 +43,9 @@ ffmpeg -version
 ```
 
 若第一句报错，请执行 `pip install PyCriCodecsEx`；若 `ffmpeg` 找不到，请检查 PATH。
+
+## 相关：SUS → c2s 转谱说明
+
+PJSK 下载流程里会用内置规则把 SUS 转成实验性 c2s，**与官谱差距较大**。实现细节、每条事件在文件中的写法与已知缺陷见：
+
+`docs/sus_to_c2s_implementation_detailed_zh.md`

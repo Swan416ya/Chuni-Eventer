@@ -573,7 +573,8 @@ def save_pjsk_bundle_to_cache(
     vocal_assetbundle: str | None = None,
     vocal_caption: str | None = None,
 ) -> Path:
-    """下载封面、曲绘、可选完整音频与固定 PJSK 难度的 SUS 到 pjsk_cache/；c2s 见 sus_to_c2s。
+    """下载封面、曲绘、可选完整音频与固定 PJSK 难度的 SUS 到 pjsk_cache/。
+    SUS→c2s 在「转写 ACUS」时执行，不在此处生成 chuni/*.c2s。
 
     完整音频：与 PjskSUSPatcher 一致，来自 `musicVocals` 的 `assetbundleName` 与 long 音频 URL。
     若已安装 ffmpeg 与 PyCriCodecsEx，会在同目录下额外生成去掉前 9 秒后的 48k WAV，
@@ -592,10 +593,8 @@ def save_pjsk_bundle_to_cache(
     root = pjsk_song_cache_dir(acus_root, music_id)
     root.mkdir(parents=True, exist_ok=True)
     sus_dir = root / "sus"
-    chuni_dir = root / "chuni"
     audio_dir = root / "audio"
     sus_dir.mkdir(exist_ok=True)
-    chuni_dir.mkdir(exist_ok=True)
 
     p("下载封面 / 曲绘 …", None)
     cover, illust = download_jacket_images(assetbundle_name)
@@ -664,18 +663,11 @@ def save_pjsk_bundle_to_cache(
                 continue
             raise
         (sus_dir / f"{pj}.sus").write_text(text, encoding="utf-8")
-        c2s_bytes = s2c.try_convert_sus_to_c2s_bytes(text)
-        c2s_name = f"{slot}.c2s"
-        c2s_rel: str | None = None
-        if c2s_bytes is not None:
-            (chuni_dir / c2s_name).write_bytes(c2s_bytes)
-            c2s_rel = f"chuni/{c2s_name}"
         manifest_slots.append(
             {
                 "pjskDifficulty": pj,
                 "chuniSlot": slot,
                 "susFile": f"sus/{pj}.sus",
-                "c2sFile": c2s_rel,
             }
         )
 
@@ -685,14 +677,13 @@ def save_pjsk_bundle_to_cache(
         "- sus/ ：原始 SUS（normal / hard / expert / master / append，按曲目实际存在项下载）。\n"
         "- audio/ ：若选择了人声版本，则为完整曲长音频（flac/wav/mp3，视镜像而定）；"
         "环境齐全时另有 48k 修剪 WAV 与 chuni_cue/ 下 ACB·AWB。\n"
-        "- chuni/ ：中二 c2s（由 sus_to_c2s 从 SUS 生成的实验性文本谱；不保证与官机完全一致）。\n"
+        "- chuni/ ：转写进 ACUS 时由程序从 SUS 生成 c2s 后写入（实验性；不保证与官机一致）。\n"
         "- 与 CHUNITHM 槽位对应：normal→BASIC(Easy)，hard→ADVANCED，expert→EXPERT，"
         "master→MASTER；有 append 时→ULTIMA，无 append 则无 ULTIMA 对应文件。\n"
         "详见 manifest.json。\n"
     )
     (root / "说明.txt").write_text(readme, encoding="utf-8")
 
-    has_c2s = any(s.get("c2sFile") for s in manifest_slots)
     manifest: dict[str, object] = {
         "musicId": music_id,
         "title": title,
@@ -701,7 +692,7 @@ def save_pjsk_bundle_to_cache(
         "cacheRoot": str(base),
         "outsideAcus": True,
         "slots": manifest_slots,
-        "c2sConversionImplemented": has_c2s,
+        "c2sConversionImplemented": False,
     }
     if audio_manifest is not None:
         manifest["audio"] = audio_manifest
