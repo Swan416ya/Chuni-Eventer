@@ -270,17 +270,32 @@ def chuni_slots_with_c2s(bundle: PjskLocalBundle) -> list[str]:
 def _resolve_wav_for_acb(bundle: PjskLocalBundle, log: Callable[[str], None]) -> Path:
     root = bundle.root
     audio = bundle.manifest.get("audio")
+    desired_trim = float(pjsk_ac.PJSK_AUDIO_TRIM_LEADING_SEC)
     chuni_wav_rel: str | None = None
+    ch_sub: dict | None = None
     if isinstance(audio, dict):
         ch = audio.get("chuni")
         if isinstance(ch, dict):
+            ch_sub = ch
             w = ch.get("trimmedWav48k")
             if isinstance(w, str) and w.strip():
                 chuni_wav_rel = w.strip()
+    meta_trim_ok = False
+    if ch_sub is not None:
+        mt = ch_sub.get("trimLeadingSec")
+        try:
+            if mt is not None:
+                meta_trim_ok = abs(float(mt) - desired_trim) < 1e-9
+        except (TypeError, ValueError):
+            pass
     if chuni_wav_rel:
         wpath = (root / chuni_wav_rel).resolve()
-        if wpath.is_file():
+        if wpath.is_file() and meta_trim_ok:
             return wpath
+        if wpath.is_file() and not meta_trim_ok:
+            log(
+                "缓存的 48k WAV 与当前片头裁剪策略不一致（将尽量从原文件重编码）。"
+            )
     if isinstance(audio, dict):
         rel = audio.get("file")
         if isinstance(rel, str) and rel.strip():
@@ -290,11 +305,16 @@ def _resolve_wav_for_acb(bundle: PjskLocalBundle, log: Callable[[str], None]) ->
                 pjsk_ac.ffmpeg_trim_to_chuni_wav(
                     src,
                     dst,
-                    trim_leading_sec=pjsk_ac.PJSK_AUDIO_TRIM_LEADING_SEC,
+                    trim_leading_sec=desired_trim,
                     on_stderr_line=lambda line: None,
                 )
-                log("已用 ffmpeg 从原始音频生成 48k 修剪 WAV。")
+                log("已用 ffmpeg 从原始音频生成 48k WAV（片头裁剪按当前策略）。")
                 return dst.resolve()
+    if chuni_wav_rel:
+        wpath = (root / chuni_wav_rel).resolve()
+        if wpath.is_file():
+            log("无原始 audio.file，仍使用已缓存的 trimmed WAV。")
+            return wpath
     raise FileNotFoundError(
         f"未找到可用音频（需要 manifest 中 chuni.trimmedWav48k 或 audio.file）：{root}"
     )

@@ -10,13 +10,16 @@ PJSK 侧固定拉取：normal / hard / expert / master / append（有 append 才
 并在此基础上增加：`REQUEST ticks_per_beat`、小节拍长 `#mmm02`、小节号十进制/十六进制、
 以及 PJSK/Seaurchin 轨宽到中二地面轨的偏移与宽度钳位。
 
+可玩性后处理（见 ``apply_playability_filters``）：去掉 Air-down 及同位 TAP；去掉与长条末尾重合的 EXTAP（CHR）；
+去掉最左五条地面轨上宽度为 1 的 TAP/MNE/CHR/FLK/HLD/Slide。
+
 参考：PjskSUSPatcher https://github.com/Qrael/PjskSUSPatcher
 """
 
 from __future__ import annotations
 
 from ._suspect.c2s_emit import BpmSetting, C2S_TICKS_PER_MEASURE, create_file
-from ._suspect.convert_core import remap_lanes_pjsk_to_chuni, sus_to_c2s
+from ._suspect.convert_core import apply_playability_filters, remap_lanes_pjsk_to_chuni, sus_to_c2s
 from ._suspect.sus_parser import main_bpm_for_context, parse_sus_document
 
 # 下载顺序（不含 PJSK easy）
@@ -48,6 +51,7 @@ def convert_sus_to_c2s(sus_text: str) -> str:
     objs, ctx = parse_sus_document(sus_text)
     definitions, notes = sus_to_c2s(objs, timing=ctx)
     remap_lanes_pjsk_to_chuni(notes)
+    notes = apply_playability_filters(notes)
 
     has_bpm0 = any(
         isinstance(d, BpmSetting) and int(d.measure) == 0 and int(d.tick) == 0

@@ -160,3 +160,90 @@ def remap_lanes_pjsk_to_chuni(notes: list) -> None:
             n.end_lane, n.end_width = lw(n.end_lane, n.end_width)
         elif isinstance(n, c2s.C2sNote):
             n.lane, n.width = lw(n.lane, n.width)
+
+
+# 与 remap 后 c2s 的 lane 一致：PJSK 最左列映射后最小为 2，此处 2～6 共五条地面轨。
+_PLAY_LEFTMOST_LANE_MIN = 2
+_PLAY_LEFTMOST_LANE_MAX = 6
+
+
+def apply_playability_filters(notes: list) -> list:
+    """
+    可玩性后处理（在 PJSK→中二轨映射之后执行）：
+
+    1. 删除所有 Air-down（ADW/ADL/ADR），以及与其同 (measure, tick, lane, width) 的 TAP。
+    2. 删除与 HLD 或 Slide（SLD/SLC）**末尾时刻**重合的 CHR（EXTAP）；末尾取 length 的
+       最后一拍与紧随其后的下一拍两种可能，lane/width 与长条结束端一致。
+    3. 删除宽度为 1 且落在最左五条地面轨上的 TAP / MNE / CHR / FLK / HLD / Slide（任一端满足即删整条 Slide）。
+    """
+    R = c2s.C2S_TICKS_PER_MEASURE
+    lo, hi = _PLAY_LEFTMOST_LANE_MIN, _PLAY_LEFTMOST_LANE_MAX
+
+    def lin(m: int, t: int) -> int:
+        return int(m) * R + int(t)
+
+    def in_left_five(lane: int) -> bool:
+        return lo <= int(lane) <= hi
+
+    res = list(notes)
+
+    air_down_keys = {
+        (n.measure, n.tick, n.lane, n.width)
+        for n in res
+        if isinstance(n, c2s.AirNote) and not n.isUp
+    }
+    res = [
+        n
+        for n in res
+        if not (
+            isinstance(n, c2s.AirNote)
+            and (not n.isUp)
+            or (
+                isinstance(n, c2s.TapNote)
+                and (n.measure, n.tick, n.lane, n.width) in air_down_keys
+            )
+        )
+    ]
+
+    end_chr_keys: set[tuple[int, int, int]] = set()
+    for n in res:
+        if isinstance(n, c2s.HoldNote):
+            s = lin(n.measure, n.tick)
+            ln = int(n.length)
+            last_t = s + ln - 1
+            rel_t = s + ln
+            end_chr_keys.add((last_t, int(n.lane), int(n.width)))
+            end_chr_keys.add((rel_t, int(n.lane), int(n.width)))
+        elif isinstance(n, c2s.SlideNote):
+            s = lin(n.measure, n.tick)
+            ln = int(n.length)
+            last_t = s + ln - 1
+            rel_t = s + ln
+            end_chr_keys.add((last_t, int(n.end_lane), int(n.end_width)))
+            end_chr_keys.add((rel_t, int(n.end_lane), int(n.end_width)))
+
+    res = [
+        n
+        for n in res
+        if not (
+            isinstance(n, c2s.ChargeNote)
+            and (lin(n.measure, n.tick), int(n.lane), int(n.width)) in end_chr_keys
+        )
+    ]
+
+    def strip_left_narrow(n: c2s.C2sNote) -> bool:
+        if isinstance(n, c2s.SlideNote):
+            if int(n.width) == 1 and in_left_five(n.lane):
+                return True
+            if int(n.end_width) == 1 and in_left_five(n.end_lane):
+                return True
+            return False
+        if isinstance(
+            n,
+            (c2s.TapNote, c2s.MineNote, c2s.ChargeNote, c2s.FlickNote, c2s.HoldNote),
+        ):
+            return int(n.width) == 1 and in_left_five(n.lane)
+        return False
+
+    res = [n for n in res if not strip_left_narrow(n)]
+    return res

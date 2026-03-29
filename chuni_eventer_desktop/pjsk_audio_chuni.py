@@ -1,9 +1,8 @@
 """
 PJSK long audio -> CHUNITHM-style streaming ACB/AWB.
 
-Trims leading silence (default 9s, matching typical PJSK patcher filler), normalizes to
-48 kHz stereo 16-bit WAV via ffmpeg, then packs HCA + ACB/AWB using the same key and
-table edits as Foahh/PenguinTools MusicConverter (MIT):
+默认裁掉 PJSK 长音频前约 **9 秒** 空白（与常见导出一致），再归一化为 48 kHz stereo 16-bit WAV，
+并按 Foahh/PenguinTools MusicConverter (MIT) 同款密钥与表结构打包 HCA + ACB/AWB：
 
 https://github.com/Foahh/PenguinTools/blob/main/PenguinTools.Core/Media/MusicConverter.cs
 
@@ -23,7 +22,7 @@ from typing import Callable
 # Same ulong as PenguinTools.Core.Media.MusicConverter
 CHUNITHM_HCA_KEY = 32931609366120192
 
-# Leading blank / filler at start of PJSK-exported charts (seconds)
+# PJSK 长音频左侧填充空白（秒）；与谱面时间轴对齐时通常裁掉约 9s
 PJSK_AUDIO_TRIM_LEADING_SEC = 9.0
 
 _DUMMY_REL = Path(__file__).resolve().parent / "data" / "dummy.acb"
@@ -41,7 +40,7 @@ def ffmpeg_trim_to_chuni_wav(
     trim_leading_sec: float = PJSK_AUDIO_TRIM_LEADING_SEC,
     on_stderr_line: Callable[[str], None] | None = None,
 ) -> None:
-    """Decode any ffmpeg-supported format -> 48 kHz stereo s16le WAV, drop first ``trim_leading_sec``."""
+    """Decode any ffmpeg-supported format -> 48 kHz stereo s16le WAV；``trim_leading_sec>0`` 时用 ``-ss`` 跳过片头。"""
     ff = find_ffmpeg()
     if ff is None:
         raise RuntimeError("未找到 ffmpeg（需在 PATH 中），无法裁剪/重采样音频。")

@@ -6,6 +6,10 @@ from abc import ABC
 
 C2S_TICKS_PER_MEASURE = 384
 
+# c2s 页脚：谱面首判定点相对音频的补偿。suspect 模板曾用 100/100，易使谱面整体偏晚、听感上音乐超前。
+C2S_FOOTER_FIRST_MSEC = 0
+C2S_FOOTER_FIRST_RES = 0
+
 
 class C2sObject(ABC):
     measure: int = 0
@@ -233,8 +237,8 @@ T_JUDGE_SLD\t999
 T_JUDGE_AIR\t999
 T_JUDGE_FLK\t999
 T_JUDGE_ALL\t9999
-T_FIRST_MSEC\t100
-T_FIRST_RES\t100
+T_FIRST_MSEC\t{first_msec}
+T_FIRST_RES\t{first_res}
 T_FINAL_MSEC\t999999
 T_FINAL_RES\t999999
 T_PROG_00\t46
@@ -257,7 +261,10 @@ T_PROG_80\t51
 T_PROG_85\t84
 T_PROG_90\t52
 T_PROG_95\t81
-"""
+""".format(
+        first_msec=int(C2S_FOOTER_FIRST_MSEC),
+        first_res=int(C2S_FOOTER_FIRST_RES),
+    )
     defs = list(definitions)
     if not any(isinstance(d, MeterSetting) for d in defs):
         m0 = MeterSetting()

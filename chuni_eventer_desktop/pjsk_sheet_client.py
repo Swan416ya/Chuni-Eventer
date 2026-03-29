@@ -577,7 +577,7 @@ def save_pjsk_bundle_to_cache(
     SUS→c2s 在「转写 ACUS」时执行，不在此处生成 chuni/*.c2s。
 
     完整音频：与 PjskSUSPatcher 一致，来自 `musicVocals` 的 `assetbundleName` 与 long 音频 URL。
-    若已安装 ffmpeg 与 PyCriCodecsEx，会在同目录下额外生成去掉前 9 秒后的 48k WAV，
+    若已安装 ffmpeg 与 PyCriCodecsEx，会在同目录下额外生成去掉前约 9 秒后的 48k WAV，
     以及 ``chuni_cue/cueFileXXXXXX/`` 下的 ``musicXXXX.acb`` / ``.awb``（逻辑对齐
     [PenguinTools MusicConverter](https://github.com/Foahh/PenguinTools/blob/main/PenguinTools.Core/Media/MusicConverter.cs)）。
     """
