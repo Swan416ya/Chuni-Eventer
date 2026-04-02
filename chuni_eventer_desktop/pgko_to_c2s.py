@@ -16,6 +16,9 @@ from .pjsk_acus_install import (
     next_custom_event_id,
     write_ultima_unlock_event,
 )
+PGKO_RELEASE_TAG_ID = -1
+PGKO_RELEASE_TAG_STR = "Invalid"
+
 from ._suspect.c2s_emit import (
     AirHold,
     AirNote,
@@ -407,7 +410,8 @@ def convert_pgko_chart_pick_to_c2s(pick: PgkoChartPick) -> Path:
             )
             nearby_tip = ", ".join(nearby) if nearby else "（同目录未找到 mgxc/ugc）"
             raise NotImplementedError(
-                f"暂不支持 {pick.ext} 的直接内置转码，且未找到可回退的 mgxc。\n"
+                f"暂不支持 {pick.ext} 直转，且未找到可回退的 mgxc。\n"
+                "即：暂不支持 ugc 直转；部分不含 mgxc 文件的谱面无法转化。\n"
                 f"源文件：{source_path}\n"
                 f"同目录可见谱面文件：{nearby_tip}"
             )
@@ -818,8 +822,6 @@ class PgkoInstallOptions:
     music_id: int
     stage_id: int
     stage_str: str
-    level: int
-    level_decimal: int
     create_unlock_event: bool = True
 
 
@@ -868,6 +870,22 @@ def _slot_file_index(slot: str) -> int:
     return mapping.get(slot, 3)
 
 
+def _const_to_level_pair(v: float | None) -> tuple[int, int]:
+    if v is None:
+        return (13, 0)
+    lv = int(max(1, min(15, int(v))))
+    dec = int(max(0, min(99, round((float(v) - int(v)) * 100))))
+    return lv, dec
+
+
+def _collect_bundle_mgxc_files(primary_mgxc: Path) -> list[Path]:
+    root = primary_mgxc.parent
+    files = sorted(p.resolve() for p in root.glob("**/*.mgxc") if p.is_file())
+    if not files:
+        return [primary_mgxc.resolve()]
+    return files
+
+
 def _write_worlds_end_unlock_event(acus_root: Path, *, event_id: int, music_id: int, music_title: str) -> None:
     # Reuse existing writer, then patch musicType/name to WORLD'S END flavor.
     p = write_ultima_unlock_event(
@@ -903,8 +921,7 @@ def install_pgko_pick_to_acus(
             raise RuntimeError("安装到 ACUS 需要 mgxc（或可回退到同目录 mgxc）")
         source_path = fb
 
-    meta, _events, _notes = _parse_mgxc(source_path)
-    c2s_out = convert_pgko_chart_pick_to_c2s(PgkoChartPick(path=source_path, ext="mgxc"))
+    base_meta, _events, _notes = _parse_mgxc(source_path)
 
     mid = int(opts.music_id)
     mdir = acus_root / "music" / f"music{mid:04d}"
@@ -912,10 +929,36 @@ def install_pgko_pick_to_acus(
         raise FileExistsError(f"乐曲 ID 已存在：{mid}")
     mdir.mkdir(parents=True, exist_ok=True)
 
-    slot = _slot_from_difficulty(int(meta.difficulty))
-    slot_idx = _slot_file_index(slot)
-    c2s_dst = mdir / f"{mid:04d}_{slot_idx:02d}.c2s"
-    c2s_dst.write_bytes(c2s_out.read_bytes())
+    # Multi-difficulty import: consume all mgxc files in the same bundle root.
+    mgxc_files = _collect_bundle_mgxc_files(source_path)
+    chosen_by_slot: dict[str, tuple[Path, _MgxcMeta]] = {}
+    for mg in mgxc_files:
+        try:
+            mm, _e2, _n2 = _parse_mgxc(mg)
+        except Exception:
+            continue
+        slot = _slot_from_difficulty(int(mm.difficulty))
+        prev = chosen_by_slot.get(slot)
+        if prev is None:
+            chosen_by_slot[slot] = (mg, mm)
+            continue
+        prev_const = prev[1].level_const if prev[1].level_const is not None else -1.0
+        cur_const = mm.level_const if mm.level_const is not None else -1.0
+        if cur_const > prev_const:
+            chosen_by_slot[slot] = (mg, mm)
+
+    if not chosen_by_slot:
+        raise RuntimeError("未找到可用 mgxc 难度文件。")
+
+    slot_map: dict[str, Path] = {}
+    levels_by_type: dict[str, tuple[int, int]] = {}
+    for slot, (mg, mm) in chosen_by_slot.items():
+        c2s_out = convert_pgko_chart_pick_to_c2s(PgkoChartPick(path=mg, ext="mgxc"))
+        slot_idx = _slot_file_index(slot)
+        c2s_dst = mdir / f"{mid:04d}_{slot_idx:02d}.c2s"
+        c2s_dst.write_bytes(c2s_out.read_bytes())
+        slot_map[slot] = c2s_dst
+        levels_by_type[slot] = _const_to_level_pair(mm.level_const)
 
     jacket_src = source_path.with_suffix(".png")
     if not jacket_src.exists():
@@ -926,12 +969,9 @@ def install_pgko_pick_to_acus(
     jacket_name = f"CHU_UI_Jacket_{mid:04d}.dds"
     convert_to_bc3_dds(tool_path=tool_path, input_image=jacket_src, output_dds=mdir / jacket_name)
 
-    title = (meta.title or source_path.stem or str(mid)).strip()
-    artist = ((meta.artist or "").strip() or "pgko")
+    title = (base_meta.title or source_path.stem or str(mid)).strip()
+    artist = ((base_meta.artist or "").strip() or "pgko")
     sort_name = title
-
-    slot_map = {slot: c2s_dst}
-    levels_by_type = {slot: (int(opts.level), int(opts.level_decimal))}
     tree = build_music_xml(
         chuni_id=mid,
         title=title,
@@ -946,6 +986,14 @@ def install_pgko_pick_to_acus(
         levels_by_type=levels_by_type,
     )
     import xml.etree.ElementTree as ET
+    rtag = tree.getroot().find("./releaseTagName")
+    if rtag is not None:
+        rid = rtag.find("id")
+        rstr = rtag.find("str")
+        if rid is not None:
+            rid.text = str(PGKO_RELEASE_TAG_ID)
+        if rstr is not None:
+            rstr.text = PGKO_RELEASE_TAG_STR
 
     ET.indent(tree.getroot(), space="  ")  # type: ignore[attr-defined]
     tree.write(mdir / "Music.xml", encoding="utf-8", xml_declaration=True)
@@ -965,9 +1013,11 @@ def install_pgko_pick_to_acus(
     shutil.copytree(cue_src, cue_dst, dirs_exist_ok=True)
 
     created_event_id: int | None = None
-    if opts.create_unlock_event and slot in ("ULTIMA", "WORLD'S END"):
+    has_ult = "ULTIMA" in slot_map
+    has_we = "WORLD'S END" in slot_map
+    if opts.create_unlock_event and (has_ult or has_we):
         created_event_id = next_custom_event_id(acus_root, start=70000)
-        if slot == "ULTIMA":
+        if has_ult:
             write_ultima_unlock_event(
                 acus_root,
                 event_id=created_event_id,
@@ -985,9 +1035,9 @@ def install_pgko_pick_to_acus(
 
     return {
         "musicId": mid,
-        "slot": slot,
+        "slots": ",".join(sorted(slot_map.keys())),
         "musicXml": str(mdir / "Music.xml"),
-        "c2sFile": str(c2s_dst),
+        "c2sDir": str(mdir),
         "cueDir": str(cue_dst),
         "eventId": created_event_id,
     }

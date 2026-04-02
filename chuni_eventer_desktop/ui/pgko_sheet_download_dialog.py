@@ -14,7 +14,6 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QLineEdit,
     QMessageBox,
-    QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -99,6 +98,38 @@ class _DownloadPgkoThread(QThread):
             self.fail.emit(str(e))
 
 
+class _InstallPgkoThread(QThread):
+    ok = pyqtSignal(object)
+    fail = pyqtSignal(str)
+
+    def __init__(
+        self,
+        *,
+        pick: PgkoChartPick,
+        acus_root: Path,
+        tool_path: Path | None,
+        opts: PgkoInstallOptions,
+        parent=None,
+    ) -> None:
+        super().__init__(parent=parent)
+        self._pick = pick
+        self._acus_root = acus_root
+        self._tool_path = tool_path
+        self._opts = opts
+
+    def run(self) -> None:
+        try:
+            ret = install_pgko_pick_to_acus(
+                pick=self._pick,
+                acus_root=self._acus_root,
+                tool_path=self._tool_path,
+                opts=self._opts,
+            )
+            self.ok.emit(ret)
+        except Exception as e:
+            self.fail.emit(f"{type(e).__name__}: {e}")
+
+
 class PgkoSheetDownloadDialog(QDialog):
     def __init__(self, *, parent=None) -> None:
         super().__init__(parent=parent)
@@ -116,7 +147,8 @@ class PgkoSheetDownloadDialog(QDialog):
         card = CardWidget(self)
         hint = BodyLabel(
             "加载 pgko.dev 可下载的 ugc/mgxc。双击行或点击下载保存到本地缓存。"
-            "下载完成后可选择是否转码为 c2s（优先 mgxc，若无则尝试 ugc 旁路 mgxc）。"
+            "下载完成后可选择是否转码为 c2s（优先 mgxc）。"
+            "暂不支持 ugc 直转；部分不含 mgxc 文件的谱面无法转化。"
         )
         hint.setWordWrap(True)
 
@@ -182,6 +214,21 @@ class PgkoSheetDownloadDialog(QDialog):
             # 先清空引用，再 deleteLater，避免后续访问已释放对象
             if self._fetch_thread is th:
                 self._fetch_thread = None
+            th.deleteLater()
+
+        th.finished.connect(_on_finished)
+        th.start()
+
+    def _attach_download_thread(self, th: _DownloadPgkoThread) -> None:
+        self._download_thread = th
+        th.resolved.connect(self._on_download_resolved)
+        th.ok.connect(self._on_download_ok)
+        th.fail.connect(self._on_download_fail)
+
+        def _on_finished() -> None:
+            # 先清空引用，再 deleteLater，避免后续访问已释放对象
+            if self._download_thread is th:
+                self._download_thread = None
             th.deleteLater()
 
         th.finished.connect(_on_finished)
@@ -260,15 +307,10 @@ class PgkoSheetDownloadDialog(QDialog):
         if e is None:
             fly_warning(self, "未选择", "请先选择一条谱面。")
             return
-        if self._download_thread and self._download_thread.isRunning():
+        if self._thread_running_safe(self._download_thread):
             return
         self._status.setText(f"正在下载：{e.title} …")
-        self._download_thread = _DownloadPgkoThread(e, parent=self)
-        self._download_thread.resolved.connect(self._on_download_resolved)
-        self._download_thread.ok.connect(self._on_download_ok)
-        self._download_thread.fail.connect(self._on_download_fail)
-        self._download_thread.finished.connect(self._download_thread.deleteLater)
-        self._download_thread.start()
+        self._attach_download_thread(_DownloadPgkoThread(e, parent=self))
 
     def _on_download_resolved(self, text: str) -> None:
         # 直接输出解析到的下载链接，便于用户复制调试
@@ -308,7 +350,8 @@ class PgkoSheetDownloadDialog(QDialog):
             fly_warning(
                 self,
                 "未找到谱面文件",
-                f"在以下位置未找到 mgxc/ugc：\n{output}",
+                f"在以下位置未找到可用谱面：\n{output}\n\n"
+                "说明：暂不支持 ugc 直转，需存在 mgxc 文件。",
             )
             return
         try:
@@ -362,20 +405,11 @@ class _PgkoInstallConfigDialog(QDialog):
         self._meta = meta
         self._acus_root = acus_root
         self._tool_path = tool_path
+        self._thread: _InstallPgkoThread | None = None
 
         suggest_id = suggest_next_pgko_music_id(acus_root, start=6000)
         self._id_edit = QLineEdit(self)
         self._id_edit.setPlaceholderText(f"留空自动分配（建议 {suggest_id}）")
-
-        const_v = float(meta.get("levelConst") or 13.0)
-        lv = int(max(1, min(15, int(const_v))))
-        dec = int(max(0, min(99, round((const_v - int(const_v)) * 100))))
-        self._lv = QSpinBox(self)
-        self._lv.setRange(1, 15)
-        self._lv.setValue(lv)
-        self._dec = QSpinBox(self)
-        self._dec.setRange(0, 99)
-        self._dec.setValue(dec)
 
         self._stage = QComboBox(self)
         idx = load_cached_game_index(expected_game_root=AcusConfig.load().game_root)
@@ -393,20 +427,20 @@ class _PgkoInstallConfigDialog(QDialog):
 
         form = QFormLayout()
         form.addRow("乐曲ID", self._id_edit)
-        form.addRow("定数 level", self._lv)
-        form.addRow("levelDecimal", self._dec)
         form.addRow("Stage", self._stage)
         form.addRow("", self._ev)
 
         hint = BodyLabel(
             f"曲名: {meta.get('title') or ''}\n"
             f"作者: {meta.get('artist') or meta.get('designer') or ''}\n"
-            f"难度标识: {diff}（4=WE, 5=ULT）"
+            f"难度标识: {diff}（4=WE, 5=ULT）\n"
+            "定数将按包内各 mgxc 的 cnst 自动写入，不允许手填。"
         )
         hint.setWordWrap(True)
 
         ok = PrimaryPushButton("开始导入", self)
         ok.clicked.connect(self._run_install)
+        self._ok_btn = ok
         cancel = PushButton("取消", self)
         cancel.clicked.connect(self.reject)
         row = QHBoxLayout()
@@ -417,6 +451,10 @@ class _PgkoInstallConfigDialog(QDialog):
         root = QVBoxLayout(self)
         root.addWidget(hint)
         root.addLayout(form)
+        self._status = BodyLabel("", self)
+        self._status.setWordWrap(True)
+        self._status.hide()
+        root.addWidget(self._status)
         root.addLayout(row)
 
     def _run_install(self) -> None:
@@ -436,25 +474,46 @@ class _PgkoInstallConfigDialog(QDialog):
             music_id=mid,
             stage_id=stage_id,
             stage_str=stage_str,
-            level=int(self._lv.value()),
-            level_decimal=int(self._dec.value()),
             create_unlock_event=self._ev.isChecked() if self._ev.isVisible() else False,
         )
-        try:
-            ret = install_pgko_pick_to_acus(
-                pick=self._pick,
-                acus_root=self._acus_root,
-                tool_path=self._tool_path,
-                opts=opts,
-            )
-        except Exception as e:
-            fly_critical(self, "导入失败", f"{type(e).__name__}: {e}")
+        if self._thread is not None:
+            return
+        self._status.setText("正在导入（谱面/音频/事件），请稍候…")
+        self._status.show()
+        self._ok_btn.setEnabled(False)
+        self._thread = _InstallPgkoThread(
+            pick=self._pick,
+            acus_root=self._acus_root,
+            tool_path=self._tool_path,
+            opts=opts,
+            parent=self,
+        )
+        self._thread.ok.connect(self._on_install_ok)
+        self._thread.fail.connect(self._on_install_fail)
+
+        def _done() -> None:
+            th = self._thread
+            self._thread = None
+            self._ok_btn.setEnabled(True)
+            if th is not None:
+                th.deleteLater()
+
+        self._thread.finished.connect(_done)
+        self._thread.start()
+
+    def _on_install_fail(self, msg: str) -> None:
+        self._status.hide()
+        fly_critical(self, "导入失败", msg)
+
+    def _on_install_ok(self, ret: object) -> None:
+        if not isinstance(ret, dict):
+            fly_critical(self, "导入失败", "返回结果格式错误")
             return
         fly_message(
             self,
             "导入完成",
             f"musicId: {ret.get('musicId')}\n"
-            f"slot: {ret.get('slot')}\n"
+            f"slots: {ret.get('slots')}\n"
             f"Music.xml: {ret.get('musicXml')}\n"
             f"cue: {ret.get('cueDir')}\n"
             f"event: {ret.get('eventId')}",
