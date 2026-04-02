@@ -83,7 +83,7 @@ class MusicSheetChannelsDialog(QDialog):
             return b
 
         row.addWidget(mk("SwanSite.png", "从 Swan 站获取自制谱", enabled=True, act="swan"))
-        row.addWidget(mk("pgko.jpg", "从 pgko 获取（尚未支持）", enabled=False, act="pgko"))
+        row.addWidget(mk("pgko.jpg", "从 pgko.dev 获取自制谱", enabled=True, act="pgko"))
 
         cly.addWidget(hint)
         cly.addLayout(row)
