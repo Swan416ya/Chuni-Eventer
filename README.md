@@ -1,10 +1,10 @@
-# chuni eventer desktop（保姆级环境配置 & 首次启动）
+# chuni eventer desktop
 
-这是一个 Python 桌面端工具（**PyQt6**），用于把你的自制资源按 **CHUNITHM A001** 的目录结构写入程序自带的 **`ACUS/` 工作区**，并提供“管理页”快速查看已存在的 XML 内容与 DDS 预览。
+这是一个 Python 桌面端工具（**PyQt6**），用于把你的自制资源按 **CHUNITHM A001** 的目录结构写入程序自带的 `**ACUS/` 工作区**，并提供“管理页”快速查看已存在的 XML 内容与 DDS 预览。
 
 **界面**：主窗口使用 [QFluentWidgets](https://qfluentwidgets.com/zh/pages/about)（PyPI：`PyQt6-Fluent-Widgets`）的 Fluent Design 组件。该库对 **非商用** Python 项目采用 **GPLv3**；若你分发本程序的二进制或完整源码，需遵守 GPLv3（用户须能获得对应源代码等）。商用需自行向作者购买商业授权，详见 [QFluentWidgets 简介](https://qfluentwidgets.com/zh/pages/about)。
 
-**DDS 预览与 BC3 生成**：默认随依赖安装 **quicktex**（纯 Python 包，内置 C++ 编码器），**可以不装 compressonator**。仍可在【设置】里配置 `compressonatorcli` 作为备选或对照。
+**DDS 预览与 BC3 生成**：默认随依赖安装 **quicktex**（纯 Python 包，内置 C++ 编码器），**也**可在设置里配置 `compressonatorcli` 。
 
 ---
 
@@ -12,7 +12,7 @@
 
 - **生成器**
   - 导入 3 张角色图片（大头/半身/全身）
-  - 输入 **角色基ID** 与 **变体(0-9)**（自动计算最终角色 ID）
+  - 输入 **角色基ID** 与 **变身(0-9)**（自动计算最终角色 ID）
   - 一键生成：
     - `ACUS/ddsImage/ddsImage{ID6位}/DDSImage.xml`
     - `ACUS/ddsImage/ddsImage{ID6位}/CHU_UI_Character_{base4}_{variant2}_{00..02}.dds`（BC3/DXT5）
@@ -28,10 +28,9 @@
 
 ## 0. 你需要准备什么
 
-- **macOS**
 - **Python 3.12+**（建议）
-- **quicktex（随 requirements 安装，推荐）**：BC3(DXT5) 的解码/编码
-- **compressonatorcli（可选）**：若 quicktex 解码失败（如个别 DDS 变体）或未安装 quicktex 时作为回退
+- **quicktex**：BC3(DXT5) 的解码/编码
+- **compressonatorcli（可选）**：若 quicktex 解码失败（如个别 DDS ）或未安装 quicktex 时作为回退
 
 ---
 
@@ -68,7 +67,7 @@ brew install libomp
 
 ---
 
-## 2. 第一次启动（保姆级步骤）
+## 2. 第一次启动
 
 ### 2.1 启动程序
 
@@ -116,9 +115,9 @@ desktop/ACUS/
 3. **最终角色ID**：自动显示为 `24690`（只读）
 4. **角色名**：写入 `Chara.xml` 的 `name.str`
 5. 选择三张图片（与 `CHU_UI_Character_*_00/_01/_02` 及 ddsFile0/1/2 一致）：
-   - **全身**（`_00` / ddsFile0）
-   - **半身**（`_01` / ddsFile1）
-   - **大头**（`_02` / ddsFile2）
+  - **全身**（`_00` / ddsFile0）
+  - **半身**（`_01` / ddsFile1）
+  - **大头**（`_02` / ddsFile2）
 6. 点击 **生成 DDS + XML（写入 ACUS）**
 
 生成结果示例：
@@ -152,17 +151,21 @@ ACUS/
 ## 5. 常见问题（排查）
 
 ### 5.1 “DDS 工具路径不存在 / 路径无效”
+
 - 仅在使用 **compressonatorcli 回退** 时需要有效路径；若已安装 **quicktex**，可不必配置。
 
 ### 5.2 “预览失败”
+
 - 默认用 **quicktex** 解码；失败时会自动尝试 **compressonatorcli**（若已配置）。
 - 确认对应 `.dds` 文件存在于 `ACUS/` 内。
 - **DX10 头等特殊 DDS**：quicktex 当前不支持，可改配 compressonator 尝试转换。
 
 ### 5.3 “变体必须在 0-9”
+
 - 这是这套 ID/命名规则约定的变体范围限制。
 
 ### 5.4 `pip install quicktex` 失败
+
 - 查看 PyPI 是否提供你当前 Python 版本与系统的 wheel；必要时升级 pip，或使用与项目一致的 Python 3.12。
 
 ---
@@ -225,7 +228,7 @@ python -m venv .venv-build
 
 或使用脚本：`.\scripts\build_windows.ps1`（会自动创建 `.venv-build` 并执行打包）。
 
-3. 产物路径：**`dist\ChuniEventer.exe`**（单文件、无控制台窗口）。
+1. 产物路径：`**dist\ChuniEventer.exe**`（单文件、无控制台窗口）。
 
 > 若全局 Python 曾安装过与标准库冲突的 `typing` 包，PyInstaller 可能报错；请在该环境中执行  
 > `pip uninstall typing` 后重试，或始终只用上面的 **venv** 打包。
@@ -233,24 +236,16 @@ python -m venv .venv-build
 ### 7.2 入口说明
 
 - 源码启动：`python -m chuni_eventer_desktop` 或 `python run_desktop.py`（仓库根目录）。
-- 打包入口为根目录 **`run_desktop.py`**，spec 已包含 **`chuni_eventer_desktop/static/trophy`** 稀有度条图片。
+- 打包入口为根目录 `**run_desktop.py`**，spec 已包含 `**chuni_eventer_desktop/static/trophy**` 稀有度条图片。
 
 ### 7.3 首次运行 EXE
 
-- 在 **exe 同级目录** 自动创建 **`ACUS/`**（与源码运行时“仓库根下的 ACUS”不同，便于分发）。
+- 在 **exe 同级目录** 自动创建 `**ACUS/`**（与源码运行时“仓库根下的 ACUS”不同，便于分发）。
 - **quicktex** 已打进 exe；**compressonatorcli** 仍为可选，在【设置】里填写路径即可。
 
 ---
 
-## 8. 发行建议（给别人用）
+## 8. 第三方参考
 
-GitHub Release 可只上传 **`ChuniEventer.exe`**；说明中提醒用户：首次运行在同目录生成 `ACUS/`，按需自备或配置 compressonator。
-
-可选：附简短 `README` 片段或链到本仓库说明。
-
----
-
-## 9. 第三方参考（节选）
-
-- [Soyandroid/suspect](https://github.com/Soyandroid/suspect)：`.sus` 与 `.c2s` 等 CHUNITHM / Seaurchin 相关文本谱工具；本项目的 SUS→c2s 以该仓库实现为基准重写并集成。
+- [Soyandroid/suspect](https://github.com/Soyandroid/suspect)：`.sus` 与 `.c2s` 等 CHUNITHM / Seaurchin 相关文本谱工具；本项目的 SUS→c2s 以该仓库实现为基准重写并集成，虽然该功能已暂时停止开发。
 
