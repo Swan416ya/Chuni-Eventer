@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
 
 from qfluentwidgets import (
@@ -16,6 +16,7 @@ from qfluentwidgets import (
 )
 
 from ..acus_workspace import AcusConfig, ensure_acus_layout
+from ..game_data_index import load_cached_game_index, rebuild_and_save_game_index
 from ..sheet_install import install_zip_to_acus
 from ..dds_quicktex import quicktex_available
 from .manager_widget import ManagerWidget
@@ -54,6 +55,12 @@ class MainWindow(MSFluentWindow):
         self._search = SearchLineEdit()
         self._search.setPlaceholderText("搜索乐曲、艺术家、流派…")
         self._search.setFixedWidth(300)
+        self._game_music_browser_btn = PushButton("游戏乐曲资源…")
+        self._game_music_browser_btn.setToolTip(
+            "只读浏览游戏目录内已扫描数据包中的全部乐曲（含版本标签、流派）"
+        )
+        self._game_music_browser_btn.setVisible(False)
+        self._game_music_browser_btn.clicked.connect(self._on_game_music_browser)
         self._refresh_btn = PushButton("刷新")
         self._refresh_btn.clicked.connect(self._on_refresh)
         self._add_btn = PrimaryPushButton("新增")
@@ -61,6 +68,7 @@ class MainWindow(MSFluentWindow):
         header.addWidget(self._title_lbl, alignment=Qt.AlignmentFlag.AlignVCenter)
         header.addStretch(1)
         header.addWidget(self._search, alignment=Qt.AlignmentFlag.AlignVCenter)
+        header.addWidget(self._game_music_browser_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
         header.addWidget(self._refresh_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
         header.addWidget(self._add_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
         wlay.addLayout(header)
@@ -68,6 +76,8 @@ class MainWindow(MSFluentWindow):
         self._manager = ManagerWidget(
             acus_root=self._acus_root,
             get_tool_path=self._get_tool_path_or_none,
+            get_game_index=self._resolve_game_index,
+            get_game_root=lambda: self._cfg.game_root or "",
             embedded=True,
         )
         self._search.textChanged.connect(self._manager.set_search_text)
@@ -116,6 +126,52 @@ class MainWindow(MSFluentWindow):
         self.navigationInterface.setCurrentItem("nav_music")
         self._apply_category("Music", "歌曲")
 
+        QTimer.singleShot(0, self._ensure_game_root_first_run)
+
+    def _resolve_game_index(self):
+        gr = (self._cfg.game_root or "").strip()
+        if not gr:
+            return None
+        return load_cached_game_index(gr)
+
+    def _ensure_game_root_first_run(self) -> None:
+        gr_raw = (self._cfg.game_root or "").strip()
+        if gr_raw:
+            gr = Path(gr_raw).expanduser()
+            if load_cached_game_index(str(gr)) is None:
+                _idx, err = rebuild_and_save_game_index(gr)
+                if _idx is None and err:
+                    fly_critical(
+                        self,
+                        "游戏索引失败",
+                        f"{err}\n可在【设置】中重新选择目录并点击「重新扫描游戏索引」。",
+                    )
+            return
+        picked = QFileDialog.getExistingDirectory(
+            self,
+            "首次使用：请选择游戏数据目录（含 A001，或为含 A001 / Option\\A001 的安装根目录）",
+        )
+        if not picked:
+            fly_message(
+                self,
+                "提示",
+                "未设置游戏目录时，乐曲/场景/ddsMap 等下拉列表仅包含 ACUS 内已有数据。\n"
+                "稍后可打开【设置】填写「游戏数据目录」并扫描。",
+            )
+            return
+        self._cfg.game_root = picked
+        self._cfg.save()
+        _idx, err = rebuild_and_save_game_index(Path(picked).expanduser())
+        if _idx is None:
+            fly_critical(self, "扫描失败", err or "无法建立游戏索引。")
+        else:
+            fly_message(
+                self,
+                "索引完成",
+                f"已缓存游戏内乐曲 {len(_idx.music)}、场景 {len(_idx.stage)}、"
+                f"DDSImage {len(_idx.dds_image)}、ddsMap {len(_idx.dds_map)} 条（仅 ID 与名称）。",
+            )
+
     def _get_tool_path_or_none(self) -> Path | None:
         raw = (self._cfg.compressonatorcli_path or "").strip()
         if not raw:
@@ -150,7 +206,22 @@ class MainWindow(MSFluentWindow):
             "Reward": "搜索奖励…",
         }
         self._search.setPlaceholderText(placeholders.get(kind, "搜索当前列表…"))
+        self._game_music_browser_btn.setVisible(kind == "Music")
         self._manager.set_kind(kind)
+
+    def _on_game_music_browser(self) -> None:
+        from .game_music_browser_dialog import GameMusicBrowserDialog
+
+        raw = (self._cfg.game_root or "").strip()
+        if not raw:
+            fly_message(self, "提示", "请先在【设置】中配置「游戏数据目录」。")
+            return
+        dlg = GameMusicBrowserDialog(
+            game_root=Path(raw).expanduser(),
+            get_index=self._resolve_game_index,
+            parent=self,
+        )
+        dlg.exec()
 
     def _open_save_patch(self) -> None:
         dlg = SavePatchDialog(
@@ -178,13 +249,17 @@ class MainWindow(MSFluentWindow):
     def _on_add(self) -> None:
         idx = self._current_category_index
         if idx == 7:
-            music_r, chara_r, trophy_r, np_r, default_id = reward_dialog_bundle(self._acus_root)
+            gi = self._resolve_game_index()
+            music_r, chara_r, trophy_r, np_r, stage_r, default_id = reward_dialog_bundle(
+                self._acus_root, game_index=gi
+            )
             dlg = RewardCreateDialog(
                 default_id=default_id,
                 music_refs=music_r,
                 chara_refs=chara_r,
                 trophy_refs=trophy_r,
                 nameplate_refs=np_r,
+                stage_refs=stage_r,
                 parent=self,
             )
             if dlg.exec() == dlg.DialogCode.Accepted and dlg.result_cell is not None:
@@ -254,7 +329,12 @@ class MainWindow(MSFluentWindow):
             if dlg.exec() == dlg.DialogCode.Accepted:
                 self._on_refresh()
         elif idx == 1:
-            dlg = MapAddDialog(acus_root=self._acus_root, tool_path=tool, parent=self)
+            dlg = MapAddDialog(
+                acus_root=self._acus_root,
+                tool_path=tool,
+                game_index=self._resolve_game_index(),
+                parent=self,
+            )
             if dlg.exec() == dlg.DialogCode.Accepted:
                 self._on_refresh()
         elif idx == 5:

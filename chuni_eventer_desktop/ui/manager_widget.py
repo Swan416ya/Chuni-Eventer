@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -55,6 +56,7 @@ from ..acus_scan import (
 )
 from ..dds_preview import dds_to_pixmap
 from ..dds_quicktex import quicktex_available
+from ..game_data_index import GameDataIndex
 from ..trophy_preview import load_trophy_frame_pixmap, render_trophy_text_preview
 
 _KIND_DEFS: tuple[tuple[str, str], ...] = (
@@ -192,10 +194,20 @@ class ManagerWidget(QWidget):
     - 也可作为“嵌入式”使用（由外层导航控制类型/搜索/刷新）
     """
 
-    def __init__(self, *, acus_root: Path, get_tool_path, embedded: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        acus_root: Path,
+        get_tool_path,
+        get_game_index: Callable[[], GameDataIndex | None] | None = None,
+        get_game_root: Callable[[], str] | None = None,
+        embedded: bool = False,
+    ) -> None:
         super().__init__()
         self._acus_root = acus_root
         self._get_tool_path = get_tool_path  # callable returning Path|None
+        self._get_game_index = get_game_index or (lambda: None)
+        self._get_game_root = get_game_root or (lambda: "")
         self._embedded = embedded
 
         self.kind = FluentComboBox()
@@ -203,7 +215,7 @@ class ManagerWidget(QWidget):
         for label, key in _KIND_DEFS:
             self.kind.addItem(label, None, key)
         self.kind.blockSignals(False)
-        self.kind.currentIndexChanged.connect(self.reload)
+        self.kind.currentIndexChanged.connect(self._on_kind_changed)
 
         self.event_filter = QComboBox()
         self.event_filter.addItems(["全部", "ULT/WE曲解锁", "地图解禁", "宣传(含DDS)", "其它"])
@@ -223,6 +235,10 @@ class ManagerWidget(QWidget):
 
         self.refresh_btn = QPushButton("刷新")
         self.refresh_btn.clicked.connect(self.reload)
+        self._game_music_btn = QPushButton("游戏乐曲资源…")
+        self._game_music_btn.setToolTip("只读浏览游戏目录内已扫描数据包中的全部乐曲（含版本标签、流派）")
+        self._game_music_btn.clicked.connect(self._on_game_music_browser)
+        self._game_music_btn.setVisible(False)
 
         top = QHBoxLayout()
         top.addWidget(QLabel("类型"))
@@ -231,6 +247,7 @@ class ManagerWidget(QWidget):
         top.addWidget(QLabel("搜索"))
         top.addWidget(self.search, stretch=1)
         top.addStretch(1)
+        top.addWidget(self._game_music_btn)
         top.addWidget(self.refresh_btn)
 
         self.model = QStandardItemModel(0, 4, self)
@@ -338,6 +355,23 @@ class ManagerWidget(QWidget):
         else:
             self._apply_filter()
 
+    def _on_kind_changed(self) -> None:
+        self.reload()
+
+    def _on_game_music_browser(self) -> None:
+        from .game_music_browser_dialog import GameMusicBrowserDialog
+
+        raw = (self._get_game_root() or "").strip()
+        if not raw:
+            fly_message(self, "提示", "请先在【设置】中配置「游戏数据目录」。")
+            return
+        dlg = GameMusicBrowserDialog(
+            game_root=Path(raw).expanduser(),
+            get_index=self._get_game_index,
+            parent=self,
+        )
+        dlg.exec()
+
     def reload(self) -> None:
         self.model.removeRows(0, self.model.rowCount())
         self.attrs_table.setRowCount(0)
@@ -422,6 +456,8 @@ class ManagerWidget(QWidget):
         else:
             self._main_stack.setCurrentIndex(0)
             self.music_cards_view.set_items([], self._get_tool_path)
+
+        self._game_music_btn.setVisible(k == "Music" and not self._embedded)
 
         self._apply_filter()
         self._resize_columns_safely()
@@ -907,6 +943,7 @@ class ManagerWidget(QWidget):
             dlg = MapAddDialog(
                 acus_root=self._acus_root,
                 tool_path=self._get_tool_path(),
+                game_index=self._get_game_index(),
                 parent=self.window(),
                 edit_map_xml=payload.xml_path,
             )

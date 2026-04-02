@@ -8,7 +8,8 @@ from PyQt6.QtWidgets import QDialog, QFileDialog, QHBoxLayout, QVBoxLayout
 from qfluentwidgets import BodyLabel, CardWidget, LineEdit, PrimaryPushButton, PushButton
 
 from ..acus_workspace import AcusConfig
-from .fluent_dialogs import fly_warning
+from ..game_data_index import rebuild_and_save_game_index
+from .fluent_dialogs import fly_critical, fly_message, fly_warning
 from .pjsk_hub_dialog import PjskHubDialog
 
 
@@ -24,10 +25,38 @@ class SettingsDialog(QDialog):
         super().__init__(parent=parent)
         self.setWindowTitle("设置")
         self.setModal(True)
-        self.resize(520, 420)
+        self.resize(520, 520)
         self._cfg = cfg
         self._acus_root = acus_root.resolve()
         self._get_tool_path = get_tool_path
+
+        game_hint = BodyLabel(
+            "指定已安装游戏中的 **A001** 数据位置（或包含 `A001` / `Option/A001` 的安装根目录）。"
+            "用于扫描全量乐曲、场景、DDS 贴图与地图 ddsMap，供地图/奖励编辑下拉里选择。"
+        )
+        game_hint.setWordWrap(True)
+        self.game_root = LineEdit(self)
+        self.game_root.setPlaceholderText("例如 D:\\Games\\CHUNITHM 或 …\\A001 的上一级")
+        if cfg.game_root:
+            self.game_root.setText(cfg.game_root)
+        game_browse = PushButton("浏览文件夹…", self)
+        game_browse.clicked.connect(self._pick_game_root)
+        rescan = PushButton("重新扫描游戏索引", self)
+        rescan.clicked.connect(self._rescan_game_index)
+
+        game_row = QHBoxLayout()
+        game_row.setSpacing(8)
+        game_row.addWidget(self.game_root, stretch=1)
+        game_row.addWidget(game_browse)
+
+        game_card = CardWidget(self)
+        game_layout = QVBoxLayout(game_card)
+        game_layout.setContentsMargins(16, 16, 16, 16)
+        game_layout.setSpacing(12)
+        game_layout.addWidget(BodyLabel("游戏数据目录", self))
+        game_layout.addWidget(game_hint)
+        game_layout.addLayout(game_row)
+        game_layout.addWidget(rescan)
 
         hint = BodyLabel(
             "DDS 预览与 BC3 生成默认使用 quicktex；此处可填写 compressonatorcli 作为备选路径。"
@@ -84,10 +113,34 @@ class SettingsDialog(QDialog):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(16)
         layout.addWidget(hint)
+        layout.addWidget(game_card)
         layout.addWidget(card)
         layout.addWidget(pjsk_card)
         layout.addStretch(1)
         layout.addLayout(btns)
+
+    def _pick_game_root(self) -> None:
+        d = QFileDialog.getExistingDirectory(self, "选择游戏数据目录（含 A001）")
+        if d:
+            self.game_root.setText(d)
+
+    def _rescan_game_index(self) -> None:
+        raw = self.game_root.text().strip()
+        if not raw:
+            fly_warning(self, "未设置", "请先填写或浏览选择游戏数据目录。")
+            return
+        root = Path(raw).expanduser()
+        idx, err = rebuild_and_save_game_index(root)
+        if idx is None:
+            fly_critical(self, "扫描失败", err)
+            return
+        fly_message(
+            self,
+            "扫描完成",
+            f"已索引乐曲 {len(idx.music)}、场景 {len(idx.stage)}、"
+            f"DDSImage {len(idx.dds_image)}、ddsMap {len(idx.dds_map)}。\n"
+            f"数据根：{idx.a001_root}",
+        )
 
     def _pick_tool(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "选择 compressonatorcli")
@@ -120,4 +173,10 @@ class SettingsDialog(QDialog):
                 )
                 return
         self._cfg.compressonatorcli_path = raw
+        gr = self.game_root.text().strip()
+        self._cfg.game_root = gr
         self._cfg.save()
+        if gr:
+            _idx, err = rebuild_and_save_game_index(Path(gr).expanduser())
+            if _idx is None and err:
+                fly_warning(self, "游戏索引未更新", err)

@@ -57,6 +57,8 @@ def ensure_acus_layout() -> Path:
 @dataclass
 class AcusConfig:
     compressonatorcli_path: str = ""
+    """游戏安装/数据根目录（用于索引全量 music、stage、ddsImage、ddsMap，供下拉选择）。"""
+    game_root: str = ""
 
     @staticmethod
     def path() -> Path:
@@ -68,11 +70,17 @@ class AcusConfig:
         if not p.exists():
             return cls()
         data = json.loads(p.read_text(encoding="utf-8"))
-        return cls(compressonatorcli_path=str(data.get("compressonatorcli_path", "")))
+        return cls(
+            compressonatorcli_path=str(data.get("compressonatorcli_path", "")),
+            game_root=str(data.get("game_root", "")),
+        )
 
     def save(self) -> None:
         p = self.path()
         p.parent.mkdir(parents=True, exist_ok=True)
-        payload: dict[str, Any] = {"compressonatorcli_path": self.compressonatorcli_path}
+        payload: dict[str, Any] = {
+            "compressonatorcli_path": self.compressonatorcli_path,
+            "game_root": self.game_root,
+        }
         p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
