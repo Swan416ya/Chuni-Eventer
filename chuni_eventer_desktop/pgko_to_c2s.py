@@ -7,6 +7,15 @@ from pathlib import Path
 from typing import BinaryIO
 
 from . import pjsk_audio_chuni as pjsk_ac
+from .dds_convert import convert_to_bc3_dds
+from .pjsk_acus_install import (
+    append_event_sort,
+    append_music_sort,
+    build_music_xml,
+    next_chuni_music_id,
+    next_custom_event_id,
+    write_ultima_unlock_event,
+)
 from ._suspect.c2s_emit import (
     AirHold,
     AirNote,
@@ -99,6 +108,8 @@ class _MgxcMeta:
     preview_stop_sec: float = 30.0
     has_preview_start: bool = False
     has_preview_stop: bool = False
+    difficulty: int = 3
+    level_const: float | None = None
 
 
 def _read_exact(f: BinaryIO, size: int) -> bytes:
@@ -242,6 +253,16 @@ def _parse_mgxc(path: Path) -> tuple[_MgxcMeta, list[_MgxcEvent], list[_MgxcNote
                             has_preview_stop = True
                         except Exception:
                             preview_stop_sec = 30.0
+                    elif name == "diff":
+                        try:
+                            difficulty = int(data)
+                        except Exception:
+                            difficulty = 3
+                    elif name == "cnst":
+                        try:
+                            level_const = float(data)
+                        except Exception:
+                            level_const = None
                 meta = _MgxcMeta(
                     designer=designer,
                     artist=artist,
@@ -252,6 +273,8 @@ def _parse_mgxc(path: Path) -> tuple[_MgxcMeta, list[_MgxcEvent], list[_MgxcNote
                     preview_stop_sec=preview_stop_sec,
                     has_preview_start=has_preview_start,
                     has_preview_stop=has_preview_stop,
+                    difficulty=int(locals().get("difficulty", meta.difficulty)),
+                    level_const=locals().get("level_const", meta.level_const),
                 )
             elif hdr == b"dat2":
                 import io
@@ -741,7 +764,9 @@ def convert_pgko_chart_pick_to_c2s(pick: PgkoChartPick) -> Path:
     return out
 
 
-def convert_pgko_audio_to_chuni_from_pick(pick: PgkoChartPick) -> dict[str, object]:
+def convert_pgko_audio_to_chuni_from_pick(
+    pick: PgkoChartPick, *, music_id_override: int | None = None
+) -> dict[str, object]:
     """
     Reuse pjsk audio pipeline for pgko:
     - decode to 48k wav by ffmpeg (no forced 9s trim)
@@ -760,7 +785,7 @@ def convert_pgko_audio_to_chuni_from_pick(pick: PgkoChartPick) -> dict[str, obje
     if src_audio is None:
         raise FileNotFoundError(f"未找到可用音频文件（mgxc={source_path.name}）")
 
-    music_id = _derive_music_id(meta, source_path)
+    music_id = int(music_id_override) if music_id_override is not None else _derive_music_id(meta, source_path)
     # 仅当作者在 mgxc 中明确填写了 wvp0/wvp1 时才使用；否则统一默认 0-30 秒
     if meta.has_preview_start and meta.has_preview_stop:
         preview_start = max(0.0, float(meta.preview_start_sec))
@@ -786,4 +811,184 @@ def convert_pgko_audio_to_chuni_from_pick(pick: PgkoChartPick) -> dict[str, obje
     result["previewStartSec"] = preview_start
     result["previewStopSec"] = preview_stop
     return result
+
+
+@dataclass(frozen=True)
+class PgkoInstallOptions:
+    music_id: int
+    stage_id: int
+    stage_str: str
+    level: int
+    level_decimal: int
+    create_unlock_event: bool = True
+
+
+def suggest_next_pgko_music_id(acus_root: Path, *, start: int = 6000) -> int:
+    return next_chuni_music_id(acus_root, start=start)
+
+
+def read_pgko_meta_for_pick(pick: PgkoChartPick) -> dict[str, object]:
+    source_path = pick.path
+    if pick.ext.lower().strip(".") != "mgxc":
+        fb = _find_fallback_mgxc(source_path)
+        if fb is None:
+            raise RuntimeError("读取元数据需要 mgxc（或可回退到同目录 mgxc）")
+        source_path = fb
+    meta, _events, _notes = _parse_mgxc(source_path)
+    return {
+        "sourcePath": str(source_path),
+        "title": meta.title,
+        "artist": meta.artist,
+        "designer": meta.designer,
+        "difficulty": int(meta.difficulty),
+        "levelConst": meta.level_const,
+    }
+
+
+def _slot_from_difficulty(diff: int) -> str:
+    return {
+        0: "BASIC",
+        1: "ADVANCED",
+        2: "EXPERT",
+        3: "MASTER",
+        4: "WORLD'S END",
+        5: "ULTIMA",
+    }.get(int(diff), "MASTER")
+
+
+def _slot_file_index(slot: str) -> int:
+    mapping = {
+        "BASIC": 0,
+        "ADVANCED": 1,
+        "EXPERT": 2,
+        "MASTER": 3,
+        "ULTIMA": 4,
+        "WORLD'S END": 5,
+    }
+    return mapping.get(slot, 3)
+
+
+def _write_worlds_end_unlock_event(acus_root: Path, *, event_id: int, music_id: int, music_title: str) -> None:
+    # Reuse existing writer, then patch musicType/name to WORLD'S END flavor.
+    p = write_ultima_unlock_event(
+        acus_root,
+        event_id=int(event_id),
+        music_id=int(music_id),
+        music_title=music_title,
+    )
+    import xml.etree.ElementTree as ET
+
+    root = ET.parse(p).getroot()
+    n = root.find("./name/str")
+    if n is not None:
+        n.text = "WE解禁"
+    mt = root.find("./substances/music/musicType")
+    if mt is not None:
+        mt.text = "3"
+    ET.indent(root)  # type: ignore[attr-defined]
+    ET.ElementTree(root).write(p, encoding="utf-8", xml_declaration=True)
+
+
+def install_pgko_pick_to_acus(
+    *,
+    pick: PgkoChartPick,
+    acus_root: Path,
+    tool_path: Path | None,
+    opts: PgkoInstallOptions,
+) -> dict[str, object]:
+    source_path = pick.path
+    if pick.ext.lower().strip(".") != "mgxc":
+        fb = _find_fallback_mgxc(source_path)
+        if fb is None:
+            raise RuntimeError("安装到 ACUS 需要 mgxc（或可回退到同目录 mgxc）")
+        source_path = fb
+
+    meta, _events, _notes = _parse_mgxc(source_path)
+    c2s_out = convert_pgko_chart_pick_to_c2s(PgkoChartPick(path=source_path, ext="mgxc"))
+
+    mid = int(opts.music_id)
+    mdir = acus_root / "music" / f"music{mid:04d}"
+    if mdir.exists():
+        raise FileExistsError(f"乐曲 ID 已存在：{mid}")
+    mdir.mkdir(parents=True, exist_ok=True)
+
+    slot = _slot_from_difficulty(int(meta.difficulty))
+    slot_idx = _slot_file_index(slot)
+    c2s_dst = mdir / f"{mid:04d}_{slot_idx:02d}.c2s"
+    c2s_dst.write_bytes(c2s_out.read_bytes())
+
+    jacket_src = source_path.with_suffix(".png")
+    if not jacket_src.exists():
+        cands = sorted(p for p in source_path.parent.glob("*.png") if p.is_file())
+        if not cands:
+            raise FileNotFoundError("未找到封面 PNG（需要与 mgxc 同目录）")
+        jacket_src = cands[0]
+    jacket_name = f"CHU_UI_Jacket_{mid:04d}.dds"
+    convert_to_bc3_dds(tool_path=tool_path, input_image=jacket_src, output_dds=mdir / jacket_name)
+
+    title = (meta.title or source_path.stem or str(mid)).strip()
+    artist = ((meta.artist or "").strip() or "pgko")
+    sort_name = title
+
+    slot_map = {slot: c2s_dst}
+    levels_by_type = {slot: (int(opts.level), int(opts.level_decimal))}
+    tree = build_music_xml(
+        chuni_id=mid,
+        title=title,
+        artist=artist,
+        sort_name=sort_name,
+        stage_id=int(opts.stage_id),
+        stage_str=opts.stage_str.strip() or "Invalid",
+        genre_id=-1,
+        genre_str="Invalid",
+        jacket_rel=jacket_name,
+        slot_map=slot_map,
+        levels_by_type=levels_by_type,
+    )
+    import xml.etree.ElementTree as ET
+
+    ET.indent(tree.getroot(), space="  ")  # type: ignore[attr-defined]
+    tree.write(mdir / "Music.xml", encoding="utf-8", xml_declaration=True)
+    append_music_sort(acus_root, mid)
+
+    audio_ret = convert_pgko_audio_to_chuni_from_pick(
+        PgkoChartPick(path=source_path, ext="mgxc"),
+        music_id_override=mid,
+    )
+    cue_src = source_path.parent / str(audio_ret.get("cueDirectory", ""))
+    cue_dst = acus_root / "cueFile" / f"cueFile{mid:06d}"
+    import shutil
+
+    if cue_dst.exists():
+        shutil.rmtree(cue_dst, ignore_errors=True)
+    cue_dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(cue_src, cue_dst, dirs_exist_ok=True)
+
+    created_event_id: int | None = None
+    if opts.create_unlock_event and slot in ("ULTIMA", "WORLD'S END"):
+        created_event_id = next_custom_event_id(acus_root, start=70000)
+        if slot == "ULTIMA":
+            write_ultima_unlock_event(
+                acus_root,
+                event_id=created_event_id,
+                music_id=mid,
+                music_title=title,
+            )
+        else:
+            _write_worlds_end_unlock_event(
+                acus_root,
+                event_id=created_event_id,
+                music_id=mid,
+                music_title=title,
+            )
+        append_event_sort(acus_root, created_event_id)
+
+    return {
+        "musicId": mid,
+        "slot": slot,
+        "musicXml": str(mdir / "Music.xml"),
+        "c2sFile": str(c2s_dst),
+        "cueDir": str(cue_dst),
+        "eventId": created_event_id,
+    }
 

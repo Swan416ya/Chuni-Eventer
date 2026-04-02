@@ -7,16 +7,22 @@ from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDialog,
+    QFormLayout,
     QHBoxLayout,
     QHeaderView,
+    QCheckBox,
+    QComboBox,
+    QLineEdit,
     QMessageBox,
+    QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
 )
 from qfluentwidgets import BodyLabel, CardWidget, PrimaryPushButton, PushButton
 
-from ..acus_workspace import app_cache_dir
+from ..acus_workspace import AcusConfig, acus_root_dir, app_cache_dir
+from ..game_data_index import load_cached_game_index, merged_stage_pairs
 from ..pgko_sheet_client import (
     PGKO_BASE_URL,
     PgkoSheetPage,
@@ -28,7 +34,11 @@ from ..pgko_sheet_client import (
 from ..pgko_to_c2s import (
     convert_pgko_audio_to_chuni_from_pick,
     convert_pgko_chart_pick_to_c2s,
+    install_pgko_pick_to_acus,
     pick_pgko_chart_for_convert,
+    read_pgko_meta_for_pick,
+    suggest_next_pgko_music_id,
+    PgkoInstallOptions,
 )
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
 from .fluent_table import apply_fluent_sheet_table
@@ -315,36 +325,139 @@ class PgkoSheetDownloadDialog(QDialog):
             return
 
         self._status.setText(f"转码完成：{out.name}")
-        ans = QMessageBox.question(
-            self,
-            "谱面转码完成",
-            f"已按优先级选择：\n{pick.path}\n\n输出文件：\n{out}\n\n"
-            "是否继续转码音频并生成中二 ACB/AWB（预览片段按 mgxc 的 wvp0/wvp1）？",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
+        try:
+            meta = read_pgko_meta_for_pick(pick)
+        except Exception as e:
+            fly_warning(self, "读取元数据失败", f"{type(e).__name__}: {e}")
+            return
+        cfg = AcusConfig.load()
+        tool = Path(cfg.compressonatorcli_path).expanduser().resolve() if cfg.compressonatorcli_path.strip() else None
+        dlg = _PgkoInstallConfigDialog(
+            pick=pick,
+            meta=meta,
+            acus_root=acus_root_dir(),
+            tool_path=tool,
+            parent=self,
         )
-        if ans != QMessageBox.StandardButton.Yes:
+        if dlg.exec() != QDialog.DialogCode.Accepted:
             fly_message(self, "转码完成", f"输出文件：\n{out}")
             return
+
+
+class _PgkoInstallConfigDialog(QDialog):
+    def __init__(
+        self,
+        *,
+        pick: PgkoChartPick,
+        meta: dict[str, object],
+        acus_root: Path,
+        tool_path: Path | None,
+        parent=None,
+    ) -> None:
+        super().__init__(parent=parent)
+        self.setWindowTitle("导入 pgko 到 ACUS")
+        self.setModal(True)
+        self.resize(560, 420)
+        self._pick = pick
+        self._meta = meta
+        self._acus_root = acus_root
+        self._tool_path = tool_path
+
+        suggest_id = suggest_next_pgko_music_id(acus_root, start=6000)
+        self._id_edit = QLineEdit(self)
+        self._id_edit.setPlaceholderText(f"留空自动分配（建议 {suggest_id}）")
+
+        const_v = float(meta.get("levelConst") or 13.0)
+        lv = int(max(1, min(15, int(const_v))))
+        dec = int(max(0, min(99, round((const_v - int(const_v)) * 100))))
+        self._lv = QSpinBox(self)
+        self._lv.setRange(1, 15)
+        self._lv.setValue(lv)
+        self._dec = QSpinBox(self)
+        self._dec.setRange(0, 99)
+        self._dec.setValue(dec)
+
+        self._stage = QComboBox(self)
+        idx = load_cached_game_index(expected_game_root=AcusConfig.load().game_root)
+        pairs = merged_stage_pairs(acus_root, idx)
+        if not pairs:
+            pairs = [(-1, "Invalid")]
+        for sid, sname in pairs:
+            self._stage.addItem(f"{sid} | {sname}", (int(sid), str(sname)))
+
+        diff = int(meta.get("difficulty") or 3)
+        need_ev = diff in (4, 5)
+        self._ev = QCheckBox("自动生成解禁事件（ULT/WE）", self)
+        self._ev.setChecked(need_ev)
+        self._ev.setVisible(need_ev)
+
+        form = QFormLayout()
+        form.addRow("乐曲ID", self._id_edit)
+        form.addRow("定数 level", self._lv)
+        form.addRow("levelDecimal", self._dec)
+        form.addRow("Stage", self._stage)
+        form.addRow("", self._ev)
+
+        hint = BodyLabel(
+            f"曲名: {meta.get('title') or ''}\n"
+            f"作者: {meta.get('artist') or meta.get('designer') or ''}\n"
+            f"难度标识: {diff}（4=WE, 5=ULT）"
+        )
+        hint.setWordWrap(True)
+
+        ok = PrimaryPushButton("开始导入", self)
+        ok.clicked.connect(self._run_install)
+        cancel = PushButton("取消", self)
+        cancel.clicked.connect(self.reject)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        row.addWidget(cancel)
+        row.addWidget(ok)
+
+        root = QVBoxLayout(self)
+        root.addWidget(hint)
+        root.addLayout(form)
+        root.addLayout(row)
+
+    def _run_install(self) -> None:
+        txt = self._id_edit.text().strip()
+        if txt:
+            try:
+                mid = int(txt)
+            except ValueError:
+                fly_warning(self, "ID无效", "乐曲ID必须是整数，或留空自动分配。")
+                return
+        else:
+            mid = suggest_next_pgko_music_id(self._acus_root, start=6000)
+
+        data = self._stage.currentData()
+        stage_id, stage_str = int(data[0]), str(data[1])
+        opts = PgkoInstallOptions(
+            music_id=mid,
+            stage_id=stage_id,
+            stage_str=stage_str,
+            level=int(self._lv.value()),
+            level_decimal=int(self._dec.value()),
+            create_unlock_event=self._ev.isChecked() if self._ev.isVisible() else False,
+        )
         try:
-            audio_ret = convert_pgko_audio_to_chuni_from_pick(pick)
-        except Exception as e:
-            fly_warning(
-                self,
-                "音频转码失败",
-                f"{type(e).__name__}: {e}\n\n"
-                "提示：需要 ffmpeg（PATH）与 PyCriCodecsEx。",
+            ret = install_pgko_pick_to_acus(
+                pick=self._pick,
+                acus_root=self._acus_root,
+                tool_path=self._tool_path,
+                opts=opts,
             )
+        except Exception as e:
+            fly_critical(self, "导入失败", f"{type(e).__name__}: {e}")
             return
-        self._status.setText("音频转码完成。")
         fly_message(
             self,
-            "音频转码完成",
-            f"音频源：\n{audio_ret.get('audioSource','')}\n\n"
-            f"musicId：{audio_ret.get('musicId','')}\n"
-            f"预览：{audio_ret.get('previewStartSec','')}s -> {audio_ret.get('previewStopSec','')}s\n\n"
-            f"ACB：{audio_ret.get('acbFile','')}\n"
-            f"AWB：{audio_ret.get('awbFile','')}\n"
-            f"CueFile：{audio_ret.get('cueFileXml','')}",
+            "导入完成",
+            f"musicId: {ret.get('musicId')}\n"
+            f"slot: {ret.get('slot')}\n"
+            f"Music.xml: {ret.get('musicXml')}\n"
+            f"cue: {ret.get('cueDir')}\n"
+            f"event: {ret.get('eventId')}",
         )
+        self.accept()
 
