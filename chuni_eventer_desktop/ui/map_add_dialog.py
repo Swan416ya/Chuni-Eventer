@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from PyQt6.QtWidgets import QTabBar
 
 from qfluentwidgets import LineEdit as FluentLineEdit
 
@@ -1714,7 +1715,12 @@ class MapAddDialog(QDialog):
         self._trophy_thumb_pm_cache: dict[int, QPixmap] = {}
         self._chara_back_pm_cache: dict[int, QPixmap] = {}
         self._chara_head_pm_cache: dict[int, QPixmap] = {}
+        self._penguin_icon_pm_cache: dict[int, QPixmap] = {}
+        self._nameplate_img_path_by_id: dict[int, Path] = {}
+        self._nameplate_pm_cache: dict[int, QPixmap] = {}
         self._trophy_rare_type_by_id = self._scan_trophy_rare_type_by_id(acus_root)
+        self._penguin_ui_dir = self._static_ui_root / "penguin"
+        self._nameplate_img_path_by_id = self._scan_nameplate_image_paths(acus_root)
         self._area_cells: list[list[CellData]] = []
         self._area_ids: list[int] = []
         self._area_names: list[str] = []
@@ -1733,12 +1739,8 @@ class MapAddDialog(QDialog):
 
         self.create_unlock_event = QCheckBox("同时生成地图解锁事件（event/ + EventSort.xml）")
         self.create_unlock_event.setChecked(True)
-        self.create_unlock_event.toggled.connect(self._sync_event_id_enabled)
-        self.event_id = QLineEdit()
-        self.event_id.setPlaceholderText("留空则自动分配：从 70000 开始取未占用 ID，可手填事件 ID")
         if self._edit_mode:
             self.create_unlock_event.setVisible(False)
-            self.event_id.setVisible(False)
 
         self.tabs = QTabWidget()
         self.tabs.setTabsClosable(True)
@@ -1752,17 +1754,6 @@ class MapAddDialog(QDialog):
         top.addRow("Map ID", self.map_id)
         top.addRow("Map 名称", self.map_name)
         top.addRow("", self.create_unlock_event)
-        top.addRow("解锁事件 ID", self.event_id)
-
-        hint = QLabel(
-            "每个 MapPage 为 3×3 九宫格。**空格无需 MapArea**：仅当你要在该格放最终奖励/跑图路线时再点击并创建区域。\n"
-            "页面通过右侧 `+` Tab 新增；关闭标签删除。\n"
-            "ddsMap 与 gauge 等写在「编辑页面格子」窗口内：ddsMap 区域内可选择或新建。"
-        )
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color:#374151;")
-        glyph_warn = QLabel("提示：Map 名称、奖励名称、乐曲名称等文本请尽量使用日语字库内字符；否则游戏内可能显示异常。")
-        glyph_warn.setStyleSheet("color:#B45309;")
 
         ok = QPushButton("保存修改" if self._edit_mode else "生成 Map + MapArea + Reward (+解锁事件)")
         ok.clicked.connect(self._generate)
@@ -1775,8 +1766,6 @@ class MapAddDialog(QDialog):
 
         layout = QVBoxLayout(self)
         layout.addLayout(top)
-        layout.addWidget(hint)
-        layout.addWidget(glyph_warn)
         layout.addWidget(self.tabs, stretch=1)
         layout.addLayout(btns)
 
@@ -1788,10 +1777,7 @@ class MapAddDialog(QDialog):
                 QTimer.singleShot(0, self.reject)
         else:
             self._add_page()
-            self._sync_event_id_enabled(self.create_unlock_event.isChecked())
-
-    def _sync_event_id_enabled(self, on: bool) -> None:
-        self.event_id.setEnabled(on)
+            # 解锁事件 ID 不再手填；若勾选则始终自动分配。
 
     def _create_ddsmap_and_refresh(self) -> int:
         """打开新建 ddsMap 对话框；成功后刷新 ddsMap 引用并返回 created_id。"""
@@ -1845,13 +1831,72 @@ class MapAddDialog(QDialog):
                 continue
         return out
 
+    @staticmethod
+    def _scan_nameplate_image_paths(acus_root: Path) -> dict[int, Path]:
+        """
+        namePlate/**/NamePlate.xml -> nameplateId -> image/path 绝对路径。
+        用于地图格子里显示名牌缩略图（比只显示文字更符合你的要求）。
+        """
+        out: dict[int, Path] = {}
+        for p in acus_root.glob("namePlate/**/NamePlate.xml"):
+            try:
+                r = ET.parse(p).getroot()
+                nid = _safe_int(r.findtext("name/id") or "")
+                if nid is None:
+                    continue
+                img_rel = (r.findtext("image/path") or "").strip()
+                if not img_rel:
+                    continue
+                out[nid] = p.parent / img_rel
+            except Exception:
+                continue
+        return out
+
+    def _get_nameplate_pixmap(self, nid: int) -> QPixmap | None:
+        if nid in self._nameplate_pm_cache:
+            pm = self._nameplate_pm_cache.get(nid)
+            return None if pm is None or pm.isNull() else pm
+
+        p = self._nameplate_img_path_by_id.get(nid)
+        if p is None or not p.is_file():
+            self._nameplate_pm_cache[nid] = QPixmap()
+            return None
+
+        try:
+            if p.suffix.lower() == ".dds":
+                pm = dds_to_pixmap(
+                    acus_root=self._acus_root,
+                    compressonatorcli_path=self._tool,
+                    dds_path=p,
+                    max_w=220,
+                    max_h=220,
+                    restrict=True,
+                )
+            else:
+                pm = QPixmap(str(p))
+                if pm is not None and not pm.isNull():
+                    pm = pm.scaled(
+                        220,
+                        220,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
+        except Exception:
+            pm = None
+
+        if pm is None or pm.isNull():
+            self._nameplate_pm_cache[nid] = QPixmap()
+            return None
+
+        self._nameplate_pm_cache[nid] = pm
+        return pm
+
     def _get_chara_back_head_pixmaps(
         self, chara_id: int
     ) -> tuple[QPixmap | None, QPixmap | None]:
         """
         角色奖励缩略图：
-        - 背板：ddsFile0（preview 三张中的第 1 张）
-        - 头像：ddsFile2（preview 三张中的第 3 张）
+        - 仅头像：ddsFile2（preview 三张中的第 3 张 / 文件名常以 _02 结尾）
         """
         if chara_id in self._chara_back_pm_cache or chara_id in self._chara_head_pm_cache:
             return (
@@ -1870,19 +1915,8 @@ class MapAddDialog(QDialog):
             )
             if dds_xml.exists():
                 root = ET.parse(dds_xml).getroot()
-                d0 = (root.findtext("ddsFile0/path") or "").strip()
                 d2 = (root.findtext("ddsFile2/path") or "").strip()
                 tool = self._tool
-                if d0:
-                    p0 = dds_xml.parent / d0
-                    back_pm = dds_to_pixmap(
-                        acus_root=self._acus_root,
-                        compressonatorcli_path=tool,
-                        dds_path=p0,
-                        max_w=220,
-                        max_h=220,
-                        restrict=True,
-                    )
                 if d2:
                     p2 = dds_xml.parent / d2
                     head_pm = dds_to_pixmap(
@@ -2088,6 +2122,11 @@ class MapAddDialog(QDialog):
         plus_lay.addWidget(plus_lbl)
         self.tabs.addTab(plus_widget, "+")
         self._page_tab_plus_index = self.tabs.count() - 1
+        # '+' tab 不需要关闭按钮
+        bar = self.tabs.tabBar()
+        if bar is not None:
+            bar.setTabButton(self._page_tab_plus_index, QTabBar.ButtonPosition.RightSide, None)
+            bar.setTabButton(self._page_tab_plus_index, QTabBar.ButtonPosition.LeftSide, None)
 
         if self._page_tab_plus_index > 0:
             self.tabs.setCurrentIndex(
@@ -2099,14 +2138,14 @@ class MapAddDialog(QDialog):
         page = QWidget()
         root = QVBoxLayout(page)
         grid = QGridLayout()
-        grid.setSpacing(10)
+        grid.setSpacing(12)
         for i in range(9):
             aid = slots[i] if i < len(slots) else None
-            tile_size = 104
-            count_h = 20
+            tile_size = 148
+            count_h = 26
             img_h = tile_size - count_h
-            course_size = 44  # 至少两倍于原先 22
-            head_size = 56
+            course_size = 64  # 两倍+，更醒目
+            head_size = 84
 
             btn = QPushButton("")
             btn.setFixedSize(tile_size, tile_size)
@@ -2141,13 +2180,24 @@ class MapAddDialog(QDialog):
             course_lbl.hide()
             _make_click_through(course_lbl)
 
+            other_text_lbl = QLabel(btn)
+            other_text_lbl.setGeometry(6, (img_h - 44) // 2, tile_size - 12, 44)
+            other_text_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            other_text_lbl.setWordWrap(True)
+            other_text_lbl.setStyleSheet(
+                "background-color: rgba(0,0,0,140); color:#FFFFFF; border-radius:6px;"
+                "font-size:11px; font-weight:600;"
+            )
+            other_text_lbl.hide()
+            _make_click_through(other_text_lbl)
+
             count_lbl = QLabel(btn)
             count_lbl.setGeometry(0, img_h, tile_size, count_h)
             count_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             count_lbl.setWordWrap(True)
             count_lbl.setStyleSheet(
                 "background-color: rgba(0,0,0,140); color:#FFFFFF; border-radius:0px;"
-                "font-size:11px; font-weight:600;"
+                "font-size:12px; font-weight:600;"
             )
             count_lbl.hide()
             _make_click_through(count_lbl)
@@ -2169,10 +2219,11 @@ class MapAddDialog(QDialog):
 
                 # 2) 最终奖励缩略图（角色/称号）
                 if c.reward_id is not None and c.reward_id >= 0:
+                    thumb_shown = False
                     if c.reward_kind == "角色" and c.reward_inner_id is not None:
-                        back_pm, head_pm = self._get_chara_back_head_pixmaps(c.reward_inner_id)
-                        if back_pm is not None and not back_pm.isNull():
-                            img_pm = back_pm.scaled(
+                        _back_pm, head_pm = self._get_chara_back_head_pixmaps(c.reward_inner_id)
+                        if head_pm is not None and not head_pm.isNull():
+                            img_pm = head_pm.scaled(
                                 tile_size,
                                 img_h,
                                 Qt.AspectRatioMode.KeepAspectRatio,
@@ -2180,15 +2231,7 @@ class MapAddDialog(QDialog):
                             )
                             img_lbl.setPixmap(img_pm)
                             img_lbl.show()
-                        if head_pm is not None and not head_pm.isNull():
-                            head_pm_s = head_pm.scaled(
-                                head_size,
-                                head_size,
-                                Qt.AspectRatioMode.KeepAspectRatio,
-                                Qt.TransformationMode.SmoothTransformation,
-                            )
-                            head_lbl.setPixmap(head_pm_s)
-                            head_lbl.show()
+                            thumb_shown = True
                     elif c.reward_kind == "称号(Trophy)" and c.reward_inner_id is not None:
                         rt = self._trophy_rare_type_by_id.get(c.reward_inner_id)
                         thumb_idx: int | None = None
@@ -2237,7 +2280,49 @@ class MapAddDialog(QDialog):
                                 )
                                 img_lbl.setPixmap(img_pm)
                                 img_lbl.show()
+                                thumb_shown = True
+                    elif c.reward_kind == "姓名牌装饰(NamePlate)" and c.reward_inner_id is not None:
+                        pm = self._get_nameplate_pixmap(c.reward_inner_id)
+                        if pm is not None and not pm.isNull():
+                            img_pm = pm.scaled(
+                                tile_size,
+                                img_h,
+                                Qt.AspectRatioMode.KeepAspectRatio,
+                                Qt.TransformationMode.SmoothTransformation,
+                            )
+                            img_lbl.setPixmap(img_pm)
+                            img_lbl.show()
+                            thumb_shown = True
+                    elif c.reward_kind == "功能票(Ticket)" and c.reward_inner_id is not None:
+                        # 企鹅：A001 中 ticketName/id 实际上对应企鹅 itemId
+                        penguin_id = c.reward_inner_id
+                        fn_map = {8000: "gold.png", 8010: "silver.png", 8020: "soul.png", 8030: "rainbow.png"}
+                        fn = fn_map.get(penguin_id)
+                        if fn is not None:
+                            pm = self._penguin_icon_pm_cache.get(penguin_id)
+                            if pm is None or pm.isNull():
+                                src = self._penguin_ui_dir / fn
+                                if src.is_file():
+                                    pm = QPixmap(str(src))
+                                else:
+                                    pm = QPixmap()
+                                self._penguin_icon_pm_cache[penguin_id] = pm
+                            if pm is not None and not pm.isNull():
+                                img_pm = pm.scaled(
+                                    tile_size,
+                                    img_h,
+                                    Qt.AspectRatioMode.KeepAspectRatio,
+                                    Qt.TransformationMode.SmoothTransformation,
+                                )
+                                img_lbl.setPixmap(img_pm)
+                                img_lbl.show()
+                                thumb_shown = True
 
+                    if not thumb_shown:
+                        # 如果该类型没有对应缩略图资源，则显示名称（优先 reward_name）。
+                        name_txt = (c.reward_name or "").strip() or str(c.reward_inner_id or c.reward_id)
+                        other_text_lbl.setText(name_txt)
+                        other_text_lbl.show()
                 # 3) 课题曲标签（左上角，放大）
                 if c.music_id is not None:
                     if (
@@ -2919,10 +3004,9 @@ class MapAddDialog(QDialog):
             else f"已生成地图 map{map_id:08d}，共 {len(self._area_cells)} 个 Area。"
         )
         if not self._edit_mode and self.create_unlock_event.isChecked():
-            eid_in = _safe_int(self.event_id.text())
-            event_id = eid_in if eid_in is not None else self._next_available_unlock_event_id()
+            event_id = self._next_available_unlock_event_id()
             if event_id < 0:
-                QMessageBox.critical(self, "错误", "解锁事件 ID 必须为非负整数")
+                QMessageBox.critical(self, "错误", "无法自动分配解锁事件 ID")
                 return
             try:
                 self._write_map_unlock_event(map_id=map_id, map_name=map_name, event_id=event_id)
