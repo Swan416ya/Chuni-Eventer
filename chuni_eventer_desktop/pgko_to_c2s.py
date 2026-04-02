@@ -8,6 +8,7 @@ from typing import BinaryIO
 
 from . import pjsk_audio_chuni as pjsk_ac
 from .dds_convert import convert_to_bc3_dds
+from .pgko_cs_bridge import convert_mgxc_with_penguin_bridge
 from .pjsk_acus_install import (
     append_event_sort,
     append_music_sort,
@@ -390,6 +391,11 @@ def _resolve_mgxc_audio_file(meta: _MgxcMeta, mgxc_path: Path) -> Path | None:
 
 
 def convert_pgko_chart_pick_to_c2s(pick: PgkoChartPick) -> Path:
+    out, _backend = convert_pgko_chart_pick_to_c2s_with_backend(pick)
+    return out
+
+
+def convert_pgko_chart_pick_to_c2s_with_backend(pick: PgkoChartPick) -> tuple[Path, str]:
     """
     内置转码（第二版）：
     - 支持 mgxc -> c2s（BPM/TAP/HOLD/SLIDE + Air/AirHold 基础映射）
@@ -415,6 +421,14 @@ def convert_pgko_chart_pick_to_c2s(pick: PgkoChartPick) -> Path:
                 f"源文件：{source_path}\n"
                 f"同目录可见谱面文件：{nearby_tip}"
             )
+
+    out = source_path.with_suffix(".c2s")
+    try:
+        convert_mgxc_with_penguin_bridge(input_mgxc=source_path, output_c2s=out)
+        return out, "cs"
+    except Exception:
+        # bridge 不可用时回退 Python 实现（开发期兜底）
+        pass
 
     meta, events, raw_notes = _parse_mgxc(source_path)
     if not events:
@@ -763,9 +777,8 @@ def convert_pgko_chart_pick_to_c2s(pick: PgkoChartPick) -> Path:
         creator=creator_name,
         bpm_def=float(bpm_def),
     )
-    out = source_path.with_suffix(".c2s")
     out.write_text(text, encoding="utf-8")
-    return out
+    return out, "python"
 
 
 def convert_pgko_audio_to_chuni_from_pick(

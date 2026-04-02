@@ -10,8 +10,12 @@ block_cipher = None
 
 datas = [
     (
-        str(ROOT / "chuni_eventer_desktop" / "static" / "trophy"),
-        "chuni_eventer_desktop/static/trophy",
+        str(ROOT / "chuni_eventer_desktop" / "static"),
+        "chuni_eventer_desktop/static",
+    ),
+    (
+        str(ROOT / "chuni_eventer_desktop" / "data"),
+        "chuni_eventer_desktop/data",
     ),
 ]
 binaries: list = []

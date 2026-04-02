@@ -1,0 +1,15 @@
+e:\Python Project\Chuni-Eventer\tools\PenguinBridge\bin\Release\net8.0\PenguinBridge.exe
+e:\Python Project\Chuni-Eventer\tools\PenguinBridge\bin\Release\net8.0\PenguinBridge.deps.json
+e:\Python Project\Chuni-Eventer\tools\PenguinBridge\bin\Release\net8.0\PenguinBridge.runtimeconfig.json
+e:\Python Project\Chuni-Eventer\tools\PenguinBridge\bin\Release\net8.0\PenguinBridge.dll
+e:\Python Project\Chuni-Eventer\tools\PenguinBridge\bin\Release\net8.0\PenguinBridge.pdb
+e:\Python Project\Chuni-Eventer\tools\PenguinBridge\obj\Release\net8.0\PenguinBridge.GeneratedMSBuildEditorConfig.editorconfig
+e:\Python Project\Chuni-Eventer\tools\PenguinBridge\obj\Release\net8.0\PenguinBridge.AssemblyInfoInputs.cache
+e:\Python Project\Chuni-Eventer\tools\PenguinBridge\obj\Release\net8.0\PenguinBridge.AssemblyInfo.cs
+e:\Python Project\Chuni-Eventer\tools\PenguinBridge\obj\Release\net8.0\PenguinBridge.csproj.CoreCompileInputs.cache
+e:\Python Project\Chuni-Eventer\tools\PenguinBridge\obj\Release\net8.0\PenguinBridge.sourcelink.json
+e:\Python Project\Chuni-Eventer\tools\PenguinBridge\obj\Release\net8.0\PenguinBridge.dll
+e:\Python Project\Chuni-Eventer\tools\PenguinBridge\obj\Release\net8.0\refint\PenguinBridge.dll
+e:\Python Project\Chuni-Eventer\tools\PenguinBridge\obj\Release\net8.0\PenguinBridge.pdb
+e:\Python Project\Chuni-Eventer\tools\PenguinBridge\obj\Release\net8.0\PenguinBridge.genruntimeconfig.cache
+e:\Python Project\Chuni-Eventer\tools\PenguinBridge\obj\Release\net8.0\ref\PenguinBridge.dll

@@ -33,12 +33,15 @@ from ..pgko_sheet_client import (
 from ..pgko_to_c2s import (
     convert_pgko_audio_to_chuni_from_pick,
     convert_pgko_chart_pick_to_c2s,
+    convert_pgko_chart_pick_to_c2s_with_backend,
     install_pgko_pick_to_acus,
+    PgkoChartPick,
     pick_pgko_chart_for_convert,
     read_pgko_meta_for_pick,
     suggest_next_pgko_music_id,
     PgkoInstallOptions,
 )
+from ..pgko_cs_bridge import resolve_penguin_bridge
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
 from .fluent_table import apply_fluent_sheet_table
 
@@ -130,6 +133,42 @@ class _InstallPgkoThread(QThread):
             self.fail.emit(f"{type(e).__name__}: {e}")
 
 
+class _ReconvertLocalPgkoThread(QThread):
+    ok = pyqtSignal(str)
+    fail = pyqtSignal(str)
+
+    def run(self) -> None:
+        try:
+            root = app_cache_dir() / "pgko_downloads"
+            if not root.exists():
+                self.ok.emit("未找到 .cache/pgko_downloads，跳过。")
+                return
+            mgxcs = sorted(p for p in root.glob("**/*.mgxc") if p.is_file())
+            if not mgxcs:
+                self.ok.emit("未找到本地 mgxc 文件。")
+                return
+            cs_ok = 0
+            py_ok = 0
+            errs: list[str] = []
+            for p in mgxcs:
+                try:
+                    _out, backend = convert_pgko_chart_pick_to_c2s_with_backend(
+                        PgkoChartPick(path=p, ext="mgxc")
+                    )
+                    if backend == "cs":
+                        cs_ok += 1
+                    else:
+                        py_ok += 1
+                except Exception as e:
+                    errs.append(f"{p.name}: {type(e).__name__}: {e}")
+            msg = f"重转完成：总计 {len(mgxcs)}，C#={cs_ok}，Python={py_ok}，失败={len(errs)}"
+            if errs:
+                msg += "\n\n失败样例：\n" + "\n".join(errs[:10])
+            self.ok.emit(msg)
+        except Exception as e:
+            self.fail.emit(f"{type(e).__name__}: {e}")
+
+
 class PgkoSheetDownloadDialog(QDialog):
     def __init__(self, *, parent=None) -> None:
         super().__init__(parent=parent)
@@ -177,6 +216,8 @@ class PgkoSheetDownloadDialog(QDialog):
 
         refresh = PushButton("刷新列表", self)
         refresh.clicked.connect(self._on_refresh)
+        reconv = PushButton("重转本地 pgko_downloads", self)
+        reconv.clicked.connect(self._on_reconvert_local)
         dl = PrimaryPushButton("下载选中项", self)
         dl.clicked.connect(self._on_download)
         close = PushButton("关闭", self)
@@ -184,6 +225,7 @@ class PgkoSheetDownloadDialog(QDialog):
 
         btns = QHBoxLayout()
         btns.addWidget(refresh)
+        btns.addWidget(reconv)
         btns.addStretch(1)
         btns.addWidget(dl)
         btns.addWidget(close)
@@ -344,6 +386,32 @@ class PgkoSheetDownloadDialog(QDialog):
             f"{msg}",
         )
 
+    def _on_reconvert_local(self) -> None:
+        ans = QMessageBox.question(
+            self,
+            "重转本地缓存",
+            "将扫描 .cache/pgko_downloads 下所有 mgxc 并重转为 c2s。\n是否继续？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if ans != QMessageBox.StandardButton.Yes:
+            return
+        self._status.setText("正在重转本地 pgko_downloads…")
+        th = _ReconvertLocalPgkoThread(parent=self)
+        self._download_thread = th  # 复用下载线程槽位，避免重复启动下载
+        th.ok.connect(self._on_reconvert_local_ok)
+        th.fail.connect(self._on_reconvert_local_fail)
+        th.finished.connect(th.deleteLater)
+        th.start()
+
+    def _on_reconvert_local_ok(self, msg: str) -> None:
+        self._status.setText("本地重转完成。")
+        fly_message(self, "重转结果", msg)
+
+    def _on_reconvert_local_fail(self, msg: str) -> None:
+        self._status.setText("本地重转失败。")
+        fly_critical(self, "重转失败", msg)
+
     def _try_convert_pgko_to_c2s(self, output: Path) -> None:
         pick = pick_pgko_chart_for_convert(output)
         if pick is None:
@@ -355,7 +423,7 @@ class PgkoSheetDownloadDialog(QDialog):
             )
             return
         try:
-            out = convert_pgko_chart_pick_to_c2s(pick)
+            out, backend = convert_pgko_chart_pick_to_c2s_with_backend(pick)
         except NotImplementedError as e:
             self._status.setText(
                 f"已选转码源：{pick.path.name}（{pick.ext}，优先级规则：mgxc > ugc）"
@@ -367,7 +435,16 @@ class PgkoSheetDownloadDialog(QDialog):
             fly_critical(self, "转码失败", f"{type(e).__name__}: {e}")
             return
 
-        self._status.setText(f"转码完成：{out.name}")
+        backend_tip = "C#(PenguinBridge)" if backend == "cs" else "Python(回退)"
+        self._status.setText(f"转码完成：{out.name}（{backend_tip}）")
+        if backend != "cs":
+            bridge = resolve_penguin_bridge()
+            why = "未找到 PenguinBridge.exe" if bridge is None else f"PenguinBridge 调用失败：{bridge}"
+            fly_warning(
+                self,
+                "C# 转换未生效",
+                f"本次已回退到 Python 转换。\n原因：{why}",
+            )
         try:
             meta = read_pgko_meta_for_pick(pick)
         except Exception as e:
