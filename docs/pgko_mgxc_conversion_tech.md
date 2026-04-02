@@ -17,6 +17,9 @@
   - 在下载目录内选择转码源，优先级：`mgxc > ugc`
 - `convert_pgko_chart_pick_to_c2s(pick)`
   - 执行转码并输出 `.c2s`
+- `convert_pgko_audio_to_chuni_from_pick(pick)`
+  - 复用 `pjsk_audio_chuni` 音频管线，生成中二 `ACB/AWB/CueFile`
+  - 预览片段读取 mgxc `wvp0/wvp1`
 
 UI 入口在 `chuni_eventer_desktop/ui/pgko_sheet_download_dialog.py`：
 
@@ -47,9 +50,13 @@ UI 入口在 `chuni_eventer_desktop/ui/pgko_sheet_download_dialog.py`：
 
 解析字段：
 
-- 事件：`bpm`（用于 `BPM` 定义）
+- 事件：`bpm/beat/smod/til`（分别用于 `BPM/MET/SFL/SLP`）
 - 音符：`type/long_attr/direction/ex_attr/x/width/height/tick`
 - 记录原始顺序 `seq`，避免同 tick 错序导致配对偏差
+- 元数据：`dsgn/arts/titl/sgid/wvfn/wvp0/wvp1`
+  - `dsgn/arts` 用于 `CREATOR`
+  - `wvfn` 定位音频文件
+  - `wvp0/wvp1` 用于 ACB 预览片段
 
 ## c2s 映射规则（当前）
 
@@ -59,12 +66,18 @@ UI 入口在 `chuni_eventer_desktop/ui/pgko_sheet_download_dialog.py`：
 
 已支持映射：
 
-- `Tap/ExTap/Flick` -> `TAP`（当前统一落成 `TapNote`）
+- `Tap` -> `TAP`
+- `ExTap` -> `CHR`（已按 `direction` 映射 `UP/DW/CE/LS/RS/LC/RC/BS`）
+- `Flick` -> `FLK`（按方向映射 `L/R`）
+- `Damage` -> `MNE`
 - `Hold begin/end` -> `HLD`
 - `Slide begin/joints/end` -> `SLD/SLC`
 - `Air` -> `AIR/AUR/AUL/ADW/ADR/ADL`
 - `AirHold/AirSlide` -> 分段 `AHD`
 - `AirCrush` -> 近似分段 `AHD`（保节奏与路径连续）
+- `beat` -> `MET`（默认补头拍号）
+- `smod` -> `SFL`（仅输出非 1.0 速度段）
+- `til` -> `SLP`（按 timeline 分组输出非 1.0 速度段）
 
 ## Air linkage（父类型推断）
 
@@ -83,7 +96,6 @@ UI 入口在 `chuni_eventer_desktop/ui/pgko_sheet_download_dialog.py`：
 
 当前是“可用优先”的内置实现，仍有差距：
 
-- `ExTap/Flick/Damage` 尚未细分到完整 c2s 标签体系（目前以基础可播为主）
 - `AirSlide/AirCrush` 的高度、密度等高级语义受当前 `c2s_emit` 能力限制，采用近似映射
 - `ugc` 目前不是直接解析，而是“借道 mgxc 回退”
 
@@ -96,7 +108,8 @@ UI 入口在 `chuni_eventer_desktop/ui/pgko_sheet_download_dialog.py`：
 3. 检查输出 `.c2s` 是否生成
 4. 抽样检查：
    - `BPM` 行是否存在
-   - `HLD/SLD/SLC/AIR/AHD` 是否出现
+   - `MET/SFL/SLP` 是否出现（有对应事件时）
+   - `CHR/FLK/MNE/HLD/SLD/SLC/AIR/AHD` 是否出现
    - `AIR` linkage 是否不再单一 `TAP`
 
 ## 后续可扩展方向
@@ -104,3 +117,4 @@ UI 入口在 `chuni_eventer_desktop/ui/pgko_sheet_download_dialog.py`：
 - 直接解析 `ugc`（不依赖旁路 `mgxc`）
 - 补齐 `ExTap/Flick/Damage` 等更精细语义映射
 - 升级 `c2s_emit` 以承载更多 Air 相关高级参数
+- 增加 pgko 音频转码结果到 ACUS 安装流程的一键接入

@@ -48,6 +48,21 @@ class SpeedSetting(C2sObject):
         )
 
 
+class TimelineSpeedSetting(C2sObject):
+    length: int = 0
+    speed: float = 1.0
+    timeline: int = 0
+
+    def __str__(self) -> str:
+        return "SLP\t%s\t%s\t%s\t%s\t%s" % (
+            self.measure,
+            self.tick,
+            self.length,
+            self.speed,
+            self.timeline,
+        )
+
+
 class C2sNote(C2sObject):
     lane: int = 0
     width: int = 0
@@ -74,22 +89,28 @@ class MineNote(C2sNote):
 
 
 class ChargeNote(C2sNote):
+    effect: str = "UP"
+
     def __str__(self) -> str:
-        return "CHR\t%s\t%s\t%s\t%s\tUP" % (
+        return "CHR\t%s\t%s\t%s\t%s\t%s" % (
             self.measure,
             self.tick,
             self.lane,
             self.width,
+            self.effect,
         )
 
 
 class FlickNote(C2sNote):
+    direction_tag: str = "L"
+
     def __str__(self) -> str:
-        return "FLK\t%s\t%s\t%s\t%s\tL" % (
+        return "FLK\t%s\t%s\t%s\t%s\t%s" % (
             self.measure,
             self.tick,
             self.lane,
             self.width,
+            self.direction_tag,
         )
 
 

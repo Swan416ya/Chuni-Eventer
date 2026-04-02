@@ -25,7 +25,11 @@ from ..pgko_sheet_client import (
     fetch_pgko_sheet_page,
     resolve_pgko_download_from_bundle,
 )
-from ..pgko_to_c2s import convert_pgko_chart_pick_to_c2s, pick_pgko_chart_for_convert
+from ..pgko_to_c2s import (
+    convert_pgko_audio_to_chuni_from_pick,
+    convert_pgko_chart_pick_to_c2s,
+    pick_pgko_chart_for_convert,
+)
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
 from .fluent_table import apply_fluent_sheet_table
 
@@ -311,9 +315,36 @@ class PgkoSheetDownloadDialog(QDialog):
             return
 
         self._status.setText(f"转码完成：{out.name}")
+        ans = QMessageBox.question(
+            self,
+            "谱面转码完成",
+            f"已按优先级选择：\n{pick.path}\n\n输出文件：\n{out}\n\n"
+            "是否继续转码音频并生成中二 ACB/AWB（预览片段按 mgxc 的 wvp0/wvp1）？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if ans != QMessageBox.StandardButton.Yes:
+            fly_message(self, "转码完成", f"输出文件：\n{out}")
+            return
+        try:
+            audio_ret = convert_pgko_audio_to_chuni_from_pick(pick)
+        except Exception as e:
+            fly_warning(
+                self,
+                "音频转码失败",
+                f"{type(e).__name__}: {e}\n\n"
+                "提示：需要 ffmpeg（PATH）与 PyCriCodecsEx。",
+            )
+            return
+        self._status.setText("音频转码完成。")
         fly_message(
             self,
-            "转码完成",
-            f"已按优先级选择：\n{pick.path}\n\n输出文件：\n{out}",
+            "音频转码完成",
+            f"音频源：\n{audio_ret.get('audioSource','')}\n\n"
+            f"musicId：{audio_ret.get('musicId','')}\n"
+            f"预览：{audio_ret.get('previewStartSec','')}s -> {audio_ret.get('previewStopSec','')}s\n\n"
+            f"ACB：{audio_ret.get('acbFile','')}\n"
+            f"AWB：{audio_ret.get('awbFile','')}\n"
+            f"CueFile：{audio_ret.get('cueFileXml','')}",
         )
 

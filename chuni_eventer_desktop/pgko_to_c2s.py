@@ -1,11 +1,27 @@
 from __future__ import annotations
 
 import struct
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
 
-from ._suspect.c2s_emit import AirHold, AirNote, BpmSetting, HoldNote, SlideNote, TapNote, create_file
+from . import pjsk_audio_chuni as pjsk_ac
+from ._suspect.c2s_emit import (
+    AirHold,
+    AirNote,
+    BpmSetting,
+    ChargeNote,
+    FlickNote,
+    HoldNote,
+    MeterSetting,
+    MineNote,
+    SlideNote,
+    SpeedSetting,
+    TimelineSpeedSetting,
+    TapNote,
+    create_file,
+)
 
 
 @dataclass(frozen=True)
@@ -47,6 +63,7 @@ class _MgxcEvent:
     kind: str
     tick: int
     value: float
+    value2: int = 0
 
 
 @dataclass(frozen=True)
@@ -59,6 +76,7 @@ class _MgxcNote:
     width: int
     height: int
     tick: int
+    timeline: int
     seq: int
 
 
@@ -68,6 +86,19 @@ class _GroundAnchor:
     lane: int
     width: int
     linkage: str  # TAP/HLD/SLD
+
+
+@dataclass(frozen=True)
+class _MgxcMeta:
+    designer: str = ""
+    artist: str = ""
+    title: str = ""
+    song_id: str = ""
+    bgm_file: str = ""
+    preview_start_sec: float = 0.0
+    preview_stop_sec: float = 30.0
+    has_preview_start: bool = False
+    has_preview_stop: bool = False
 
 
 def _read_exact(f: BinaryIO, size: int) -> bytes:
@@ -89,11 +120,20 @@ def _f64(b: bytes) -> float:
     return struct.unpack("<d", b)[0]
 
 
+def _decode_mgxc_text(raw: bytes) -> str:
+    for enc in ("utf-8", "cp932", "shift_jis"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            pass
+    return raw.decode("utf-8", errors="ignore")
+
+
 def _read_field(buf: BinaryIO) -> str | int | float:
     typ = _i16(_read_exact(buf, 2))
     attr = _i16(_read_exact(buf, 2))
     if typ == 4:
-        return _read_exact(buf, attr).decode("utf-8", errors="ignore")
+        return _decode_mgxc_text(_read_exact(buf, attr))
     if typ == 3:
         return _f64(_read_exact(buf, 8))
     if typ == 2:
@@ -103,7 +143,8 @@ def _read_field(buf: BinaryIO) -> str | int | float:
     raise ValueError(f"unknown mgxc field type: {typ}")
 
 
-def _parse_mgxc(path: Path) -> tuple[list[_MgxcEvent], list[_MgxcNote]]:
+def _parse_mgxc(path: Path) -> tuple[_MgxcMeta, list[_MgxcEvent], list[_MgxcNote]]:
+    meta = _MgxcMeta()
     events: list[_MgxcEvent] = []
     notes: list[_MgxcNote] = []
     with path.open("rb") as f:
@@ -130,16 +171,23 @@ def _parse_mgxc(path: Path) -> tuple[list[_MgxcEvent], list[_MgxcNote]]:
                         bpm = float(_read_field(br))
                         events.append(_MgxcEvent(kind="bpm", tick=tick, value=bpm))
                     elif name == "beat":
-                        _read_field(br)
-                        _read_field(br)
-                        _read_field(br)
+                        bar = int(_read_field(br))
+                        num = int(_read_field(br))
+                        den = int(_read_field(br))
+                        events.append(
+                            _MgxcEvent(kind="beat", tick=bar, value=float(num), value2=den)
+                        )
                     elif name == "til ":
-                        _read_field(br)
-                        _read_field(br)
-                        _read_field(br)
+                        timeline = int(_read_field(br))
+                        tick = int(_read_field(br))
+                        speed = float(_read_field(br))
+                        events.append(
+                            _MgxcEvent(kind="til", tick=tick, value=speed, value2=timeline)
+                        )
                     elif name == "smod":
-                        _read_field(br)
-                        _read_field(br)
+                        tick = int(_read_field(br))
+                        speed = float(_read_field(br))
+                        events.append(_MgxcEvent(kind="smod", tick=tick, value=speed))
                     elif name == "mbkm":
                         _read_field(br)
                     elif name == "bmrk":
@@ -156,6 +204,55 @@ def _parse_mgxc(path: Path) -> tuple[list[_MgxcEvent], list[_MgxcNote]]:
                     else:
                         raise ValueError(f"unknown mgxc event tag: {name!r}")
                     _read_exact(br, 4)  # trailing zero
+            elif hdr == b"meta":
+                import io
+
+                br = io.BytesIO(block)
+                designer = meta.designer
+                artist = meta.artist
+                title = meta.title
+                song_id = meta.song_id
+                bgm_file = meta.bgm_file
+                preview_start_sec = meta.preview_start_sec
+                preview_stop_sec = meta.preview_stop_sec
+                has_preview_start = meta.has_preview_start
+                has_preview_stop = meta.has_preview_stop
+                while br.tell() < len(block):
+                    name = _read_exact(br, 4).decode("utf-8", errors="ignore")
+                    data = _read_field(br)
+                    if name == "dsgn" and isinstance(data, str):
+                        designer = data.strip()
+                    elif name == "arts" and isinstance(data, str):
+                        artist = data.strip()
+                    elif name == "titl" and isinstance(data, str):
+                        title = data.strip()
+                    elif name == "sgid" and isinstance(data, str):
+                        song_id = data.strip()
+                    elif name == "wvfn" and isinstance(data, str):
+                        bgm_file = data.strip()
+                    elif name == "wvp0":
+                        try:
+                            preview_start_sec = float(data)
+                            has_preview_start = True
+                        except Exception:
+                            preview_start_sec = 0.0
+                    elif name == "wvp1":
+                        try:
+                            preview_stop_sec = float(data)
+                            has_preview_stop = True
+                        except Exception:
+                            preview_stop_sec = 30.0
+                meta = _MgxcMeta(
+                    designer=designer,
+                    artist=artist,
+                    title=title,
+                    song_id=song_id,
+                    bgm_file=bgm_file,
+                    preview_start_sec=preview_start_sec,
+                    preview_stop_sec=preview_stop_sec,
+                    has_preview_start=has_preview_start,
+                    has_preview_stop=has_preview_stop,
+                )
             elif hdr == b"dat2":
                 import io
 
@@ -170,7 +267,7 @@ def _parse_mgxc(path: Path) -> tuple[list[_MgxcEvent], list[_MgxcNote]]:
                     width = _i16(_read_exact(br, 2))
                     height = _i32(_read_exact(br, 4))
                     tick = _i32(_read_exact(br, 4))
-                    _read_exact(br, 4)  # timelineId
+                    timeline = _i32(_read_exact(br, 4))
                     if typ == 0x0A and long_attr == 0x01:
                         _read_exact(br, 4)
                     notes.append(
@@ -183,11 +280,12 @@ def _parse_mgxc(path: Path) -> tuple[list[_MgxcEvent], list[_MgxcNote]]:
                             width=width,
                             height=height,
                             tick=tick,
+                            timeline=timeline,
                             seq=seq,
                         )
                     )
                     seq += 1
-    return events, notes
+    return meta, events, notes
 
 
 def _find_fallback_mgxc(source: Path) -> Path | None:
@@ -213,6 +311,56 @@ def _find_fallback_mgxc(source: Path) -> Path | None:
     if same_stem:
         return same_stem[0]
     return None
+
+
+def _try_read_ugc_designer_near(mgxc_path: Path) -> str:
+    candidates: list[Path] = []
+    same = mgxc_path.with_suffix(".ugc")
+    if same.exists() and same.is_file():
+        candidates.append(same)
+    candidates.extend(sorted(p for p in mgxc_path.parent.glob("*.ugc") if p.is_file()))
+    seen: set[Path] = set()
+    for p in candidates:
+        if p in seen:
+            continue
+        seen.add(p)
+        try:
+            text = p.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+        for ln in text.splitlines():
+            if ln.startswith("@DESIGN\t"):
+                v = ln.split("\t", 1)[1].strip()
+                if v:
+                    return v
+    return ""
+
+
+def _derive_music_id(meta: _MgxcMeta, mgxc_path: Path) -> int:
+    s = (meta.song_id or "").strip()
+    digits = "".join(ch for ch in s if ch.isdigit())
+    if digits:
+        try:
+            return max(1, int(digits) % 10000)
+        except Exception:
+            pass
+    return (zlib.crc32(mgxc_path.as_posix().encode("utf-8")) % 9999) + 1
+
+
+def _resolve_mgxc_audio_file(meta: _MgxcMeta, mgxc_path: Path) -> Path | None:
+    base = mgxc_path.parent
+    if meta.bgm_file:
+        p = (base / meta.bgm_file).resolve()
+        if p.exists() and p.is_file():
+            return p
+    for ext in (".ogg", ".wav", ".flac", ".mp3"):
+        p = mgxc_path.with_suffix(ext)
+        if p.exists() and p.is_file():
+            return p
+    cands = sorted(
+        p for p in base.glob("*") if p.is_file() and p.suffix.lower() in (".ogg", ".wav", ".flac", ".mp3")
+    )
+    return cands[0] if cands else None
 
 
 def convert_pgko_chart_pick_to_c2s(pick: PgkoChartPick) -> Path:
@@ -241,21 +389,96 @@ def convert_pgko_chart_pick_to_c2s(pick: PgkoChartPick) -> Path:
                 f"同目录可见谱面文件：{nearby_tip}"
             )
 
-    events, raw_notes = _parse_mgxc(source_path)
+    meta, events, raw_notes = _parse_mgxc(source_path)
     if not events:
         events = [_MgxcEvent(kind="bpm", tick=0, value=120.0)]
 
     bpm_def = sorted((e for e in events if e.kind == "bpm"), key=lambda x: x.tick)[0].value
     scale = 384.0 / 480.0
 
-    defs: list[BpmSetting] = []
-    for e in sorted((e for e in events if e.kind == "bpm"), key=lambda x: x.tick):
+    defs: list[BpmSetting | MeterSetting | SpeedSetting | TimelineSpeedSetting] = []
+    bpm_events = sorted((e for e in events if e.kind == "bpm"), key=lambda x: x.tick)
+    for e in bpm_events:
         obj = BpmSetting()
         t = max(0, int(round(e.tick * scale)))
         obj.measure = t // 384
         obj.tick = t % 384
         obj.bpm = float(e.value)
         defs.append(obj)
+
+    beat_events = sorted((e for e in events if e.kind == "beat"), key=lambda x: x.tick)
+    if not beat_events or beat_events[0].tick != 0:
+        beat_events.insert(0, _MgxcEvent(kind="beat", tick=0, value=4.0, value2=4))
+
+    beat_ticks: list[tuple[int, int, int]] = []
+    acc = 0
+    for i, b in enumerate(beat_events):
+        num = max(1, int(round(b.value)))
+        den = max(1, int(b.value2))
+        if i > 0:
+            prev_bar = beat_events[i - 1].tick
+            prev_num = max(1, int(round(beat_events[i - 1].value)))
+            prev_den = max(1, int(beat_events[i - 1].value2))
+            bars = max(0, b.tick - prev_bar)
+            acc += int(round(480 * prev_num / prev_den * bars))
+        beat_ticks.append((acc, num, den))
+
+    for bt, num, den in beat_ticks:
+        m = MeterSetting()
+        t = max(0, int(round(bt * scale)))
+        m.measure = t // 384
+        m.tick = t % 384
+        m.signature = (num, den)
+        defs.append(m)
+
+    smod_events = sorted((e for e in events if e.kind == "smod"), key=lambda x: x.tick)
+    if smod_events:
+        last_note_tick_480 = max((n.tick for n in raw_notes), default=0)
+        for i, s in enumerate(smod_events):
+            start = max(0, int(round(s.tick * scale)))
+            if i + 1 < len(smod_events):
+                end = max(0, int(round(smod_events[i + 1].tick * scale)))
+            else:
+                end = max(start + 1, int(round(last_note_tick_480 * scale)))
+            if end <= start:
+                continue
+            if abs(float(s.value) - 1.0) < 1e-6:
+                continue
+            sp = SpeedSetting()
+            sp.measure = start // 384
+            sp.tick = start % 384
+            sp.length = end - start
+            sp.speed = float(s.value)
+            defs.append(sp)
+
+    til_events = sorted((e for e in events if e.kind == "til"), key=lambda x: (x.value2, x.tick))
+    if til_events:
+        by_timeline: dict[int, list[_MgxcEvent]] = {}
+        for e in til_events:
+            by_timeline.setdefault(int(e.value2), []).append(e)
+        for tid, arr in by_timeline.items():
+            arr = sorted(arr, key=lambda x: x.tick)
+            last_timeline_tick_480 = max(
+                (n.tick for n in raw_notes if int(n.timeline) == int(tid)),
+                default=max((n.tick for n in raw_notes), default=0),
+            )
+            for i, e in enumerate(arr):
+                start = max(0, int(round(e.tick * scale)))
+                if i + 1 < len(arr):
+                    end = max(0, int(round(arr[i + 1].tick * scale)))
+                else:
+                    end = max(start + 1, int(round(last_timeline_tick_480 * scale)))
+                if end <= start:
+                    continue
+                if abs(float(e.value) - 1.0) < 1e-6:
+                    continue
+                sp = TimelineSpeedSetting()
+                sp.measure = start // 384
+                sp.tick = start % 384
+                sp.length = end - start
+                sp.speed = float(e.value)
+                sp.timeline = int(tid)
+                defs.append(sp)
 
     converted_notes = sorted(raw_notes, key=lambda x: (x.tick, x.seq))
     ground_anchors: list[_GroundAnchor] = []
@@ -333,7 +556,26 @@ def convert_pgko_chart_pick_to_c2s(pick: PgkoChartPick) -> Path:
             return prev_any[0][1].linkage
         return fallback
 
-    notes_out: list[TapNote | HoldNote | SlideNote | AirNote | AirHold] = []
+    def _map_extap_effect(direction: int) -> str:
+        # Align with PenguinTools ExTap direction mapping
+        return {
+            2: "UP",  # Up
+            3: "DW",  # Down
+            4: "CE",  # Center
+            5: "LS",  # Left Side
+            6: "RS",  # Right Side
+            11: "LC",  # RotateLeft
+            12: "RC",  # RotateRight
+            13: "BS",  # InOut
+            14: "CE",  # OutIn -> CE
+        }.get(direction, "UP")
+
+    def _map_flick_dir(direction: int) -> str:
+        if direction in (6, 8, 10, 12):  # right-ish
+            return "R"
+        return "L"
+
+    notes_out: list[TapNote | ChargeNote | FlickNote | MineNote | HoldNote | SlideNote | AirNote | AirHold] = []
     active_holds: list[_MgxcNote] = []
     active_air_holds: list[_MgxcNote] = []
     active_air_crash: list[_MgxcNote] = []
@@ -343,8 +585,31 @@ def convert_pgko_chart_pick_to_c2s(pick: PgkoChartPick) -> Path:
         t = max(0, int(round(n.tick * scale)))
         lane = int(n.x)
         width = max(1, int(n.width))
-        if n.typ in (0x01, 0x02, 0x03):  # tap/extap/flick
+        if n.typ == 0x01:  # tap
             x = TapNote()
+            x.measure = t // 384
+            x.tick = t % 384
+            x.lane = lane
+            x.width = width
+            notes_out.append(x)
+        elif n.typ == 0x02:  # extap -> chr
+            x = ChargeNote()
+            x.measure = t // 384
+            x.tick = t % 384
+            x.lane = lane
+            x.width = width
+            x.effect = _map_extap_effect(int(n.direction))
+            notes_out.append(x)
+        elif n.typ == 0x03:  # flick
+            x = FlickNote()
+            x.measure = t // 384
+            x.tick = t % 384
+            x.lane = lane
+            x.width = width
+            x.direction_tag = _map_flick_dir(int(n.direction))
+            notes_out.append(x)
+        elif n.typ == 0x04:  # damage
+            x = MineNote()
             x.measure = t // 384
             x.tick = t % 384
             x.lane = lane
@@ -457,13 +722,68 @@ def convert_pgko_chart_pick_to_c2s(pick: PgkoChartPick) -> Path:
                     slide_start = None
                     active_slides = []
 
+    ugc_designer = _try_read_ugc_designer_near(source_path)
+    creator_name = (
+        ugc_designer
+        or (meta.designer or "").strip()
+        or (meta.artist or "").strip()
+        or "MGXC import"
+    )
+
     text = create_file(
         defs,
         notes_out,
-        creator="pgko mgxc import",
+        creator=creator_name,
         bpm_def=float(bpm_def),
     )
     out = source_path.with_suffix(".c2s")
     out.write_text(text, encoding="utf-8")
     return out
+
+
+def convert_pgko_audio_to_chuni_from_pick(pick: PgkoChartPick) -> dict[str, object]:
+    """
+    Reuse pjsk audio pipeline for pgko:
+    - decode to 48k wav by ffmpeg (no forced 9s trim)
+    - build chuni cueFile/musicXXXX.acb/.awb
+    - preview window uses mgxc meta wvp0/wvp1
+    """
+    source_path = pick.path
+    if pick.ext.lower().strip(".") != "mgxc":
+        fb = _find_fallback_mgxc(source_path)
+        if fb is None:
+            raise RuntimeError("音频转码需要 mgxc（或可回退到同目录 mgxc）")
+        source_path = fb
+
+    meta, _events, _notes = _parse_mgxc(source_path)
+    src_audio = _resolve_mgxc_audio_file(meta, source_path)
+    if src_audio is None:
+        raise FileNotFoundError(f"未找到可用音频文件（mgxc={source_path.name}）")
+
+    music_id = _derive_music_id(meta, source_path)
+    # 仅当作者在 mgxc 中明确填写了 wvp0/wvp1 时才使用；否则统一默认 0-30 秒
+    if meta.has_preview_start and meta.has_preview_stop:
+        preview_start = max(0.0, float(meta.preview_start_sec))
+        preview_stop = float(meta.preview_stop_sec)
+        if preview_stop <= preview_start + 0.05:
+            preview_start, preview_stop = 0.0, 30.0
+    else:
+        preview_start, preview_stop = 0.0, 30.0
+
+    cache_root = source_path.parent
+    result = pjsk_ac.try_pipeline_pjsk_audio_to_chuni(
+        src_audio=src_audio,
+        music_id=music_id,
+        cache_root=cache_root,
+        trim_leading_sec=0.0,
+        preview_start_sec=preview_start,
+        preview_stop_sec=preview_stop,
+    )
+    if result is None:
+        raise RuntimeError("音频转码失败：缺少 PyCriCodecsEx 或打包阶段失败")
+    result["musicId"] = music_id
+    result["audioSource"] = str(src_audio)
+    result["previewStartSec"] = preview_start
+    result["previewStopSec"] = preview_stop
+    return result
 
