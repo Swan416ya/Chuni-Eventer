@@ -9,6 +9,7 @@ import xml.etree.ElementTree as ET
 
 from .acus_scan import MusicItem, scan_dds_images, scan_music, scan_stages
 from .acus_workspace import app_cache_dir
+from .dds_convert import convert_dds_to_png
 
 
 INDEX_VERSION = 2
@@ -131,6 +132,90 @@ def _scan_dds_map_pairs(data_root: Path) -> list[tuple[int, str]]:
         except Exception:
             continue
     return sorted(out, key=lambda x: x[0])
+
+
+def _enumerate_ddsmap_preview_roots(game_root: Path) -> list[Path]:
+    """
+    预览缓存专用 roots：
+    - data/A000/opt 及其所有子目录
+    - bin/option 下所有子目录（A001/A010/...）
+    """
+    roots: list[Path] = []
+    for data_name in ("data", "Data"):
+        for a_name in ("a000", "A000"):
+            opt_base = game_root / data_name / a_name / "opt"
+            if not opt_base.is_dir():
+                continue
+            roots.append(opt_base)
+            try:
+                for c in sorted(opt_base.iterdir()):
+                    if c.is_dir():
+                        roots.append(c)
+            except OSError:
+                pass
+    for bin_name in ("bin", "Bin"):
+        bo = game_root / bin_name / "option"
+        if not bo.is_dir():
+            continue
+        try:
+            for c in sorted(bo.iterdir()):
+                if c.is_dir():
+                    roots.append(c)
+        except OSError:
+            pass
+
+    out: list[Path] = []
+    seen: set[Path] = set()
+    for r in roots:
+        try:
+            rr = r.resolve()
+        except OSError:
+            continue
+        if rr in seen:
+            continue
+        seen.add(rr)
+        out.append(rr)
+    return out
+
+
+def prewarm_game_dds_preview_pngs(
+    *,
+    game_root: Path,
+    compressonatorcli_path: Path | None = None,
+) -> tuple[int, int]:
+    """
+    把游戏资源 ddsMap 下所有 dds 预生成到 `.cache/dds_preview/*.png`。
+    返回 (success_count, total_count)。
+    """
+    cache = app_cache_dir() / "dds_preview"
+    cache.mkdir(parents=True, exist_ok=True)
+    roots = _enumerate_ddsmap_preview_roots(game_root)
+    dds_files: list[Path] = []
+    for r in roots:
+        droot = r / "ddsMap"
+        if not droot.is_dir():
+            continue
+        try:
+            for p in droot.glob("**/*.dds"):
+                dds_files.append(p)
+        except OSError:
+            continue
+
+    uniq = sorted({p.resolve() for p in dds_files})
+    ok = 0
+    for p in uniq:
+        try:
+            out_png = cache / f"{p.name}.png"
+            if not out_png.exists():
+                convert_dds_to_png(
+                    tool_path=compressonatorcli_path,
+                    input_dds=p,
+                    output_png=out_png,
+                )
+            ok += 1
+        except Exception:
+            continue
+    return ok, len(uniq)
 
 
 def _music_item_to_catalog_row(m: MusicItem, source: str) -> dict[str, Any]:
@@ -394,7 +479,10 @@ def save_game_data_index(idx: GameDataIndex) -> None:
     p.write_text(json.dumps(idx.to_json(), ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def rebuild_and_save_game_index(game_root: Path) -> tuple[GameDataIndex | None, str]:
+def rebuild_and_save_game_index(
+    game_root: Path,
+    compressonatorcli_path: Path | None = None,
+) -> tuple[GameDataIndex | None, str]:
     root = game_root.expanduser().resolve()
     roots = enumerate_game_data_roots(root)
     if not roots:
@@ -405,6 +493,11 @@ def rebuild_and_save_game_index(game_root: Path) -> tuple[GameDataIndex | None, 
         )
     idx = build_game_data_index(game_root=root)
     save_game_data_index(idx)
+    # 索引阶段顺便预生成游戏资源 ddsMap 预览 PNG
+    prewarm_game_dds_preview_pngs(
+        game_root=root,
+        compressonatorcli_path=compressonatorcli_path,
+    )
     return idx, ""
 
 

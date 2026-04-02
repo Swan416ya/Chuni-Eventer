@@ -139,7 +139,7 @@ class MainWindow(MSFluentWindow):
         if gr_raw:
             gr = Path(gr_raw).expanduser()
             if load_cached_game_index(str(gr)) is None:
-                _idx, err = rebuild_and_save_game_index(gr)
+                _idx, err = rebuild_and_save_game_index(gr, self._get_tool_path_or_none())
                 if _idx is None and err:
                     fly_critical(
                         self,
@@ -161,7 +161,10 @@ class MainWindow(MSFluentWindow):
             return
         self._cfg.game_root = picked
         self._cfg.save()
-        _idx, err = rebuild_and_save_game_index(Path(picked).expanduser())
+        _idx, err = rebuild_and_save_game_index(
+            Path(picked).expanduser(),
+            self._get_tool_path_or_none(),
+        )
         if _idx is None:
             fly_critical(self, "扫描失败", err or "无法建立游戏索引。")
         else:

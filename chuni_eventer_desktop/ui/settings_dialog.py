@@ -130,7 +130,16 @@ class SettingsDialog(QDialog):
             fly_warning(self, "未设置", "请先填写或浏览选择游戏数据目录。")
             return
         root = Path(raw).expanduser()
-        idx, err = rebuild_and_save_game_index(root)
+        tool_raw = (self.compressonator.text() or "").strip()
+        tool_path: Path | None = None
+        if tool_raw:
+            try:
+                tp = Path(tool_raw).expanduser().resolve(strict=False)
+                if tp.is_file():
+                    tool_path = tp
+            except OSError:
+                tool_path = None
+        idx, err = rebuild_and_save_game_index(root, tool_path)
         if idx is None:
             fly_critical(self, "扫描失败", err)
             return
@@ -177,6 +186,6 @@ class SettingsDialog(QDialog):
         self._cfg.game_root = gr
         self._cfg.save()
         if gr:
-            _idx, err = rebuild_and_save_game_index(Path(gr).expanduser())
+            _idx, err = rebuild_and_save_game_index(Path(gr).expanduser(), self._get_tool_path())
             if _idx is None and err:
                 fly_warning(self, "游戏索引未更新", err)

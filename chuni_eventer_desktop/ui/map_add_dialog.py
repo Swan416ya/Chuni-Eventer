@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QProgressDialog,
     QPushButton,
     QGroupBox,
     QScrollArea,
@@ -1677,6 +1678,53 @@ def ensure_reward_xml(acus_root: Path, cell: CellData) -> None:
     (rdir / "Reward.xml").write_text(xml, encoding="utf-8")
 
 
+def ensure_points_reward_xml(
+    acus_root: Path,
+    *,
+    reward_id: int,
+    reward_name: str = "3000 Points",
+    points: int = 3000,
+) -> None:
+    """
+    保证存在一个纯 Points 类型 Reward（type=0, gamePoint=points）。
+    用于 MapArea 路线中的固定金币奖励节点。
+    """
+    if reward_id < 0:
+        return
+    if resolve_reward_xml(acus_root, reward_id) is not None:
+        return
+    rdir = acus_root / "reward" / f"reward{reward_id:09d}"
+    rdir.mkdir(parents=True, exist_ok=True)
+    xml = f"""<?xml version="1.0" encoding="utf-8"?>
+<RewardData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dataName>reward{reward_id:09d}</dataName>
+  <name><id>{reward_id}</id><str>{reward_name}</str><data /></name>
+  <substances>
+    <list>
+      <RewardSubstanceData>
+        <type>0</type>
+        <gamePoint><gamePoint>{int(points)}</gamePoint></gamePoint>
+        <ticket><ticketName><id>-1</id><str>Invalid</str><data /></ticketName></ticket>
+        <trophy><trophyName><id>-1</id><str>Invalid</str><data /></trophyName></trophy>
+        <chara><charaName><id>-1</id><str>Invalid</str><data /></charaName></chara>
+        <skillSeed><skillSeedName><id>-1</id><str>Invalid</str><data /></skillSeedName><skillSeedCount>1</skillSeedCount></skillSeed>
+        <namePlate><namePlateName><id>-1</id><str>Invalid</str><data /></namePlateName></namePlate>
+        <music><musicName><id>-1</id><str>Invalid</str><data /></musicName></music>
+        <mapIcon><mapIconName><id>-1</id><str>Invalid</str><data /></mapIconName></mapIcon>
+        <systemVoice><systemVoiceName><id>-1</id><str>Invalid</str><data /></systemVoiceName></systemVoice>
+        <avatarAccessory><avatarAccessoryName><id>-1</id><str>Invalid</str><data /></avatarAccessoryName></avatarAccessory>
+        <frame><frameName><id>-1</id><str>Invalid</str><data /></frameName></frame>
+        <symbolChat><symbolChatName><id>-1</id><str>Invalid</str><data /></symbolChatName></symbolChat>
+        <ultimaScore><musicName><id>-1</id><str>Invalid</str><data /></musicName></ultimaScore>
+        <stage><stageName><id>-1</id><str>Invalid</str><data /></stageName></stage>
+      </RewardSubstanceData>
+    </list>
+  </substances>
+</RewardData>
+"""
+    (rdir / "Reward.xml").write_text(xml, encoding="utf-8")
+
+
 class MapAddDialog(QDialog):
     def __init__(
         self,
@@ -1890,6 +1938,133 @@ class MapAddDialog(QDialog):
 
         self._nameplate_pm_cache[nid] = pm
         return pm
+
+    def _candidate_ddsmap_dds_files(self, dds_map_id: int) -> list[Path]:
+        """收集 ACUS + 游戏资源中该 ddsMap 目录下的 .dds 文件（不读 image/path）。"""
+        out: list[Path] = []
+        seen: set[Path] = set()
+
+        def _add_file(p: Path) -> None:
+            try:
+                rp = p.resolve()
+            except Exception:
+                rp = p
+            if rp in seen:
+                return
+            seen.add(rp)
+            out.append(rp)
+
+        candidate_dirs: list[Path] = [self._acus_root / "ddsMap" / f"ddsMap{dds_map_id:08d}"]
+        for root in self._game_resource_roots_for_dds_preview():
+            candidate_dirs.append(root / "ddsMap" / f"ddsMap{dds_map_id:08d}")
+
+        for ddir in candidate_dirs:
+            if not ddir.is_dir():
+                continue
+            for p in sorted(ddir.glob("*.dds")):
+                _add_file(p)
+        return out
+
+    def _game_resource_roots_for_dds_preview(self) -> list[Path]:
+        """
+        实时枚举游戏资源根（不依赖缓存索引）：
+        - data/A000/opt 及其所有子目录
+        - bin/option 下所有子目录（A001/A010/...）
+        """
+        out: list[Path] = []
+        seen: set[Path] = set()
+
+        gr_raw = ""
+        if self._game_index is not None:
+            gr_raw = str(getattr(self._game_index, "game_root", "") or "").strip()
+        if not gr_raw:
+            return out
+        try:
+            gr = Path(gr_raw).expanduser().resolve()
+        except Exception:
+            return out
+        if not gr.is_dir():
+            return out
+
+        def _add(p: Path) -> None:
+            try:
+                rp = p.resolve()
+            except Exception:
+                rp = p
+            if rp in seen:
+                return
+            seen.add(rp)
+            out.append(rp)
+
+        # data/A000/opt (and case variants)
+        for data_name in ("data", "Data"):
+            for a_name in ("a000", "A000"):
+                opt_base = gr / data_name / a_name / "opt"
+                if not opt_base.is_dir():
+                    continue
+                _add(opt_base)
+                try:
+                    for child in sorted(opt_base.iterdir()):
+                        if child.is_dir():
+                            _add(child)
+                except Exception:
+                    pass
+
+        # bin/option/* all dirs
+        for bin_name in ("bin", "Bin"):
+            bo = gr / bin_name / "option"
+            if not bo.is_dir():
+                continue
+            try:
+                for child in sorted(bo.iterdir()):
+                    if child.is_dir():
+                        _add(child)
+            except Exception:
+                pass
+        return out
+
+    def _warm_game_dds_preview_cache(self) -> None:
+        """把游戏资源 roots 下 ddsMap 的 dds 全量转一次预览缓存 (.cache/dds_preview/*.png)。"""
+        roots = self._game_resource_roots_for_dds_preview()
+        if not roots:
+            return
+        all_dds: list[Path] = []
+        for root in roots:
+            dds_root = root / "ddsMap"
+            if not dds_root.is_dir():
+                continue
+            for p in dds_root.glob("**/*.dds"):
+                all_dds.append(p)
+        if not all_dds:
+            return
+
+        # 去重，避免同名资源在多个 roots 重复处理造成卡顿
+        uniq = sorted({x.resolve() for x in all_dds})
+        prog = QProgressDialog("正在缓存游戏 ddsMap 预览…", "取消", 0, len(uniq), self)
+        prog.setWindowTitle("读取游戏资源")
+        prog.setWindowModality(Qt.WindowModality.WindowModal)
+        prog.setMinimumDuration(0)
+        prog.setValue(0)
+        QApplication.processEvents()
+
+        for i, p in enumerate(uniq, start=1):
+            if prog.wasCanceled():
+                break
+            prog.setLabelText(f"正在处理 {p.name} ({i}/{len(uniq)})")
+            try:
+                _ = dds_to_pixmap(
+                    acus_root=self._acus_root,
+                    compressonatorcli_path=self._tool,
+                    dds_path=p,
+                    max_w=8,
+                    max_h=8,
+                    restrict=True,
+                )
+            except Exception:
+                pass
+            prog.setValue(i)
+            QApplication.processEvents()
+        prog.close()
 
     def _get_chara_back_head_pixmaps(
         self, chara_id: int
@@ -2498,12 +2673,12 @@ class MapAddDialog(QDialog):
         dlg = QDialog(self)
         dlg.setWindowTitle("编辑页面格子")
         dlg.setModal(True)
-        dlg.setMinimumWidth(480)
+        dlg.setMinimumWidth(720)
         scr = QApplication.primaryScreen()
         if scr is not None:
             g = scr.availableGeometry()
             dlg.setMaximumHeight(int(g.height() * 0.92))
-            dlg.resize(min(560, g.width() - 48), int(g.height() * 0.88))
+            dlg.resize(min(920, g.width() - 48), int(g.height() * 0.88))
 
         lay = QVBoxLayout(dlg)
         scroll = QScrollArea(dlg)
@@ -2514,71 +2689,136 @@ class MapAddDialog(QDialog):
         content = QWidget()
         content_lay = QVBoxLayout(content)
         content_lay.setContentsMargins(0, 0, 0, 0)
+        content_lay.setSpacing(12)
 
         dds_box = QGroupBox("ddsMap 背景贴图 (Map.xml)")
         dds_form = QFormLayout(dds_box)
-        dds_hint = QLabel(
-            "对应该 MapArea 的 MapDataAreaInfo.ddsMapName；资源位于 ddsMap/ddsMapXXXXXXXX/。"
-        )
-        dds_hint.setWordWrap(True)
-        dds_hint.setStyleSheet("color:#6B7280; font-size: 11px;")
-        dds_form.addRow("", dds_hint)
         meta_dds = self._area_info_meta[area_idx]
-        dds_id_edit = QLineEdit(str(meta_dds.dds_id))
-        dds_id_edit.setReadOnly(True)
-        dds_str_edit = QLineEdit(meta_dds.dds_str)
-        dds_str_edit.setReadOnly(True)
-        dds_pick = QComboBox()
-        dds_pick.addItem("(请选择 ddsMap)")
-        for ref in self._dds_map_refs:
-            dds_pick.addItem(f"{ref.id} | {ref.name}")
+        dds_selected_id = meta_dds.dds_id
+        dds_selected_str = meta_dds.dds_str
+        selected_lbl = QLabel(f"当前：{dds_selected_id} | {dds_selected_str}")
+        selected_lbl.setStyleSheet("color:#374151;")
+        dds_form.addRow("", selected_lbl)
 
-        def _on_dds_pick_act(dix: int) -> None:
-            if dix <= 0:
-                return
-            ref = self._dds_map_refs[dix - 1]
-            dds_id_edit.setText(str(ref.id))
-            dds_str_edit.setText(ref.name)
+        dds_scroll = QScrollArea(dlg)
+        dds_scroll.setWidgetResizable(True)
+        dds_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        dds_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        dds_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        dds_scroll.setMinimumHeight(134)
+        dds_row_host = QWidget()
+        dds_row = QHBoxLayout(dds_row_host)
+        # 给水平滚动条预留底部空间，避免遮挡卡片下缘
+        dds_row.setContentsMargins(0, 0, 0, 12)
+        dds_row.setSpacing(10)
+        dds_scroll.setWidget(dds_row_host)
 
-        dds_pick.activated.connect(_on_dds_pick_act)
-        dds_form.addRow("选择 ddsMap", dds_pick)
-        dds_form.addRow("ddsMapName.id", dds_id_edit)
-        dds_form.addRow("ddsMapName.str", dds_str_edit)
+        dds_preview_cache: dict[int, QPixmap] = {}
 
-        new_ddsmap_btn = QPushButton("新建地图贴图 (ddsMap)")
-        new_ddsmap_btn.setStyleSheet(
-            "background:#FFFFFF;color:#111827;border:1px solid #E5E7EB;"
-        )
-
-        def _on_create_ddsmap_btn() -> None:
-            created_id = self._create_ddsmap_and_refresh()
-            if created_id < 0:
-                return
-            dds_pick.blockSignals(True)
+        def _dds_preview_for(ref_id: int) -> QPixmap | None:
+            if ref_id in dds_preview_cache:
+                pm = dds_preview_cache[ref_id]
+                return None if pm.isNull() else pm
             try:
-                dds_pick.clear()
-                dds_pick.addItem("(请选择 ddsMap)")
-                idx_new = 0
-                for ridx, ref in enumerate(self._dds_map_refs, start=1):
-                    dds_pick.addItem(f"{ref.id} | {ref.name}")
-                    if ref.id == created_id:
-                        idx_new = ridx
-                if idx_new > 0:
-                    dds_pick.setCurrentIndex(idx_new)
-                    _on_dds_pick_act(idx_new)
-            finally:
-                dds_pick.blockSignals(False)
+                dds_files = self._candidate_ddsmap_dds_files(ref_id)
+                if not dds_files:
+                    dds_preview_cache[ref_id] = QPixmap()
+                    return None
+                # 不读 XML/path，直接取同级目录里的 dds（缓存后）进行预览。
+                p = dds_files[0]
+                pm = dds_to_pixmap(
+                    acus_root=self._acus_root,
+                    compressonatorcli_path=self._tool,
+                    dds_path=p,
+                    max_w=240,
+                    max_h=120,
+                    restrict=True,
+                )
+                if pm is None or pm.isNull():
+                    dds_preview_cache[ref_id] = QPixmap()
+                    return None
+                dds_preview_cache[ref_id] = pm
+                return pm
+            except Exception:
+                dds_preview_cache[ref_id] = QPixmap()
+                return None
 
-        new_ddsmap_btn.clicked.connect(_on_create_ddsmap_btn)
-        dds_form.addRow("", new_ddsmap_btn)
+        def _select_dds(ref_id: int, ref_name: str) -> None:
+            nonlocal dds_selected_id, dds_selected_str
+            dds_selected_id = ref_id
+            dds_selected_str = ref_name.strip() or "共通0001_CHUNITHM"
+            selected_lbl.setText(f"当前：{dds_selected_id} | {dds_selected_str}")
+
+        def _render_dds_cards() -> None:
+            while dds_row.count() > 0:
+                it = dds_row.takeAt(0)
+                w = it.widget()
+                if w is not None:
+                    w.deleteLater()
+
+            add_card = QPushButton("+\n新增")
+            add_card.setFixedSize(130, 108)
+            add_card.setStyleSheet(
+                "QPushButton{background:#FFFFFF;border:1px solid #E5E7EB;border-radius:8px;"
+                "text-align:center;font-size:16px;font-weight:700;color:#374151;}"
+                "QPushButton:hover{border:1px solid #D1D5DB;}"
+            )
+
+            def _on_add_dds() -> None:
+                created_id = self._create_ddsmap_and_refresh()
+                if created_id < 0:
+                    return
+                for rr in self._dds_map_refs:
+                    if rr.id == created_id:
+                        _select_dds(rr.id, rr.name)
+                        break
+                _render_dds_cards()
+
+            add_card.clicked.connect(_on_add_dds)
+            dds_row.addWidget(add_card)
+
+            refs = sorted(self._dds_map_refs, key=lambda x: x.id, reverse=True)
+            for ref in refs:
+                card = QPushButton("")
+                card.setFixedSize(150, 108)
+                card.setStyleSheet(
+                    "QPushButton{background:#FFFFFF;border:1px solid #E5E7EB;border-radius:8px;}"
+                    "QPushButton:hover{border:1px solid #D1D5DB;}"
+                )
+                col = QVBoxLayout(card)
+                col.setContentsMargins(6, 6, 6, 6)
+                col.setSpacing(4)
+                pv = QLabel("无预览")
+                pv.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                pv.setFixedHeight(66)
+                pm = _dds_preview_for(ref.id)
+                if pm is not None and not pm.isNull():
+                    pv.setText("")
+                    pv.setPixmap(
+                        pm.scaled(
+                            138,
+                            64,
+                            Qt.AspectRatioMode.KeepAspectRatio,
+                            Qt.TransformationMode.SmoothTransformation,
+                        )
+                    )
+                cap = QLabel(f"{ref.id} | {ref.name}")
+                cap.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                cap.setWordWrap(True)
+                cap.setStyleSheet("font-size:11px;color:#374151;")
+                col.addWidget(pv)
+                col.addWidget(cap)
+                card.clicked.connect(lambda _=False, rid=ref.id, rn=ref.name: _select_dds(rid, rn))
+                dds_row.addWidget(card)
+            dds_row.addStretch(1)
+
+        _render_dds_cards()
+        dds_form.addRow("", dds_scroll)
         content_lay.addWidget(dds_box)
 
-        # MapArea 基础（page/slot 也可在「其它页面参数」里改，此处与之同步）
-        mid = QGroupBox("MapArea 基础")
+        # MapArea：仅编辑地图格数 + 过程奖励
+        mid = QGroupBox("MapArea")
         mid_form = QFormLayout(mid)
-        meta = self._area_info_meta[area_idx]
-        page_idx_edit = QLineEdit(str(meta.page_index))
-        slot_edit = QLineEdit(str(meta.index_in_page))
         total_steps_edit = QLineEdit(
             str(
                 infer_map_terminator_index(
@@ -2586,102 +2826,9 @@ class MapAddDialog(QDialog):
                 )
             )
         )
-        total_steps_edit.setPlaceholderText("终点格的 MapAreaGridData.index，该格固定为 -1 Invalid")
-        mid_form.addRow("pageIndex", page_idx_edit)
-        mid_form.addRow("indexInPage(0~8)", slot_edit)
-        mid_form.addRow("地图格数(终点 index)", total_steps_edit)
-        step_hint = QLabel(
-            "写入时：index=上值 的格子为 Invalid；最终奖励在 index=地图格数−1；"
-            "高级模式下的过程奖励步数须小于地图格数且不可占用「最终」步。"
-        )
-        step_hint.setWordWrap(True)
-        step_hint.setStyleSheet("color:#6B7280; font-size: 11px;")
-        mid_form.addRow("", step_hint)
-        content_lay.addWidget(mid)
+        total_steps_edit.setPlaceholderText("地图格数（终点 index，>=1）")
+        mid_form.addRow("地图格数", total_steps_edit)
 
-        meta_btn = QPushButton("其它页面参数：pageIndex / gauge / isHard / requiredAchievement …")
-        meta_btn.setStyleSheet("background:#FFFFFF;color:#111827;border:1px solid #E5E7EB;")
-
-        def _open_page_meta() -> None:
-            m = self._area_info_meta[area_idx]
-            AreaPageMetaDialog(
-                meta=m, dds_refs=self._dds_map_refs, parent=dlg, show_dds=False
-            ).exec()
-            page_idx_edit.setText(str(m.page_index))
-            slot_edit.setText(str(m.index_in_page))
-
-        meta_btn.clicked.connect(_open_page_meta)
-        content_lay.addWidget(meta_btn)
-
-        # 最终奖励（Map.xml）
-        top = QGroupBox("最终奖励（Map.xml）")
-        top_form = QFormLayout(top)
-        reward_pick = QComboBox()
-        reward_pick.addItem("(请选择)")
-        cur = self._area_info_cells[area_idx].reward_id
-        cur_idx = 0
-        for i, r in enumerate(self._reward_refs, start=1):
-            reward_pick.addItem(f"{r.id} | {r.display_name or r.name}", r.id)
-            if cur is not None and r.id == cur:
-                cur_idx = i
-        reward_pick.setCurrentIndex(cur_idx)
-        new_reward_btn = QPushButton("新增 Reward")
-        music_on = QCheckBox("有课题曲")
-        music_pick = QComboBox()
-        music_pick.addItem("(请选择)")
-        for m in self._music_refs:
-            music_pick.addItem(f"{m.id} | {m.name}", m.id)
-        music_mode = QComboBox()
-        music_mode.addItems(["不配置乐曲", "选择乐曲"])
-        cinfo = self._area_info_cells[area_idx]
-        if cinfo.music_id is not None:
-            music_on.setChecked(True)
-            music_mode.setCurrentText("选择乐曲")
-            idx = next((i for i, m in enumerate(self._music_refs, start=1) if m.id == cinfo.music_id), -1)
-            if idx > 0:
-                music_pick.setCurrentIndex(idx)
-            else:
-                music_pick.addItem(
-                    f"{cinfo.music_id} | {cinfo.music_name or f'Music{cinfo.music_id}'}",
-                    cinfo.music_id,
-                )
-                music_pick.setCurrentIndex(music_pick.count() - 1)
-        else:
-            music_mode.setCurrentText("不配置乐曲")
-
-        def _sync_music() -> None:
-            has_reward = reward_pick.currentIndex() > 0
-            on = music_on.isChecked()
-            music_on.setEnabled(has_reward)
-            if not has_reward:
-                music_on.setChecked(False)
-            music_mode.setEnabled(has_reward and on)
-            pick_on = (
-                has_reward
-                and on
-                and music_mode.currentText() == "选择乐曲"
-            )
-            music_pick.setEnabled(pick_on)
-            if not (has_reward and on):
-                music_mode.setCurrentText("不配置乐曲")
-                music_pick.setCurrentIndex(0)
-
-        music_on.toggled.connect(_sync_music)
-        music_mode.currentTextChanged.connect(_sync_music)
-        reward_pick.currentIndexChanged.connect(_sync_music)
-        _sync_music()
-        top_form.addRow("Reward", reward_pick)
-        top_form.addRow("", new_reward_btn)
-        top_form.addRow("", music_on)
-        top_form.addRow("课题曲", music_mode)
-        top_form.addRow("乐曲", music_pick)
-        content_lay.addWidget(top)
-
-        # 高级设置
-        adv = QGroupBox("高级设置")
-        adv.setCheckable(True)
-        adv.setChecked(False)
-        adv_form = QFormLayout(adv)
         add_step = QLineEdit()
         add_reward = QComboBox()
         add_reward.addItem("(仅功能票/Points)")
@@ -2689,12 +2836,10 @@ class MapAddDialog(QDialog):
             if self._is_intermediate_reward_allowed(r.id):
                 add_reward.addItem(f"{r.id} | {r.display_name or r.name}", r.id)
         extra_lines = QTextEdit()
-        extra_lines.setMinimumHeight(72)
-        extra_lines.setMaximumHeight(160)
-        extra_lines.setPlaceholderText(
-            "每行：步数,reward_id,reward_name（步数 < 地图格数，且不可等于 地图格数−1）"
-        )
+        extra_lines.setMinimumHeight(86)
+        extra_lines.setPlaceholderText("每行：步数,reward_id,reward_name（步数 < 地图格数，且不可等于 地图格数−1）")
         add_btn = QPushButton("新增过程奖励")
+        add_btn.setStyleSheet("QPushButton{text-align:center;}")
 
         def _on_add_line() -> None:
             step = _safe_int(add_step.text())
@@ -2710,36 +2855,73 @@ class MapAddDialog(QDialog):
             add_step.clear()
 
         add_btn.clicked.connect(_on_add_line)
-        adv_form.addRow("出现步数", add_step)
-        adv_form.addRow("过程奖励", add_reward)
-        adv_form.addRow("", add_btn)
-        adv_form.addRow("过程奖励列表", extra_lines)
-        content_lay.addWidget(adv)
+        mid_form.addRow("出现步数", add_step)
+        mid_form.addRow("过程奖励", add_reward)
+        mid_form.addRow("", add_btn)
+        mid_form.addRow("过程奖励列表", extra_lines)
+        content_lay.addWidget(mid)
+
+        # 最终奖励（Map.xml）
+        top = QGroupBox("最终奖励（Map.xml）")
+        top_form = QFormLayout(top)
+        reward_pick = QComboBox()
+        reward_pick.addItem("(请选择)")
+        cur = self._area_info_cells[area_idx].reward_id
+        cur_idx = 0
+        for i, r in enumerate(self._reward_refs, start=1):
+            reward_pick.addItem(f"{r.id} | {r.display_name or r.name}", r.id)
+            if cur is not None and r.id == cur:
+                cur_idx = i
+        reward_pick.setCurrentIndex(cur_idx)
+        new_reward_btn = QPushButton("新增 Reward")
+        new_reward_btn.setStyleSheet("QPushButton{text-align:center;}")
+        music_on = QCheckBox("有课题曲")
+        music_pick = QComboBox()
+        music_pick.addItem("(请选择)")
+        for m in self._music_refs:
+            music_pick.addItem(f"{m.id} | {m.name}", m.id)
+        cinfo = self._area_info_cells[area_idx]
+        if cinfo.music_id is not None:
+            music_on.setChecked(True)
+            idx = next((i for i, m in enumerate(self._music_refs, start=1) if m.id == cinfo.music_id), -1)
+            if idx > 0:
+                music_pick.setCurrentIndex(idx)
+            else:
+                music_pick.addItem(
+                    f"{cinfo.music_id} | {cinfo.music_name or f'Music{cinfo.music_id}'}",
+                    cinfo.music_id,
+                )
+                music_pick.setCurrentIndex(music_pick.count() - 1)
+
+        def _sync_music() -> None:
+            has_reward = reward_pick.currentIndex() > 0
+            on = music_on.isChecked()
+            music_on.setEnabled(has_reward)
+            if not has_reward:
+                music_on.setChecked(False)
+            pick_on = has_reward and on
+            music_pick.setEnabled(pick_on)
+            if not (has_reward and on):
+                music_pick.setCurrentIndex(0)
+
+        music_on.toggled.connect(_sync_music)
+        reward_pick.currentIndexChanged.connect(_sync_music)
+        _sync_music()
+        top_form.addRow("Reward", reward_pick)
+        top_form.addRow("", new_reward_btn)
+        top_form.addRow("", music_on)
+        top_form.addRow("乐曲", music_pick)
+        content_lay.addWidget(top)
 
         content_lay.addStretch(1)
         scroll.setWidget(content)
         lay.addWidget(scroll, 1)
 
-        def _sync_advanced() -> None:
-            on = adv.isChecked()
-            has_choices = add_reward.count() > 1
-            add_step.setEnabled(on and has_choices)
-            add_reward.setEnabled(on and has_choices)
-            add_btn.setEnabled(on and has_choices)
-            extra_lines.setEnabled(on)
-            if not has_choices:
-                add_step.clear()
-            # 高级设置关闭时，过程奖励不生效，直接灰显并清空输入区
-            if not on:
-                add_step.clear()
-                extra_lines.clear()
-
-        adv.toggled.connect(_sync_advanced)
-        _sync_advanced()
-
         btns = QHBoxLayout()
         ok = QPushButton("保存")
+        ok.setStyleSheet("QPushButton{text-align:center;}")
         cancel = QPushButton("取消")
+        cancel.setStyleSheet("QPushButton{text-align:center;}")
         cancel.clicked.connect(dlg.reject)
         btns.addStretch(1)
         btns.addWidget(cancel)
@@ -2769,13 +2951,10 @@ class MapAddDialog(QDialog):
         new_reward_btn.clicked.connect(_new_reward)
 
         def _save() -> None:
-            # page/slot
-            p = _safe_int(page_idx_edit.text())
-            s = _safe_int(slot_edit.text())
             total = _safe_int(total_steps_edit.text())
-            if p is None or p < 0 or s is None or not (0 <= s <= 8) or total is None or total < 1:
+            if total is None or total < 1:
                 QMessageBox.critical(
-                    dlg, "错误", "pageIndex / indexInPage / 地图格数(终点 index) 输入不合法（地图格数须 ≥ 1）"
+                    dlg, "错误", "地图格数输入不合法（须 >= 1）"
                 )
                 return
             # final reward
@@ -2796,96 +2975,83 @@ class MapAddDialog(QDialog):
             cell.music_name = ""
             enrich_cell_from_reward_xml(self._acus_root, cell)
             if music_on.isChecked():
-                if music_mode.currentText() != "选择乐曲":
-                    cell.music_id = None
-                    cell.music_name = ""
-                else:
-                    mi = _combo_pick_id(music_pick)
-                    if mi is None:
-                        QMessageBox.critical(dlg, "错误", "请选择课题曲对应的乐曲")
-                        return
-                    cell.music_id = mi
-                    txt = music_pick.currentText()
-                    cell.music_name = (
-                        txt.split("|", 1)[1].strip() if "|" in txt else f"Music{mi}"
-                    )
-            # 未勾选「有课题曲」时保留 Reward XML 解析出的乐曲信息
+                mi = _combo_pick_id(music_pick)
+                if mi is None:
+                    QMessageBox.critical(dlg, "错误", "请选择课题曲对应的乐曲")
+                    return
+                cell.music_id = mi
+                txt = music_pick.currentText()
+                cell.music_name = (
+                    txt.split("|", 1)[1].strip() if "|" in txt else f"Music{mi}"
+                )
+            else:
+                cell.music_id = None
+                cell.music_name = ""
+
             # update meta
-            self._area_info_meta[area_idx].page_index = p
-            self._area_info_meta[area_idx].index_in_page = s
-            dds_id_v = _safe_int(dds_id_edit.text())
-            if dds_id_v is None:
-                QMessageBox.critical(dlg, "错误", "ddsMapName.id 必须是整数")
-                return
-            self._area_info_meta[area_idx].dds_id = dds_id_v
-            self._area_info_meta[area_idx].dds_str = (
-                dds_str_edit.text().strip() or "共通0001_CHUNITHM"
+            self._area_info_meta[area_idx].dds_id = int(dds_selected_id)
+            self._area_info_meta[area_idx].dds_str = dds_selected_str or "共通0001_CHUNITHM"
+
+            points_reward_id = 703000000
+            ensure_points_reward_xml(
+                self._acus_root,
+                reward_id=points_reward_id,
+                reward_name="3000 Points",
+                points=3000,
             )
 
-            final_for_grid = replace(
-                self._area_info_cells[area_idx],
-                display_type=3,
-                cell_type=3,
-            )
-            if adv.isChecked():
-                by_step: dict[int, CellData] = {
-                    total: _maparea_terminator_cell(),
-                    total - 1: final_for_grid,
-                }
-                lines = [x.strip() for x in extra_lines.toPlainText().splitlines() if x.strip()]
-                for ln in lines:
-                    ps = [x.strip() for x in ln.split(",")]
-                    if len(ps) < 2:
-                        continue
-                    st = _safe_int(ps[0])
-                    rrid = _safe_int(ps[1])
-                    if st is None or rrid is None:
-                        continue
-                    if st >= total:
-                        QMessageBox.critical(
-                            dlg,
-                            "错误",
-                            f"过程奖励步数须小于地图格数（终点 index）{total}",
-                        )
-                        return
-                    if st == total - 1:
-                        QMessageBox.critical(
-                            dlg,
-                            "错误",
-                            "过程奖励不可占用最终奖励所在步（地图格数−1）；请在上方选择最终奖励。",
-                        )
-                        return
-                    if not self._is_intermediate_reward_allowed(rrid):
-                        continue
-                    rnm = ps[2] if len(ps) >= 3 and ps[2] else f"Reward{rrid}"
-                    by_step[st] = CellData(
-                        reward_id=rrid,
-                        reward_name=rnm,
-                        reward_kind="外部奖励ID",
-                        display_type=3,
-                        cell_type=3,
+            by_step: dict[int, CellData] = {
+                total: _maparea_terminator_cell(),
+                total - 1: CellData(
+                    reward_id=points_reward_id,
+                    reward_name="3000 Points",
+                    reward_kind="外部奖励ID",
+                    display_type=3,
+                    cell_type=3,
+                ),
+            }
+            lines = [x.strip() for x in extra_lines.toPlainText().splitlines() if x.strip()]
+            for ln in lines:
+                ps = [x.strip() for x in ln.split(",")]
+                if len(ps) < 2:
+                    continue
+                st = _safe_int(ps[0])
+                rrid = _safe_int(ps[1])
+                if st is None or rrid is None:
+                    continue
+                if st >= total:
+                    QMessageBox.critical(
+                        dlg,
+                        "错误",
+                        f"过程奖励步数须小于地图格数（终点 index）{total}",
                     )
-                if total >= 2:
-                    by_step.setdefault(
-                        0, CellData(display_type=1, cell_type=1)
+                    return
+                if st == total - 1:
+                    QMessageBox.critical(
+                        dlg,
+                        "错误",
+                        "过程奖励不可占用地图格数-1（该步固定为 3000 Points）。",
                     )
-                try:
-                    cells, idxs = _maparea_points_to_slots(list(by_step.items()))
-                except ValueError as e:
-                    QMessageBox.critical(dlg, "错误", str(e))
                     return
-            else:
-                pairs_bt: list[tuple[int, CellData]] = [
-                    (total, _maparea_terminator_cell()),
-                    (total - 1, final_for_grid),
-                ]
-                if total >= 2:
-                    pairs_bt.append((0, CellData(display_type=1, cell_type=1)))
-                try:
-                    cells, idxs = _maparea_points_to_slots(pairs_bt)
-                except ValueError as e:
-                    QMessageBox.critical(dlg, "错误", str(e))
-                    return
+                if not self._is_intermediate_reward_allowed(rrid):
+                    continue
+                rnm = ps[2] if len(ps) >= 3 and ps[2] else f"Reward{rrid}"
+                by_step[st] = CellData(
+                    reward_id=rrid,
+                    reward_name=rnm,
+                    reward_kind="外部奖励ID",
+                    display_type=3,
+                    cell_type=3,
+                )
+            if total >= 2:
+                by_step.setdefault(
+                    0, CellData(display_type=1, cell_type=1)
+                )
+            try:
+                cells, idxs = _maparea_points_to_slots(list(by_step.items()))
+            except ValueError as e:
+                QMessageBox.critical(dlg, "错误", str(e))
+                return
             self._area_cells[area_idx] = cells[:9]
             self._area_grid_indices[area_idx] = idxs[:9]
             dlg.accept()
