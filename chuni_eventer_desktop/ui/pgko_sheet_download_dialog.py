@@ -25,6 +25,7 @@ from ..pgko_sheet_client import (
     fetch_pgko_sheet_page,
     resolve_pgko_download_from_bundle,
 )
+from ..pgko_to_c2s import convert_pgko_chart_pick_to_c2s, pick_pgko_chart_for_convert
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
 from .fluent_table import apply_fluent_sheet_table
 
@@ -100,8 +101,8 @@ class PgkoSheetDownloadDialog(QDialog):
 
         card = CardWidget(self)
         hint = BodyLabel(
-            "加载 pgko.dev 可下载的 ugc/mrgc。双击行或点击下载保存到本地缓存。"
-            "下载完成后可选择是否转码为 c2s（当前仅提供入口，转码逻辑待实现）。"
+            "加载 pgko.dev 可下载的 ugc/mgxc。双击行或点击下载保存到本地缓存。"
+            "下载完成后可选择是否转码为 c2s（优先 mgxc，若无则尝试 ugc 旁路 mgxc）。"
         )
         hint.setWordWrap(True)
 
@@ -273,11 +274,7 @@ class PgkoSheetDownloadDialog(QDialog):
             QMessageBox.StandardButton.No,
         )
         if ans == QMessageBox.StandardButton.Yes:
-            fly_message(
-                self,
-                "转码未实现",
-                f"已记录选择：{Path(output_path).name}（{ext}）-> c2s。\n当前版本先不实现 ugc/mrgc 转码。",
-            )
+            self._try_convert_pgko_to_c2s(Path(output_path))
         else:
             fly_message(self, "已下载", target_tip)
 
@@ -289,5 +286,34 @@ class PgkoSheetDownloadDialog(QDialog):
             "下载过程中发生错误。\n\n"
             "调试信息（复制给开发者）：\n"
             f"{msg}",
+        )
+
+    def _try_convert_pgko_to_c2s(self, output: Path) -> None:
+        pick = pick_pgko_chart_for_convert(output)
+        if pick is None:
+            fly_warning(
+                self,
+                "未找到谱面文件",
+                f"在以下位置未找到 mgxc/ugc：\n{output}",
+            )
+            return
+        try:
+            out = convert_pgko_chart_pick_to_c2s(pick)
+        except NotImplementedError as e:
+            self._status.setText(
+                f"已选转码源：{pick.path.name}（{pick.ext}，优先级规则：mgxc > ugc）"
+            )
+            fly_warning(self, "暂不支持该格式", str(e))
+            return
+        except Exception as e:
+            self._status.setText("转码失败。")
+            fly_critical(self, "转码失败", f"{type(e).__name__}: {e}")
+            return
+
+        self._status.setText(f"转码完成：{out.name}")
+        fly_message(
+            self,
+            "转码完成",
+            f"已按优先级选择：\n{pick.path}\n\n输出文件：\n{out}",
         )
 
