@@ -32,12 +32,16 @@ static int MainImpl(string[] args)
 
     try
     {
+        EnsurePenguinToolsCoreLoaded();
+
         // 使用反射避免编译期强绑定具体 API 细节；只要 PenguinTools.Core 提供 MgxcParser + C2SConverter 即可。
         var coreAsm = AppDomain.CurrentDomain.GetAssemblies()
             .FirstOrDefault(a => a.GetName().Name == "PenguinTools.Core");
         if (coreAsm is null)
         {
-            Console.Error.WriteLine("PenguinTools.Core is not loaded. Check ProjectReference path.");
+            Console.Error.WriteLine(
+                "PenguinTools.Core is not loaded. Build PenguinBridge with PenguinTools.Core as a project reference, "
+                + "or place PenguinTools.Core.dll next to PenguinBridge.exe, or set CHUNI_PENGUIN_TOOLS_CORE_DLL.");
             return 4;
         }
 
@@ -87,6 +91,35 @@ static int MainImpl(string[] args)
     {
         Console.Error.WriteLine(ex.ToString());
         return 1;
+    }
+}
+
+static void EnsurePenguinToolsCoreLoaded()
+{
+    if (AppDomain.CurrentDomain.GetAssemblies().Any(a => a.GetName().Name == "PenguinTools.Core"))
+        return;
+
+    var candidates = new List<string>();
+    var env = Environment.GetEnvironmentVariable("CHUNI_PENGUIN_TOOLS_CORE_DLL");
+    if (!string.IsNullOrWhiteSpace(env))
+        candidates.Add(Path.GetFullPath(env.Trim()));
+
+    var baseDir = AppContext.BaseDirectory;
+    candidates.Add(Path.Combine(baseDir, "PenguinTools.Core.dll"));
+
+    foreach (var p in candidates)
+    {
+        if (!File.Exists(p))
+            continue;
+        try
+        {
+            Assembly.LoadFrom(p);
+            return;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Failed to load PenguinTools.Core from {p}: {ex.Message}");
+        }
     }
 }
 

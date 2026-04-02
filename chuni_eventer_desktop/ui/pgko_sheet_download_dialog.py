@@ -41,7 +41,7 @@ from ..pgko_to_c2s import (
     suggest_next_pgko_music_id,
     PgkoInstallOptions,
 )
-from ..pgko_cs_bridge import resolve_penguin_bridge
+from ..pgko_cs_bridge import explain_penguin_bridge_lookup, resolve_penguin_bridge
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
 from .fluent_table import apply_fluent_sheet_table
 
@@ -440,10 +440,11 @@ class PgkoSheetDownloadDialog(QDialog):
         if backend != "cs":
             bridge = resolve_penguin_bridge()
             why = "未找到 PenguinBridge.exe" if bridge is None else f"PenguinBridge 调用失败：{bridge}"
+            detail = explain_penguin_bridge_lookup() if bridge is None else ""
             fly_warning(
                 self,
                 "C# 转换未生效",
-                f"本次已回退到 Python 转换。\n原因：{why}",
+                f"本次已回退到 Python 转换。\n原因：{why}\n\n{detail}".strip(),
             )
         try:
             meta = read_pgko_meta_for_pick(pick)

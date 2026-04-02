@@ -58,12 +58,20 @@ $BridgeExe = Join-Path $BridgeOut "PenguinBridge.exe"
 if (-not (Test-Path $BridgeExe)) {
     throw "PenguinBridge.exe not found: $BridgeExe"
 }
+function Copy-PenguinBridgePublish([string]$dest) {
+    New-Item -ItemType Directory -Path $dest -Force | Out-Null
+    # 复制 net8.0 输出目录内除 pdb 外的全部文件（含 PenguinTools.Core 及其依赖 dll）
+    Get-ChildItem $BridgeOut -File | Where-Object { $_.Extension -ne ".pdb" } | ForEach-Object {
+        Copy-Item $_.FullName $dest -Force
+    }
+}
+
 $BridgeDist = Join-Path $OutDir ".tools\PenguinBridge"
-New-Item -ItemType Directory -Path $BridgeDist -Force | Out-Null
-Copy-Item (Join-Path $BridgeOut "PenguinBridge.exe") $BridgeDist -Force
-Copy-Item (Join-Path $BridgeOut "PenguinBridge.dll") $BridgeDist -Force
-Copy-Item (Join-Path $BridgeOut "PenguinBridge.deps.json") $BridgeDist -Force
-Copy-Item (Join-Path $BridgeOut "PenguinBridge.runtimeconfig.json") $BridgeDist -Force
+Copy-PenguinBridgePublish $BridgeDist
+
+# Also place bridge under dist/.tools for users who directly run dist\ChuniEventer.exe.
+$DistBridge = Join-Path $Root "dist\.tools\PenguinBridge"
+Copy-PenguinBridgePublish $DistBridge
 
 $ReleaseNote = Join-Path $Root ("packaging\GITHUB_RELEASE_v{0}.md" -f $Version)
 if (Test-Path $ReleaseNote) {
