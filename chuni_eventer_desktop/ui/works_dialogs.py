@@ -20,7 +20,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ..works_library import WorkEntry, add_work_entry, load_works_library, remove_work_entry, WORKS_CUSTOM_ID_START
+from ..works_library import add_work_entry, load_works_library, remove_work_entry, WORKS_CUSTOM_ID_START
+from ..xml_writer import ensure_chara_works_xml
 
 
 WORKS_WARNING_TEXT = (
@@ -72,10 +73,11 @@ def combo_works_id_str(cb: QComboBox) -> tuple[int, str]:
 class WorkCreateDialog(QDialog):
     """新建一条作品并写入缓存（可指定 id）。"""
 
-    def __init__(self, *, suggest_id: int, parent=None) -> None:
+    def __init__(self, *, suggest_id: int, acus_root: Path | None = None, parent=None) -> None:
         super().__init__(parent=parent)
         self.setWindowTitle("新建作品（works）")
         self.setModal(True)
+        self._acus_root = acus_root
         self._work_id: int | None = None
         self._work_str: str | None = None
 
@@ -114,6 +116,21 @@ class WorkCreateDialog(QDialog):
         except ValueError as e:
             QMessageBox.critical(self, "错误", str(e))
             return
+        if self._acus_root is not None and wid >= 0:
+            try:
+                ensure_chara_works_xml(
+                    out_dir=self._acus_root,
+                    works_id=wid,
+                    works_str=s,
+                    release_tag_id=-1,
+                    release_tag_str="Invalid",
+                )
+            except Exception as e:
+                QMessageBox.warning(
+                    self,
+                    "CharaWorks 写入失败",
+                    f"作品已写入作品库，但未能写入 ACUS/charaWorks：\n{e}",
+                )
         self._work_id = wid
         self._work_str = s
         self.accept()
@@ -128,10 +145,11 @@ class WorkCreateDialog(QDialog):
 class WorksLibraryManagerDialog(QDialog):
     """列表维护缓存中的作品库。"""
 
-    def __init__(self, *, parent=None) -> None:
+    def __init__(self, *, acus_root: Path | None = None, parent=None) -> None:
         super().__init__(parent=parent)
         self.setWindowTitle("作品库（缓存）")
         self.setModal(True)
+        self._acus_root = acus_root
         self.resize(420, 320)
 
         self._list = QListWidget()
@@ -150,7 +168,15 @@ class WorksLibraryManagerDialog(QDialog):
         close.clicked.connect(self.accept)
 
         lay = QVBoxLayout(self)
-        lay.addWidget(QLabel("保存在应用 .cache/works_library.json，不会写入 ACUS。"))
+        _hint = (
+            "保存在应用 .cache/works_library.json。"
+            + (
+                "新建作品时会同步写入当前工作区 ACUS/charaWorks/。"
+                if acus_root is not None
+                else "打开工作区后新建作品可同步写入 ACUS/charaWorks/。"
+            )
+        )
+        lay.addWidget(QLabel(_hint))
         lay.addWidget(self._list, stretch=1)
         lay.addLayout(row)
         lay.addWidget(works_warning_label())
@@ -166,7 +192,7 @@ class WorksLibraryManagerDialog(QDialog):
 
     def _on_add(self) -> None:
         _, next_id = load_works_library()
-        dlg = WorkCreateDialog(suggest_id=next_id, parent=self)
+        dlg = WorkCreateDialog(suggest_id=next_id, acus_root=self._acus_root, parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._reload_list()
 
@@ -190,7 +216,7 @@ class WorksLibraryManagerDialog(QDialog):
         self._reload_list()
 
 
-def make_works_picker_row(*, parent=None) -> tuple[QWidget, QComboBox]:
+def make_works_picker_row(*, parent=None, acus_root: Path | None = None) -> tuple[QWidget, QComboBox]:
     """
     横向：下拉 + 「新建」+ 「管理库」。
     返回 (container, combo)。
@@ -205,7 +231,7 @@ def make_works_picker_row(*, parent=None) -> tuple[QWidget, QComboBox]:
 
     def _new() -> None:
         _, nid = load_works_library()
-        dlg = WorkCreateDialog(suggest_id=nid, parent=parent or w)
+        dlg = WorkCreateDialog(suggest_id=nid, acus_root=acus_root, parent=parent or w)
         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.created:
             i, s = dlg.created
             fill_works_combo(cb)
@@ -216,7 +242,7 @@ def make_works_picker_row(*, parent=None) -> tuple[QWidget, QComboBox]:
                     break
 
     def _mgr() -> None:
-        WorksLibraryManagerDialog(parent=parent or w).exec()
+        WorksLibraryManagerDialog(acus_root=acus_root, parent=parent or w).exec()
         cur = combo_works_id_str(cb)
         fill_works_combo(cb)
         for j in range(cb.count()):
@@ -232,6 +258,20 @@ def make_works_picker_row(*, parent=None) -> tuple[QWidget, QComboBox]:
     h.addWidget(new_btn)
     h.addWidget(mgr_btn)
     return w, cb
+
+
+def parse_chara_xml_release_tag(xml_path: Path) -> tuple[int, str]:
+    try:
+        root = ET.parse(xml_path).getroot()
+        ri = (root.findtext("releaseTagName/id") or "").strip()
+        rs = (root.findtext("releaseTagName/str") or "").strip()
+        try:
+            iid = int(ri)
+        except ValueError:
+            iid = -1
+        return iid, rs or "Invalid"
+    except Exception:
+        return -1, "Invalid"
 
 
 def parse_chara_xml_works(xml_path: Path) -> tuple[int, str]:
@@ -276,12 +316,13 @@ class CharaEditWorksDialog(QDialog):
     def __init__(self, *, xml_path: Path, parent=None) -> None:
         super().__init__(parent=parent)
         self._xml_path = xml_path
+        self._acus_root = xml_path.parent.parent.parent
         self.setWindowTitle("编辑作品（works）")
         self.setModal(True)
         self.resize(520, 220)
 
         cur_id, cur_str = parse_chara_xml_works(xml_path)
-        row, self._cb = make_works_picker_row(parent=self)
+        row, self._cb = make_works_picker_row(parent=self, acus_root=self._acus_root)
         ensure_combo_select_works(self._cb, cur_id, cur_str)
 
         ok = QPushButton("写入 Chara.xml")
@@ -306,4 +347,19 @@ class CharaEditWorksDialog(QDialog):
         except Exception as e:
             QMessageBox.critical(self, "写入失败", str(e))
             return
+        rt_id, rt_str = parse_chara_xml_release_tag(self._xml_path)
+        try:
+            ensure_chara_works_xml(
+                out_dir=self._acus_root,
+                works_id=wid,
+                works_str=wstr,
+                release_tag_id=rt_id,
+                release_tag_str=rt_str,
+            )
+        except Exception as e:
+            QMessageBox.warning(
+                self,
+                "CharaWorks 写入失败",
+                f"Chara.xml 已更新，但未能写入 charaWorks：\n{e}",
+            )
         self.accept()

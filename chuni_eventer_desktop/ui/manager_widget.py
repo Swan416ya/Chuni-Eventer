@@ -1011,13 +1011,13 @@ class ManagerWidget(QWidget):
             self._open_chara_edit_works_dialog(it)
 
     def _on_chara_works_library_clicked(self) -> None:
-        WorksLibraryManagerDialog(parent=self.window()).exec()
+        WorksLibraryManagerDialog(acus_root=self._acus_root, parent=self.window()).exec()
 
     def _open_chara_edit_works_dialog(self, it: CharaItem) -> None:
         dlg = CharaEditWorksDialog(xml_path=it.xml_path, parent=self.window())
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.reload()
-            fly_message(self.window(), "已更新", "已写入 Chara.xml 的 works 字段。")
+            fly_message(self.window(), "已更新", "已写入 Chara.xml 的 works，并已尝试同步 charaWorks。")
 
     def _delete_chara_item(self, it: CharaItem) -> None:
         nm = (it.name.str or "").strip() or "—"

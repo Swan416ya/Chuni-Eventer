@@ -65,6 +65,7 @@ def ensure_acus_layout() -> Path:
     root.mkdir(parents=True, exist_ok=True)
     for d in [
         "chara",
+        "charaWorks",
         "ddsImage",
         "ddsMap",
         "music",

@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
 
 from ..chuni_formats import ChuniCharaId
 from ..dds_convert import DdsToolError
-from ..xml_writer import write_chara_xml, write_ddsimage_xml
+from ..xml_writer import ensure_chara_works_xml, write_chara_xml, write_ddsimage_xml
 from .dds_progress import run_bc3_jobs_with_progress
 from .works_dialogs import combo_works_id_str, make_works_picker_row, works_warning_label
 
@@ -121,7 +121,7 @@ class CharaAddDialog(QDialog):
         form.addRow("最终ID", self.cid_preview)
         form.addRow("角色名", self.name)
         form.addRow("绘师（可选）", self.illustrator)
-        self._works_row, self._works_combo = make_works_picker_row(parent=self)
+        self._works_row, self._works_combo = make_works_picker_row(parent=self, acus_root=self._acus_root)
         form.addRow("作品（works）", self._works_row)
         form.addRow("", works_warning_label())
         # releaseTagName 固定为 -1 / Invalid；游戏侧通过 ACUS 预置的 releaseTag XML 显示为「自制譜」等，不由本工具填写。
@@ -249,6 +249,13 @@ class CharaAddDialog(QDialog):
                     release_tag_str="Invalid",
                     works_id=w_id,
                     works_str=w_str,
+                )
+                ensure_chara_works_xml(
+                    out_dir=self._acus_root,
+                    works_id=w_id,
+                    works_str=w_str,
+                    release_tag_id=-1,
+                    release_tag_str="Invalid",
                 )
             else:
                 update_chara_variant_slot(

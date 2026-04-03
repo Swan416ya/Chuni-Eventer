@@ -47,6 +47,101 @@ def write_ddsimage_xml(*, out_dir: Path, chara_id: int, net_open_id: int = 2801,
     return xml_path
 
 
+def _works_sort_name(works_str: str, works_id: int) -> str:
+    """与 A001 CharaWorks 中 sortName 类似：优先拉丁/数字大写拼接，否则用显示名原文。"""
+    raw = (works_str or "").strip()
+    if not raw:
+        return f"WORKS{works_id}"
+    ascii_part = "".join(c.upper() for c in raw if ("A" <= c <= "Z") or ("a" <= c <= "z") or c.isdigit())
+    return ascii_part if ascii_part else raw
+
+
+def write_chara_works_xml(
+    *,
+    out_dir: Path,
+    works_id: int,
+    works_str: str,
+    release_tag_id: int = -1,
+    release_tag_str: str = "Invalid",
+    net_open_id: int = 2801,
+    net_open_str: str = "v2_45 00_1",
+) -> Path:
+    """
+    写入游戏可识别的作品主数据（与 A001 charaWorks/charaWorksXXXXXX/CharaWorks.xml 一致）。
+    Chara.xml 的 works/id 须与本文件 name/id 一致。
+    """
+    def _esc(t: str) -> str:
+        return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    wid = int(works_id)
+    if wid < 0:
+        raise ValueError("works_id 须为非负整数")
+    row = f"{wid:06d}"
+    safe_works = _esc((works_str or "").strip() or f"Works{wid}")
+    rt_str = _esc((release_tag_str or "").strip() or "Invalid")
+    no_str = _esc((net_open_str or "").strip() or "v2_45 00_1")
+    sort_sn = _esc(_works_sort_name(works_str, wid))
+
+    wdir = out_dir / "charaWorks" / f"charaWorks{row}"
+    wdir.mkdir(parents=True, exist_ok=True)
+    xml_path = wdir / "CharaWorks.xml"
+
+    xml = f"""<?xml version="1.0" encoding="utf-8"?>
+<CharaWorksData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dataName>charaWorks{row}</dataName>
+  <releaseTagName>
+    <id>{int(release_tag_id)}</id>
+    <str>{rt_str}</str>
+    <data />
+  </releaseTagName>
+  <netOpenName>
+    <id>{int(net_open_id)}</id>
+    <str>{no_str}</str>
+    <data />
+  </netOpenName>
+  <name>
+    <id>{wid}</id>
+    <str>{safe_works}</str>
+    <data />
+  </name>
+  <sortName>{sort_sn}</sortName>
+  <priority>0</priority>
+  <ranks />
+</CharaWorksData>
+"""
+    xml_path.write_text(xml, encoding="utf-8")
+    return xml_path
+
+
+def ensure_chara_works_xml(
+    *,
+    out_dir: Path,
+    works_id: int,
+    works_str: str,
+    release_tag_id: int = -1,
+    release_tag_str: str = "Invalid",
+    net_open_id: int = 2801,
+    net_open_str: str = "v2_45 00_1",
+) -> Path | None:
+    """
+    若 works 有效则写入/覆盖 charaWorks；否则跳过（与 Chara 中 -1/Invalid 一致）。
+    """
+    if int(works_id) < 0:
+        return None
+    ws = (works_str or "").strip()
+    if not ws or ws == "Invalid":
+        return None
+    return write_chara_works_xml(
+        out_dir=out_dir,
+        works_id=int(works_id),
+        works_str=ws,
+        release_tag_id=release_tag_id,
+        release_tag_str=release_tag_str,
+        net_open_id=net_open_id,
+        net_open_str=net_open_str,
+    )
+
+
 def write_chara_xml(
     *,
     out_dir: Path,
