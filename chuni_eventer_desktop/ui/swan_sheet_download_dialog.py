@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QHeaderView,
+    QProgressDialog,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -34,6 +35,7 @@ from .fluent_dialogs import fly_critical, fly_message, fly_warning
 class _FetchSheetsThread(QThread):
     ok = pyqtSignal(list)
     fail = pyqtSignal(str)
+    phase = pyqtSignal(str)
 
     def __init__(self, base_url: str, parent=None) -> None:
         super().__init__(parent=parent)
@@ -41,6 +43,7 @@ class _FetchSheetsThread(QThread):
 
     def run(self) -> None:
         try:
+            self.phase.emit("正在连接 Swan 站…")
             rows = list_downloadable_sheets(self._base)
             self.ok.emit(rows)
         except Exception as e:
@@ -50,6 +53,7 @@ class _FetchSheetsThread(QThread):
 class _InstallSheetThread(QThread):
     ok = pyqtSignal(str)
     fail = pyqtSignal(str)
+    phase = pyqtSignal(str)
 
     def __init__(self, base_url: str, content_id: int, acus_root: Path, parent=None) -> None:
         super().__init__(parent=parent)
@@ -59,7 +63,9 @@ class _InstallSheetThread(QThread):
 
     def run(self) -> None:
         try:
+            self.phase.emit("正在下载谱面包…")
             data = download_sheet_archive(self._base, self._cid)
+            self.phase.emit("正在解压并写入 ACUS…")
             # 不写死 .zip：服务端可能是 zip/tar/7z/rar 等任意包；由 sheet_install 嗅探/解压
             fd, path = tempfile.mkstemp(prefix="chuni_swan_")
             os.close(fd)
@@ -94,6 +100,7 @@ class SwanSheetDownloadDialog(QDialog):
         self._entries: list[SheetListEntry] = []
         self._fetch_thread: _FetchSheetsThread | None = None
         self._install_thread: _InstallSheetThread | None = None
+        self._progress_dialog: QProgressDialog | None = None
 
         card = CardWidget(self)
 
@@ -147,6 +154,24 @@ class SwanSheetDownloadDialog(QDialog):
 
         QTimer.singleShot(0, self._on_refresh)
 
+    def _open_progress(self, title: str, text: str) -> QProgressDialog:
+        dlg = QProgressDialog(self)
+        dlg.setWindowTitle(title)
+        dlg.setLabelText(text)
+        dlg.setRange(0, 0)
+        dlg.setCancelButton(None)
+        dlg.setMinimumDuration(0)
+        dlg.setWindowModality(Qt.WindowModality.WindowModal)
+        dlg.show()
+        QApplication.processEvents()
+        return dlg
+
+    def _close_progress(self) -> None:
+        if self._progress_dialog is not None:
+            self._progress_dialog.close()
+            self._progress_dialog.deleteLater()
+            self._progress_dialog = None
+
     def _on_refresh(self) -> None:
         base = self._base_url
         if self._fetch_thread and self._fetch_thread.isRunning():
@@ -154,12 +179,20 @@ class SwanSheetDownloadDialog(QDialog):
         self._status.setText("正在加载列表…")
         self._table.setRowCount(0)
         self._entries.clear()
+        self._close_progress()
+        self._progress_dialog = self._open_progress("Swan 站", "正在获取铺面列表…")
         th = _FetchSheetsThread(base, parent=self)
         self._fetch_thread = th
+        th.phase.connect(self._on_fetch_phase)
         th.ok.connect(self._on_fetch_ok)
         th.fail.connect(self._on_fetch_fail)
         th.finished.connect(lambda t=th: self._finalize_fetch_thread(t))
         th.start()
+
+    def _on_fetch_phase(self, msg: str) -> None:
+        if self._progress_dialog is not None:
+            self._progress_dialog.setLabelText(msg)
+            QApplication.processEvents()
 
     def _on_fetch_ok(self, rows: object) -> None:
         if not isinstance(rows, list):
@@ -184,11 +217,13 @@ class SwanSheetDownloadDialog(QDialog):
         fly_critical(self, "无法获取铺面列表", msg)
 
     def _finalize_fetch_thread(self, th: _FetchSheetsThread) -> None:
+        self._close_progress()
         if self._fetch_thread is th:
             self._fetch_thread = None
         th.deleteLater()
 
     def _finalize_install_thread(self, th: _InstallSheetThread) -> None:
+        self._close_progress()
         if self._install_thread is th:
             self._install_thread = None
         th.deleteLater()
@@ -208,12 +243,23 @@ class SwanSheetDownloadDialog(QDialog):
         if self._install_thread and self._install_thread.isRunning():
             return
         self._status.setText(f"正在下载并安装：{e.music_name or e.title or '所选条目'} …")
+        self._close_progress()
+        self._progress_dialog = self._open_progress(
+            "Swan 站",
+            "正在下载谱面包…",
+        )
         th = _InstallSheetThread(base, e.content_id, self._acus_root, parent=self)
         self._install_thread = th
+        th.phase.connect(self._on_install_phase)
         th.ok.connect(self._on_install_ok)
         th.fail.connect(self._on_install_fail)
         th.finished.connect(lambda t=th: self._finalize_install_thread(t))
         th.start()
+
+    def _on_install_phase(self, msg: str) -> None:
+        if self._progress_dialog is not None:
+            self._progress_dialog.setLabelText(msg)
+            QApplication.processEvents()
 
     def _on_install_ok(self, msg: str) -> None:
         self._status.setText("安装完成。")

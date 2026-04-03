@@ -9,8 +9,8 @@ from PyQt6.QtWidgets import QDialog, QFileDialog, QHBoxLayout, QVBoxLayout
 from qfluentwidgets import BodyLabel, CardWidget, LineEdit, PrimaryPushButton, PushButton
 
 from ..acus_workspace import AcusConfig
-from ..game_data_index import rebuild_and_save_game_index
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
+from .index_progress import run_rebuild_game_index_with_progress
 from .pjsk_hub_dialog import PjskHubDialog
 
 
@@ -149,7 +149,9 @@ class SettingsDialog(QDialog):
                     tool_path = tp
             except OSError:
                 tool_path = None
-        idx, err = rebuild_and_save_game_index(root, tool_path)
+        idx, err = run_rebuild_game_index_with_progress(
+            self, game_root=root, compressonatorcli_path=tool_path
+        )
         if idx is None:
             fly_critical(self, "扫描失败", err)
             return
@@ -196,6 +198,10 @@ class SettingsDialog(QDialog):
         self._cfg.game_root = gr
         self._cfg.save()
         if gr:
-            _idx, err = rebuild_and_save_game_index(Path(gr).expanduser(), self._get_tool_path())
+            _idx, err = run_rebuild_game_index_with_progress(
+                self,
+                game_root=Path(gr).expanduser(),
+                compressonatorcli_path=self._get_tool_path(),
+            )
             if _idx is None and err:
                 fly_warning(self, "游戏索引未更新", err)

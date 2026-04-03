@@ -17,7 +17,8 @@ from qfluentwidgets import (
 
 from ..acus_workspace import AcusConfig, ensure_acus_layout, resolve_compressonatorcli_path
 from ..version import APP_VERSION
-from ..game_data_index import load_cached_game_index, rebuild_and_save_game_index
+from ..game_data_index import load_cached_game_index
+from .index_progress import run_rebuild_game_index_with_progress
 from ..sheet_install import install_zip_to_acus
 from ..dds_quicktex import quicktex_available
 from .manager_widget import ManagerWidget
@@ -141,7 +142,11 @@ class MainWindow(MSFluentWindow):
         if gr_raw:
             gr = Path(gr_raw).expanduser()
             if load_cached_game_index(str(gr)) is None:
-                _idx, err = rebuild_and_save_game_index(gr, self._get_tool_path_or_none())
+                _idx, err = run_rebuild_game_index_with_progress(
+                    self,
+                    game_root=gr,
+                    compressonatorcli_path=self._get_tool_path_or_none(),
+                )
                 if _idx is None and err:
                     fly_critical(
                         self,
@@ -163,9 +168,10 @@ class MainWindow(MSFluentWindow):
             return
         self._cfg.game_root = picked
         self._cfg.save()
-        _idx, err = rebuild_and_save_game_index(
-            Path(picked).expanduser(),
-            self._get_tool_path_or_none(),
+        _idx, err = run_rebuild_game_index_with_progress(
+            self,
+            game_root=Path(picked).expanduser(),
+            compressonatorcli_path=self._get_tool_path_or_none(),
         )
         if _idx is None:
             fly_critical(self, "扫描失败", err or "无法建立游戏索引。")

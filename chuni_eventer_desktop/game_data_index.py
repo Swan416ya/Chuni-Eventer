@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 import xml.etree.ElementTree as ET
 
 from .acus_scan import CharaItem, MusicItem, scan_charas, scan_dds_images, scan_music, scan_nameplates, scan_stages, scan_trophies
@@ -14,6 +14,14 @@ from .dds_convert import convert_dds_to_png
 
 INDEX_VERSION = 3
 INDEX_FILENAME = "game_data_index.json"
+
+# (说明文字, 当前步, 总步)；总步为 0 时表示不确定进度
+GameIndexProgress = Callable[[str, int, int], None]
+
+
+def _pg(progress: GameIndexProgress | None, msg: str, cur: int, total: int) -> None:
+    if progress:
+        progress(msg, cur, total)
 
 
 def _safe_int(text: str | None) -> int | None:
@@ -32,12 +40,13 @@ def _relative_under(base: Path, target: Path) -> str:
 
 def enumerate_game_data_roots(game_root: Path) -> list[Path]:
     """
-    扫描 CHUNITHM 安装目录下所有含 ``music/`` 的数据包根路径。
+    扫描给定目录下所有数据包根路径。
 
-    包含：
-    - 传统 ``A001`` / ``Option/A001`` / 根目录即数据包
-    - ``data/a000/opt`` 下各子目录（以及 ``opt`` 本身若含 music）
-    - ``bin/option`` 下以 ``A`` 开头的目录（如 A001、A002）
+    规则：
+    - 递归查找目录名匹配 ``A???``（A 开头且总长度 4）的文件夹
+    - 若该目录包含相关资源子目录（music/stage/ddsImage/ddsMap/chara/reward/releaseTag）
+      则视作一个数据包根
+    - 兼容旧输入：若用户直接把目录指到某个数据包根（自身含 music 等），也会收录
     """
     roots: list[Path] = []
     try:
@@ -46,81 +55,42 @@ def enumerate_game_data_roots(game_root: Path) -> list[Path]:
         return []
     if not root.is_dir():
         return []
+    pack_markers = ("music", "stage", "ddsImage", "ddsMap", "chara", "reward", "releaseTag")
 
-    for c in (root / "A001", root / "Option" / "A001", root):
-        try:
-            if c.is_dir() and (c / "music").is_dir():
-                roots.append(c.resolve())
-        except OSError:
-            continue
-
-    for data_name in ("data", "Data"):
-        for a_name in ("a000", "A000"):
-            opt_base = root / data_name / a_name / "opt"
+    def _looks_like_pack_dir(p: Path) -> bool:
+        for sub in pack_markers:
             try:
-                if not opt_base.is_dir():
-                    continue
-                if (opt_base / "music").is_dir():
-                    roots.append(opt_base.resolve())
-                for child in sorted(opt_base.iterdir()):
-                    if not child.is_dir():
-                        continue
-                    try:
-                        if (child / "music").is_dir():
-                            roots.append(child.resolve())
-                    except OSError:
-                        continue
+                if (p / sub).is_dir():
+                    return True
             except OSError:
                 continue
+        return False
 
-    for bin_name in ("bin", "Bin"):
-        bo = root / bin_name / "option"
-        try:
-            if not bo.is_dir():
-                continue
-            for child in sorted(bo.iterdir()):
-                if not child.is_dir():
-                    continue
-                if not child.name.upper().startswith("A"):
-                    continue
-                try:
-                    if (child / "music").is_dir():
-                        roots.append(child.resolve())
-                except OSError:
-                    continue
-        except OSError:
-            continue
+    def _is_a4_dir_name(name: str) -> bool:
+        return len(name) == 4 and name.upper().startswith("A")
 
-    # 无 music/ 但含 chara / reward / releaseTag 的扩展包（如 bin/option/ACUS、AKAO）
-    for bin_name in ("bin", "Bin"):
-        bo = root / bin_name / "option"
-        try:
-            if not bo.is_dir():
+    # 兼容：用户直接选中了某个包根
+    try:
+        if _looks_like_pack_dir(root):
+            roots.append(root.resolve())
+    except OSError:
+        pass
+
+    # 主规则：递归收集所有 A??? 目录
+    try:
+        for p in root.rglob("*"):
+            if not p.is_dir():
                 continue
-            for child in sorted(bo.iterdir()):
-                if not child.is_dir():
-                    continue
-                try:
-                    if (child / "music").is_dir():
-                        continue
-                except OSError:
-                    continue
-                has_pack = False
-                for sub in ("chara", "reward", "releaseTag"):
-                    try:
-                        if (child / sub).is_dir():
-                            has_pack = True
-                            break
-                    except OSError:
-                        continue
-                if not has_pack:
-                    continue
-                try:
-                    roots.append(child.resolve())
-                except OSError:
-                    continue
-        except OSError:
-            continue
+            if not _is_a4_dir_name(p.name):
+                continue
+            if not _looks_like_pack_dir(p):
+                continue
+            try:
+                roots.append(p.resolve())
+            except OSError:
+                continue
+    except OSError:
+        pass
 
     seen: set[Path] = set()
     out: list[Path] = []
@@ -213,6 +183,7 @@ def prewarm_game_dds_preview_pngs(
     *,
     game_root: Path,
     compressonatorcli_path: Path | None = None,
+    progress: GameIndexProgress | None = None,
 ) -> tuple[int, int]:
     """
     把游戏资源 ddsMap 下所有 dds 预生成到 `.cache/dds_preview/*.png`。
@@ -233,8 +204,15 @@ def prewarm_game_dds_preview_pngs(
             continue
 
     uniq = sorted({p.resolve() for p in dds_files})
+    total = len(uniq)
     ok = 0
-    for p in uniq:
+    for i, p in enumerate(uniq):
+        _pg(
+            progress,
+            f"地图预览缓存 ({i + 1}/{total})：{p.name}",
+            i + 1,
+            total,
+        )
         try:
             out_png = cache / f"{p.name}.png"
             if not out_png.exists():
@@ -246,7 +224,7 @@ def prewarm_game_dds_preview_pngs(
             ok += 1
         except Exception:
             continue
-    return ok, len(uniq)
+    return ok, total
 
 
 def _music_item_to_catalog_row(m: MusicItem, source: str) -> dict[str, Any]:
@@ -522,15 +500,27 @@ def load_cached_game_index(expected_game_root: str | None = None) -> GameDataInd
     return idx
 
 
-def build_game_data_index(*, game_root: Path) -> GameDataIndex:
+def build_game_data_index(
+    *,
+    game_root: Path,
+    progress: GameIndexProgress | None = None,
+) -> GameDataIndex:
     gr = game_root.resolve()
+    _pg(progress, "正在枚举数据包…", 0, 0)
     roots = enumerate_game_data_roots(gr)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     roots_rel = [_relative_under(gr, p) for p in roots]
 
     catalog_rows: list[dict[str, Any]] = []
-    for pack in roots:
+    nroots = len(roots)
+    for i, pack in enumerate(roots):
         src = _relative_under(gr, pack)
+        _pg(
+            progress,
+            f"扫描乐曲 ({i + 1}/{nroots})：{src}",
+            i + 1,
+            max(nroots, 1),
+        )
         try:
             for m in scan_music(pack):
                 catalog_rows.append(_music_item_to_catalog_row(m, src))
@@ -539,6 +529,7 @@ def build_game_data_index(*, game_root: Path) -> GameDataIndex:
     merged_catalog = merge_music_catalog_rows(catalog_rows)
     music_pairs = [(int(r["id"]), str(r["title"])) for r in merged_catalog]
 
+    _pg(progress, "汇总舞台 / DDS / 角色 / 称号…", 0, 0)
     stage_t, dds_i_t, dds_m_t = _aggregate_stages_dds_from_roots(roots)
     chara_t, np_t, tr_t = _aggregate_chara_np_trophy_from_roots(roots)
 
@@ -568,6 +559,7 @@ def save_game_data_index(idx: GameDataIndex) -> None:
 def rebuild_and_save_game_index(
     game_root: Path,
     compressonatorcli_path: Path | None = None,
+    progress: GameIndexProgress | None = None,
 ) -> tuple[GameDataIndex | None, str]:
     root = game_root.expanduser().resolve()
     roots = enumerate_game_data_roots(root)
@@ -577,12 +569,14 @@ def rebuild_and_save_game_index(
             "已尝试：data/a000/opt 下各包、bin/option/A*、以及 A001 等。\n"
             "请确认「游戏根目录」指向安装根（例如含 data 与 bin 的文件夹）。"
         )
-    idx = build_game_data_index(game_root=root)
+    idx = build_game_data_index(game_root=root, progress=progress)
+    _pg(progress, "正在写入索引缓存…", 0, 0)
     save_game_data_index(idx)
     # 索引阶段顺便预生成游戏资源 ddsMap 预览 PNG
     prewarm_game_dds_preview_pngs(
         game_root=root,
         compressonatorcli_path=compressonatorcli_path,
+        progress=progress,
     )
     return idx, ""
 
