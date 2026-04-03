@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
@@ -48,7 +49,11 @@ def write_ddsimage_xml(*, out_dir: Path, chara_id: int, net_open_id: int = 2801,
 
 
 def _works_sort_name(works_str: str, works_id: int) -> str:
-    """与 A001 CharaWorks 中 sortName 类似：优先拉丁/数字大写拼接，否则用显示名原文。"""
+    """
+    与 A001 CharaWorks 中 sortName 对齐：
+    - 含拉丁字母时：仅保留 A–Z / a–z / 0–9 并转大写、直接拼接（例：charaWorks000184 → BANGDREAMAVEMUJICA）。
+    - 纯日文等：用作品显示名全文（例：charaWorks000183 官方为 メタリスト，与 name.str 略异，工具无法自动推断读法）。
+    """
     raw = (works_str or "").strip()
     if not raw:
         return f"WORKS{works_id}"
@@ -67,8 +72,14 @@ def write_chara_works_xml(
     net_open_str: str = "v2_45 00_1",
 ) -> Path:
     """
-    写入游戏可识别的作品主数据（与 A001 charaWorks/charaWorksXXXXXX/CharaWorks.xml 一致）。
-    Chara.xml 的 works/id 须与本文件 name/id 一致。
+    写入作品主数据（与 A001 `charaWorks/charaWorksXXXXXX/CharaWorks.xml` 同结构）。
+
+    客户端会把 **本条 CharaWorks** 与 **引用同一 works.id 的 Chara** 放在同一筛选维度下；因此下列字段须与
+    **该批角色各自的 Chara.xml** 一致（见仓库 `docs/CharaWorks与Chara字段对照详解.md`）：
+
+    - **releaseTagName**：必须与 Chara.`releaseTagName` 完全相同（并与 `releaseTag/*/ReleaseTag.xml` 的 `name` 可对上）。
+    - **netOpenName**：必须与 Chara.`netOpenName` 完全相同（解禁维度一致时才会一起出现）。
+    - **name**：必须与 Chara.`works` 完全相同（id 与 str）。
     """
     def _esc(t: str) -> str:
         return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -140,6 +151,107 @@ def ensure_chara_works_xml(
         net_open_id=net_open_id,
         net_open_str=net_open_str,
     )
+
+
+def read_chara_xml_works_release_netopen(xml_path: Path) -> tuple[int, str, int, str, int, str] | None:
+    """
+    从 Chara.xml 读出与 CharaWorks 对齐所需的五元组：
+    (works_id, works_str, release_tag_id, release_tag_str, net_open_id, net_open_str)。
+    works 无效（id < 0、str 空或 Invalid）时返回 None。
+    """
+    try:
+        root = ET.parse(xml_path).getroot()
+        if (root.tag or "") != "CharaData":
+            return None
+        wi = (root.findtext("works/id") or "").strip()
+        ws = (root.findtext("works/str") or "").strip()
+        try:
+            w_id = int(wi)
+        except ValueError:
+            return None
+        if w_id < 0:
+            return None
+        if not ws or ws == "Invalid":
+            return None
+        ri = (root.findtext("releaseTagName/id") or "").strip()
+        rs = (root.findtext("releaseTagName/str") or "").strip()
+        try:
+            r_id = int(ri)
+        except ValueError:
+            r_id = -1
+        r_s = rs or "Invalid"
+        ni = (root.findtext("netOpenName/id") or "").strip()
+        ns = (root.findtext("netOpenName/str") or "").strip()
+        try:
+            n_id = int(ni)
+        except ValueError:
+            n_id = 2801
+        n_s = (ns or "").strip() or "v2_45 00_1"
+        return w_id, ws, r_id, r_s, n_id, n_s
+    except Exception:
+        return None
+
+
+def ensure_chara_works_for_chara_xml(chara_xml_path: Path) -> Path | None:
+    """
+    根据单份 Chara.xml 写入/覆盖对应 charaWorks（ACUS 根 = chara_xml 上三级目录）。
+    """
+    data = read_chara_xml_works_release_netopen(chara_xml_path)
+    if data is None:
+        return None
+    w_id, w_s, r_id, r_s, n_id, n_s = data
+    acus_root = chara_xml_path.parent.parent.parent
+    return ensure_chara_works_xml(
+        out_dir=acus_root,
+        works_id=w_id,
+        works_str=w_s,
+        release_tag_id=r_id,
+        release_tag_str=r_s,
+        net_open_id=n_id,
+        net_open_str=n_s,
+    )
+
+
+def sync_all_chara_works_masters(acus_root: Path) -> tuple[list[Path], list[str]]:
+    """
+    扫描 `acus_root/chara/chara*/Chara.xml`，按 **works.id** 聚合，为每个 id 写一条 CharaWorks。
+    若多个角色共用同一 works.id 但 releaseTagName / netOpenName / works.str 不一致，只保留**按路径排序最先**
+    出现的一套，并在 warnings 中说明（需手工统一 Chara 或拆分 works.id）。
+    """
+    chara_glob = sorted((acus_root / "chara").glob("chara*/Chara.xml"))
+    chosen: dict[int, tuple[str, int, str, int, str, str]] = {}
+    # works_id -> (works_str, rt_id, rt_str, no_id, no_str, source_path)
+    warnings: list[str] = []
+    for xp in chara_glob:
+        data = read_chara_xml_works_release_netopen(xp)
+        if data is None:
+            continue
+        w_id, w_s, r_id, r_s, n_id, n_s = data
+        tup = (w_s, r_id, r_s, n_id, n_s)
+        if w_id not in chosen:
+            chosen[w_id] = (*tup, str(xp))
+            continue
+        prev_w_s, prev_ri, prev_rs, prev_ni, prev_ns, prev_src = chosen[w_id]
+        if (prev_w_s, prev_ri, prev_rs, prev_ni, prev_ns) != tup:
+            warnings.append(
+                f"works id={w_id}：{xp} 与 {prev_src} 的 releaseTagName/netOpenName/works.str 不一致，"
+                "已保留先出现的一套；请统一 Chara 或改用不同 works.id。"
+            )
+            continue
+    written: list[Path] = []
+    for w_id, (w_s, r_id, r_s, n_id, n_s, _) in chosen.items():
+        p = ensure_chara_works_xml(
+            out_dir=acus_root,
+            works_id=w_id,
+            works_str=w_s,
+            release_tag_id=r_id,
+            release_tag_str=r_s,
+            net_open_id=n_id,
+            net_open_str=n_s,
+        )
+        if p is not None:
+            written.append(p)
+    return written, warnings
 
 
 def write_chara_xml(

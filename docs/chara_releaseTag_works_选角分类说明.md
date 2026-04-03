@@ -70,7 +70,7 @@
 
 官方 A001 在 **`charaWorks/charaWorks{6位零填充}/CharaWorks.xml`** 中为每个在用作品保留一条主数据（根元素 `CharaWorksData`），**`name.id` / `name.str`** 与 **`Chara.xml` 的 `works`** 必须一致，客户端才能按作品小类浏览；仅改 `Chara.xml` 而不落盘对应 `CharaWorks.xml` 时，分类检索往往仍不可用。
 
-本工具：`chuni_eventer_desktop/xml_writer.py` 中的 `write_chara_works_xml` / `ensure_chara_works_xml`；在「新增角色」「编辑 works」「作品库新建（已打开工作区）」等路径会尝试同步写入当前 ACUS 根下的 `charaWorks/`。
+本工具：`chuni_eventer_desktop/xml_writer.py` 中的 `write_chara_works_xml` / `ensure_chara_works_xml`；在「新增角色」「编辑 works」时按 **同一份 Chara.xml** 写入 `releaseTagName` 与 **`netOpenName`**（与官方成对关系一致）。批量对齐可运行 **`scripts/sync_acus_chara_works.py`**。字段级说明见 **[CharaWorks与Chara字段对照详解.md](./CharaWorks与Chara字段对照详解.md)**。
 
 ---
 

@@ -116,21 +116,8 @@ class WorkCreateDialog(QDialog):
         except ValueError as e:
             QMessageBox.critical(self, "错误", str(e))
             return
-        if self._acus_root is not None and wid >= 0:
-            try:
-                ensure_chara_works_xml(
-                    out_dir=self._acus_root,
-                    works_id=wid,
-                    works_str=s,
-                    release_tag_id=-1,
-                    release_tag_str="Invalid",
-                )
-            except Exception as e:
-                QMessageBox.warning(
-                    self,
-                    "CharaWorks 写入失败",
-                    f"作品已写入作品库，但未能写入 ACUS/charaWorks：\n{e}",
-                )
+        # CharaWorks 的 releaseTagName / netOpenName 必须与具体 Chara 一致，无角色上下文时不写磁盘，
+        # 避免把 PJSK 等角色误写成 -1/Invalid；请用「编辑作品」或脚本 scripts/sync_acus_chara_works.py 同步。
         self._work_id = wid
         self._work_str = s
         self.accept()
@@ -170,11 +157,8 @@ class WorksLibraryManagerDialog(QDialog):
         lay = QVBoxLayout(self)
         _hint = (
             "保存在应用 .cache/works_library.json。"
-            + (
-                "新建作品时会同步写入当前工作区 ACUS/charaWorks/。"
-                if acus_root is not None
-                else "打开工作区后新建作品可同步写入 ACUS/charaWorks/。"
-            )
+            "CharaWorks 须与角色 Chara.xml 的 releaseTag/netOpen 一致，请用「编辑作品」或运行 "
+            "scripts/sync_acus_chara_works.py 从 chara 目录同步到 charaWorks/。"
         )
         lay.addWidget(QLabel(_hint))
         lay.addWidget(self._list, stretch=1)
@@ -258,6 +242,20 @@ def make_works_picker_row(*, parent=None, acus_root: Path | None = None) -> tupl
     h.addWidget(new_btn)
     h.addWidget(mgr_btn)
     return w, cb
+
+
+def parse_chara_xml_net_open(xml_path: Path) -> tuple[int, str]:
+    try:
+        root = ET.parse(xml_path).getroot()
+        ni = (root.findtext("netOpenName/id") or "").strip()
+        ns = (root.findtext("netOpenName/str") or "").strip()
+        try:
+            iid = int(ni)
+        except ValueError:
+            iid = 2801
+        return iid, (ns or "").strip() or "v2_45 00_1"
+    except Exception:
+        return 2801, "v2_45 00_1"
 
 
 def parse_chara_xml_release_tag(xml_path: Path) -> tuple[int, str]:
@@ -348,6 +346,7 @@ class CharaEditWorksDialog(QDialog):
             QMessageBox.critical(self, "写入失败", str(e))
             return
         rt_id, rt_str = parse_chara_xml_release_tag(self._xml_path)
+        no_id, no_str = parse_chara_xml_net_open(self._xml_path)
         try:
             ensure_chara_works_xml(
                 out_dir=self._acus_root,
@@ -355,6 +354,8 @@ class CharaEditWorksDialog(QDialog):
                 works_str=wstr,
                 release_tag_id=rt_id,
                 release_tag_str=rt_str,
+                net_open_id=no_id,
+                net_open_str=no_str,
             )
         except Exception as e:
             QMessageBox.warning(

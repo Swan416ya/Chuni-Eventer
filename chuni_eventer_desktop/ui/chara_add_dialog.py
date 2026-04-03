@@ -256,6 +256,8 @@ class CharaAddDialog(QDialog):
                     works_str=w_str,
                     release_tag_id=-1,
                     release_tag_str="Invalid",
+                    net_open_id=2801,
+                    net_open_str="v2_45 00_1",
                 )
             else:
                 update_chara_variant_slot(
