@@ -1,5 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller：单文件 exe，控制台关闭（纯 GUI）。"""
+import importlib.util
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all
@@ -26,6 +27,15 @@ for pkg in ("PyQt6", "qfluentwidgets", "qframelesswindow", "quicktex", "PIL"):
     datas += p_d
     binaries += p_bin
     hiddenimports += p_hi
+
+# quicktex 的 BC3 编码依赖 site-packages 根目录下的 _quicktex*.pyd（与 quicktex/ 包并列），
+# collect_all("quicktex") 不会带上该二进制；子进程 worker 也需能加载，故显式打入。
+hiddenimports += ["_quicktex", "_quicktex._s3tc"]
+_qt = importlib.util.find_spec("_quicktex")
+if _qt is not None and _qt.origin:
+    _pyd = Path(_qt.origin)
+    if _pyd.is_file() and _pyd.suffix.lower() == ".pyd":
+        binaries.append((str(_pyd), "."))
 
 a = Analysis(
     [str(ROOT / "run_desktop.py")],

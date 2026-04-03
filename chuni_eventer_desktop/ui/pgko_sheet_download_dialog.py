@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
 )
 from qfluentwidgets import BodyLabel, CardWidget, PrimaryPushButton, PushButton
 
-from ..acus_workspace import AcusConfig, acus_root_dir, app_cache_dir
+from ..acus_workspace import AcusConfig, acus_root_dir, app_cache_dir, resolve_compressonatorcli_path
 from ..game_data_index import load_cached_game_index, merged_stage_pairs
 from ..pgko_sheet_client import (
     PGKO_BASE_URL,
@@ -452,7 +452,7 @@ class PgkoSheetDownloadDialog(QDialog):
             fly_warning(self, "读取元数据失败", f"{type(e).__name__}: {e}")
             return
         cfg = AcusConfig.load()
-        tool = Path(cfg.compressonatorcli_path).expanduser().resolve() if cfg.compressonatorcli_path.strip() else None
+        tool = resolve_compressonatorcli_path(cfg)
         dlg = _PgkoInstallConfigDialog(
             pick=pick,
             meta=meta,

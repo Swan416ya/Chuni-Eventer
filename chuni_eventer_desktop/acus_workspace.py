@@ -84,3 +84,32 @@ class AcusConfig:
         }
         p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
+
+def bundled_compressonatorcli_path() -> Path | None:
+    """
+    分发 zip 内置于 exe 同级的 .tools/CompressonatorCLI/（由 build_windows.ps1 打入）。
+    仅 PyInstaller 打包运行且该文件存在时返回路径。
+    """
+    if not getattr(sys, "frozen", False):
+        return None
+    cand = app_root_dir() / ".tools" / "CompressonatorCLI" / "compressonatorcli.exe"
+    try:
+        cand = cand.resolve(strict=False)
+    except OSError:
+        return None
+    return cand if cand.is_file() else None
+
+
+def resolve_compressonatorcli_path(cfg: AcusConfig) -> Path | None:
+    """用户【设置】优先；未填写、路径无效或文件缺失时回退到打包随附的 compressonatorcli。"""
+    raw = (cfg.compressonatorcli_path or "").strip()
+    if raw:
+        p = Path(raw).expanduser()
+        try:
+            p = p.resolve(strict=False)
+        except OSError:
+            return bundled_compressonatorcli_path()
+        if p.is_file():
+            return p
+    return bundled_compressonatorcli_path()
+

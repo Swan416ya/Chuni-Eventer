@@ -1,0 +1,8 @@
+Third-party binary bundled with Chuni-Eventer Windows releases (via scripts/build_windows.ps1):
+
+  AMD GPUOpen Compressonator CLI 4.5.52 (win64 zip)
+  Source release: https://github.com/GPUOpen-Tools/compressonator/releases/tag/V4.5.52
+  Downloaded artifact: compressonatorcli-4.5.52-win64.zip
+  Installed layout: .tools/CompressonatorCLI/ (compressonatorcli.exe, DLLs, plugins, license/)
+
+See files under .tools/CompressonatorCLI/license/ for upstream license terms.

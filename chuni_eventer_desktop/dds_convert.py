@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 import shutil
 import struct
+import sys
 from pathlib import Path
 from typing import Sequence
 
@@ -74,9 +75,13 @@ def validate_compressonator_tool(tool_path: Path) -> None:
 def run_cmd(argv: Sequence[str]) -> None:
     if not argv:
         raise DdsToolError("命令为空")
-    validate_compressonator_tool(Path(argv[0]))
+    tool_exe = Path(argv[0])
+    validate_compressonator_tool(tool_exe)
+    popen_kw: dict = {"cwd": str(tool_exe.parent)}
+    if sys.platform == "win32":
+        popen_kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
-        p = subprocess.run(list(argv), capture_output=True, text=True)
+        p = subprocess.run(list(argv), capture_output=True, text=True, **popen_kw)
     except PermissionError as e:
         raise DdsToolError(
             "无法执行 DDS 工具（权限被拒绝或路径不是可执行文件）。\n"
@@ -99,33 +104,66 @@ def convert_to_bc3_dds(*, tool_path: Path | None, input_image: Path, output_dds:
     """
     图片 → BC3(DXT5) DDS。
 
-    优先使用可选依赖 **quicktex**（纯 Python 侧编码）；失败或未安装时再尝试 **compressonatorcli**。
+    开发环境：优先 **quicktex**（无需单独安装 Compressonator），失败时再尝试 **compressonatorcli**。
+
+    PyInstaller 打包版：若已在【设置】中配置 compressonatorcli，则**优先使用 CLI**（避免 Windows 上
+    quicktex 子进程访问冲突）；否则仍先尝试 quicktex。
     """
     from . import dds_quicktex
 
+    frozen = getattr(sys, "frozen", False)
     last: Exception | None = None
-    if dds_quicktex.quicktex_available():
+
+    def _try_quicktex() -> bool:
+        nonlocal last
+        if not dds_quicktex.quicktex_available():
+            return False
         try:
-            dds_quicktex.encode_image_to_bc3_dds_quicktex(input_image=input_image, output_dds=output_dds)
-            return
+            dds_quicktex.encode_image_to_bc3_dds_quicktex(
+                input_image=input_image, output_dds=output_dds
+            )
+            return True
         except Exception as e:
             last = e
+            return False
 
-    if tool_path is not None:
+    def _try_compress() -> bool:
+        nonlocal last
+        if tool_path is None:
+            return False
         try:
             validate_compressonator_tool(tool_path)
             tool = str(tool_path)
             output_dds.parent.mkdir(parents=True, exist_ok=True)
             run_cmd([tool, "-fd", "BC3", str(input_image), str(output_dds)])
-            return
+            return True
         except Exception as e:
             last = e
+            return False
 
-    hint = (
-        "请任选其一：\n"
-        "1) pip install quicktex（推荐，可不装 compressonator）\n"
-        "2) 在【设置】中配置 compressonatorcli 可执行文件路径"
-    )
+    if frozen and tool_path is not None:
+        if _try_compress():
+            return
+        if _try_quicktex():
+            return
+    else:
+        if _try_quicktex():
+            return
+        if _try_compress():
+            return
+
+    if frozen:
+        hint = (
+            "请任选其一：\n"
+            "1) 在【设置】中配置 compressonatorcli 可执行文件路径（打包版推荐，最稳定）\n"
+            "2) 依赖内置 quicktex：请确认图片宽高为 4 的倍数；若仍报访问冲突，请改用第 1 项"
+        )
+    else:
+        hint = (
+            "请任选其一：\n"
+            "1) pip install quicktex（推荐，可不装 compressonator）\n"
+            "2) 在【设置】中配置 compressonatorcli 可执行文件路径"
+        )
     if last is not None:
         raise DdsToolError(f"生成 BC3 DDS 失败。\n{hint}\n\n底层错误：{last}") from last
     raise DdsToolError(f"无法生成 BC3 DDS：未安装 quicktex 且未配置 compressonatorcli。\n{hint}")

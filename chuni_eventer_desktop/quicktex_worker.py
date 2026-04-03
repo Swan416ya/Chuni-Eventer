@@ -10,8 +10,11 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from .frozen_runtime import ensure_pyinstaller_dll_search_path
+
 
 def main(argv: list[str] | None = None) -> int:
+    ensure_pyinstaller_dll_search_path()
     argv = argv if argv is not None else sys.argv[1:]
     if len(argv) != 4:
         print(

@@ -39,6 +39,24 @@ def dds_to_png_quicktex(*, input_dds: Path, output_png: Path) -> None:
     img.save(output_png, "PNG")
 
 
+def _rgba_padded_to_multiple_of_4(image):
+    """
+    DXT/BC3 按 4×4 块压缩；非 4 对齐的宽高在部分 Windows 环境下会触发 quicktex 原生访问冲突。
+    用透明像素在右下方向补齐（不改变已绘制内容）。
+    """
+    from PIL import Image
+
+    image = image.convert("RGBA")
+    w, h = image.size
+    nw = (w + 3) // 4 * 4
+    nh = (h + 3) // 4 * 4
+    if nw == w and nh == h:
+        return image.copy()
+    canvas = Image.new("RGBA", (nw, nh), (0, 0, 0, 0))
+    canvas.paste(image, (0, 0))
+    return canvas
+
+
 def encode_bc3_inprocess(
     *,
     input_image: Path,
@@ -57,7 +75,7 @@ def encode_bc3_inprocess(
         with Image.open(input_image) as im:
             im.seek(0)
             im.load()
-            image = im.convert("RGBA").copy()
+            image = _rgba_padded_to_multiple_of_4(im.convert("RGBA").copy())
     except UnidentifiedImageError as e:
         raise RuntimeError(f"无法识别图片格式：{input_image}") from e
     except OSError as e:
@@ -128,7 +146,8 @@ def encode_image_to_bc3_dds_quicktex(
     if p.returncode in (-1073741819, 3221225477):
         hint = (
             "quicktex 在子进程内发生访问冲突（access violation），主界面已保持运行。\n"
-            "请在【设置】中配置 compressonatorcli，生成时会自动改用其编码 BC3。"
+            "打包版请在【设置】中填写 compressonatorcli 完整路径并保存，"
+            "生成 BC3 时将优先使用 Compressonator（比 quicktex 更稳）。"
         )
         err = f"{hint}\n\n{err}" if err else hint
     elif not err:

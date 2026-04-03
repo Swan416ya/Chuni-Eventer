@@ -15,7 +15,7 @@ from qfluentwidgets import (
     SubtitleLabel,
 )
 
-from ..acus_workspace import AcusConfig, ensure_acus_layout
+from ..acus_workspace import AcusConfig, ensure_acus_layout, resolve_compressonatorcli_path
 from ..version import APP_VERSION
 from ..game_data_index import load_cached_game_index, rebuild_and_save_game_index
 from ..sheet_install import install_zip_to_acus
@@ -178,15 +178,7 @@ class MainWindow(MSFluentWindow):
             )
 
     def _get_tool_path_or_none(self) -> Path | None:
-        raw = (self._cfg.compressonatorcli_path or "").strip()
-        if not raw:
-            return None
-        p = Path(raw).expanduser()
-        try:
-            p = p.resolve(strict=False)
-        except OSError:
-            return None
-        return p if p.is_file() else None
+        return resolve_compressonatorcli_path(self._cfg)
 
     def _select_category(self, route_key: str, kind: str, title: str) -> None:
         self.switchTo(self._workspace)

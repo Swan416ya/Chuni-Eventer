@@ -1,7 +1,8 @@
 param(
     [string]$Version = "0.4.3",
     [switch]$SkipPyInstaller,
-    [switch]$SkipBridge
+    [switch]$SkipBridge,
+    [switch]$SkipCompressonator
 )
 
 # Run from repo root is NOT required; script cd's to parent of scripts/
@@ -24,28 +25,65 @@ if (-not (Test-Path $VenvPy)) {
     python -m venv (Join-Path $Root ".venv-build")
 }
 
-Write-Host "[1/4] Install build dependencies ..."
+Write-Host "[1/5] Install build dependencies ..."
 & $VenvPy -m pip install -r (Join-Path $Root "requirements-build.txt")
 
 if (-not $SkipPyInstaller) {
-    Write-Host "[2/4] Build main app with PyInstaller ..."
+    Write-Host "[2/5] Build main app with PyInstaller ..."
     & $VenvPy -m PyInstaller --noconfirm (Join-Path $Root "ChuniEventer.spec")
 } else {
-    Write-Host "[2/4] Skip PyInstaller"
+    Write-Host "[2/5] Skip PyInstaller"
 }
 
 $BridgeOut = Join-Path $Root "tools\PenguinBridge\bin\Release\net8.0"
 if (-not $SkipBridge) {
-    Write-Host "[3/4] Build PenguinBridge ..."
+    Write-Host "[3/5] Build PenguinBridge ..."
     & dotnet build (Join-Path $Root "tools\PenguinBridge\PenguinBridge.csproj") -c Release
     if ($LASTEXITCODE -ne 0) {
         throw "dotnet build PenguinBridge failed (exit $LASTEXITCODE). Run scripts\setup_penguin_tools.ps1 or pass -SkipBridge."
     }
 } else {
-    Write-Host "[3/4] Skip bridge build"
+    Write-Host "[3/5] Skip bridge build"
 }
 
-Write-Host "[4/4] Assemble distributable ..."
+# AMD GPUOpen Compressonator CLI (pinned zip). App resolves .tools/CompressonatorCLI/compressonatorcli.exe when frozen.
+$CompressUrl = "https://github.com/GPUOpen-Tools/compressonator/releases/download/V4.5.52/compressonatorcli-4.5.52-win64.zip"
+$CompressZip = Join-Path $Root ".cache\compr-cli-4.5.52-win64.zip"
+$CompressStage = Join-Path $Root ".cache\compr-cli-4.5.52-win64"
+$CompressSrc = Join-Path $CompressStage "compressonatorcli-4.5.52-win64"
+
+function Ensure-CompressonatorCli {
+    New-Item -ItemType Directory -Path (Join-Path $Root ".cache") -Force | Out-Null
+    if (-not (Test-Path $CompressZip)) {
+        Write-Host "  Downloading compressonatorcli-4.5.52-win64.zip ..."
+        Invoke-WebRequest -Uri $CompressUrl -OutFile $CompressZip -UseBasicParsing
+    }
+    $exe = Join-Path $CompressSrc "compressonatorcli.exe"
+    if (-not (Test-Path $exe)) {
+        if (Test-Path $CompressStage) { Remove-Item $CompressStage -Recurse -Force }
+        Write-Host "  Extracting Compressonator CLI ..."
+        Expand-Archive -LiteralPath $CompressZip -DestinationPath $CompressStage -Force
+    }
+    if (-not (Test-Path (Join-Path $CompressSrc "compressonatorcli.exe"))) {
+        throw "compressonatorcli.exe not found after extract (expected under $CompressSrc)"
+    }
+}
+
+function Copy-CompressonatorBundle([string]$toolsParent) {
+    $dest = Join-Path $toolsParent "CompressonatorCLI"
+    if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+    New-Item -ItemType Directory -Path $dest -Force | Out-Null
+    Copy-Item -Path (Join-Path $CompressSrc "*") -Destination $dest -Recurse -Force
+}
+
+if (-not $SkipCompressonator) {
+    Write-Host "[4/5] Ensure Compressonator CLI bundle ..."
+    Ensure-CompressonatorCli
+} else {
+    Write-Host "[4/5] Skip Compressonator bundle"
+}
+
+Write-Host "[5/5] Assemble distributable ..."
 $AppExe = Join-Path $Root "dist\ChuniEventer.exe"
 if (-not (Test-Path $AppExe)) {
     throw "Main executable not found: $AppExe"
@@ -73,8 +111,20 @@ $BridgeDist = Join-Path $OutDir ".tools\PenguinBridge"
 Copy-PenguinBridgePublish $BridgeDist
 
 # Also place bridge under dist/.tools for users who directly run dist\ChuniEventer.exe.
-$DistBridge = Join-Path $Root "dist\.tools\PenguinBridge"
+$DistTools = Join-Path $Root "dist\.tools"
+$DistBridge = Join-Path $DistTools "PenguinBridge"
 Copy-PenguinBridgePublish $DistBridge
+
+if (-not $SkipCompressonator) {
+    $OutTools = Join-Path $OutDir ".tools"
+    Copy-CompressonatorBundle $OutTools
+    Copy-CompressonatorBundle $DistTools
+}
+
+$ThirdParty = Join-Path $Root "packaging\THIRD_PARTY_COMPRESSONATOR.txt"
+if (Test-Path $ThirdParty) {
+    Copy-Item $ThirdParty (Join-Path $OutDir "THIRD_PARTY_COMPRESSONATOR.txt") -Force
+}
 
 $ReleaseNote = Join-Path $Root ("packaging\GITHUB_RELEASE_v{0}.md" -f $Version)
 if (Test-Path $ReleaseNote) {
@@ -88,5 +138,8 @@ Compress-Archive -Path (Join-Path $OutDir "*") -DestinationPath $ZipPath -Compre
 Write-Host "Done."
 Write-Host "EXE: $AppExe"
 Write-Host "Bridge: $BridgeExe"
+if (-not $SkipCompressonator) {
+    Write-Host "CompressonatorCLI: $(Join-Path $OutDir '.tools\CompressonatorCLI\compressonatorcli.exe')"
+}
 Write-Host "Folder: $OutDir"
 Write-Host "Zip: $ZipPath"

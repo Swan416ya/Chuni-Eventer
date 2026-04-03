@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -58,13 +59,22 @@ class SettingsDialog(QDialog):
         game_layout.addLayout(game_row)
         game_layout.addWidget(rescan)
 
-        hint = BodyLabel(
-            "DDS 预览与 BC3 生成默认使用 quicktex；此处可填写 compressonatorcli 作为备选路径。"
-        )
+        if getattr(sys, "frozen", False):
+            dds_hint = (
+                "打包版已在 exe 同级的 .tools\\CompressonatorCLI 附带 AMD Compressonator CLI。"
+                "此处留空则自动使用该副本；填写路径则优先使用您指定的 compressonatorcli.exe。"
+            )
+            ph = "留空用附带 CLI；或浏览选择自定义 compressonatorcli.exe"
+        else:
+            dds_hint = (
+                "DDS 预览与 BC3 生成默认使用 quicktex；此处可填写 compressonatorcli 作为备选路径。"
+            )
+            ph = "compressonatorcli 可执行文件路径（可选）"
+        hint = BodyLabel(dds_hint)
         hint.setWordWrap(True)
 
         self.compressonator = LineEdit(self)
-        self.compressonator.setPlaceholderText("compressonatorcli 可执行文件路径（可选）")
+        self.compressonator.setPlaceholderText(ph)
         if cfg.compressonatorcli_path:
             self.compressonator.setText(cfg.compressonatorcli_path)
 
