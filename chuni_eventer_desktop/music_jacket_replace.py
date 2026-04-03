@@ -6,6 +6,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from PIL import Image, ImageOps, UnidentifiedImageError
+from PyQt6.QtWidgets import QWidget
 
 from .acus_scan import MusicItem
 from .dds_convert import convert_dds_to_png, convert_to_bc3_dds
@@ -86,10 +87,13 @@ def apply_music_jacket_image(
     item: MusicItem,
     source: Path,
     tool_path: Path | None,
+    progress_parent: QWidget | None = None,
 ) -> Path:
     """
     将本地图片或 DDS 先规范为 JACKET_BC3_EDGE×JACKET_BC3_EDGE，再写入 BC3 DDS。
     若 Music.xml 未配置 jaketFile/path，则使用 CHU_UI_Jacket_{id:04d}.dds 并回写 XML。
+
+    progress_parent：若传入则在后台线程编码 BC3 并显示进度，避免打包版主线程长时间无响应。
     """
     src = source.expanduser().resolve()
     if not src.is_file():
@@ -108,9 +112,21 @@ def apply_music_jacket_image(
     tmp_png: Path | None = None
     try:
         tmp_png = _prepare_square_jacket_png(src, JACKET_BC3_EDGE, tool_path)
-        convert_to_bc3_dds(
-            tool_path=tool_path, input_image=tmp_png, output_dds=out
-        )
+        if progress_parent is not None:
+            from .ui.dds_progress import run_bc3_jobs_with_progress
+
+            ok, err = run_bc3_jobs_with_progress(
+                parent=progress_parent,
+                tool_path=tool_path,
+                jobs=[(tmp_png, out)],
+                title="正在生成封面 DDS",
+            )
+            if not ok:
+                raise RuntimeError(err or "DDS 编码失败")
+        else:
+            convert_to_bc3_dds(
+                tool_path=tool_path, input_image=tmp_png, output_dds=out
+            )
     finally:
         if tmp_png is not None:
             tmp_png.unlink(missing_ok=True)

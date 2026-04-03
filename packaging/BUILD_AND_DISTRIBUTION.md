@@ -15,7 +15,7 @@ powershell -ExecutionPolicy Bypass -File ".\scripts\setup_penguin_tools.ps1"
 在仓库根目录执行：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File ".\scripts\build_windows.ps1" -Version 0.4.0
+powershell -ExecutionPolicy Bypass -File ".\scripts\build_windows.ps1" -Version 0.4.3
 ```
 
 该命令会自动完成：
@@ -28,8 +28,8 @@ powershell -ExecutionPolicy Bypass -File ".\scripts\build_windows.ps1" -Version 
 ## 产物位置
 
 - 主程序：`dist/ChuniEventer.exe`
-- 分发目录：`dist/release/Chuni-Eventer-v0.4.0/`
-- 分发压缩包：`dist/Chuni-Eventer-v0.4.0.zip`
+- 分发目录：`dist/release/Chuni-Eventer-v0.4.3/`
+- 分发压缩包：`dist/Chuni-Eventer-v0.4.3.zip`
 
 分发目录中会包含：
 
@@ -39,7 +39,7 @@ powershell -ExecutionPolicy Bypass -File ".\scripts\build_windows.ps1" -Version 
 
 ## 可选参数
 
-- `-Version 0.4.0`：设置分发目录和 zip 的版本号
+- `-Version 0.4.3`：设置分发目录和 zip 的版本号
 - `-SkipPyInstaller`：跳过主程序构建（仅重组装）
 - `-SkipBridge`：跳过 bridge 构建（仅在已存在 bridge 产物时使用）
 

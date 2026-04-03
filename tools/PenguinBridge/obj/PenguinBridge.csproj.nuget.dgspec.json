@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "e:\\Python Project\\Chuni-Eventer\\tools\\PenguinBridge\\PenguinBridge.csproj": {}
+    "E:\\Python Project\\Chuni-Eventer\\tools\\PenguinBridge\\PenguinBridge.csproj": {}
   },
   "projects": {
-    "e:\\Python Project\\Chuni-Eventer\\tools\\PenguinBridge\\PenguinBridge.csproj": {
+    "E:\\Python Project\\Chuni-Eventer\\tools\\PenguinBridge\\PenguinBridge.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "e:\\Python Project\\Chuni-Eventer\\tools\\PenguinBridge\\PenguinBridge.csproj",
+        "projectUniqueName": "E:\\Python Project\\Chuni-Eventer\\tools\\PenguinBridge\\PenguinBridge.csproj",
         "projectName": "PenguinBridge",
-        "projectPath": "e:\\Python Project\\Chuni-Eventer\\tools\\PenguinBridge\\PenguinBridge.csproj",
+        "projectPath": "E:\\Python Project\\Chuni-Eventer\\tools\\PenguinBridge\\PenguinBridge.csproj",
         "packagesPath": "C:\\Users\\34470\\.nuget\\packages\\",
-        "outputPath": "e:\\Python Project\\Chuni-Eventer\\tools\\PenguinBridge\\obj\\",
+        "outputPath": "E:\\Python Project\\Chuni-Eventer\\tools\\PenguinBridge\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"

@@ -16,6 +16,7 @@ from qfluentwidgets import (
 )
 
 from ..acus_workspace import AcusConfig, ensure_acus_layout
+from ..version import APP_VERSION
 from ..game_data_index import load_cached_game_index, rebuild_and_save_game_index
 from ..sheet_install import install_zip_to_acus
 from ..dds_quicktex import quicktex_available
@@ -39,7 +40,7 @@ class MainWindow(MSFluentWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Chuni Eventer")
+        self.setWindowTitle(f"Chuni Eventer v{APP_VERSION}")
         self.resize(1160, 720)
 
         self._acus_root = ensure_acus_layout()
@@ -287,7 +288,7 @@ class MainWindow(MSFluentWindow):
                     self,
                     "选择自制谱压缩包",
                     "",
-                    "ZIP 压缩包 (*.zip);;所有文件 (*.*)",
+                    "ZIP / TAR (*.zip *.tar *.tar.gz *.tar.bz2 *.tar.xz);;所有文件 (*.*)",
                 )
                 if not path.strip():
                     return

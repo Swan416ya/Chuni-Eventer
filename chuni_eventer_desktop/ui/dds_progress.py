@@ -5,7 +5,7 @@ from pathlib import Path
 from PyQt6.QtCore import QEventLoop, QObject, QThread, Qt, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QProgressDialog, QWidget
 
-from ..dds_convert import convert_to_bc3_dds
+from ..dds_convert import ingest_to_bc3_dds
 
 
 class _Bc3Worker(QObject):
@@ -23,7 +23,7 @@ class _Bc3Worker(QObject):
         for i, (src, dst) in enumerate(self._jobs):
             self.progress.emit(i, f"正在编码 ({i + 1}/{n})：{src.name}")
             try:
-                convert_to_bc3_dds(tool_path=self._tool, input_image=src, output_dds=dst)
+                ingest_to_bc3_dds(tool_path=self._tool, input_path=src, output_dds=dst)
             except Exception as e:
                 self.failed.emit(str(e))
                 return

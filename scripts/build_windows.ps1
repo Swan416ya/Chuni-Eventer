@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "0.4.0",
+    [string]$Version = "0.4.3",
     [switch]$SkipPyInstaller,
     [switch]$SkipBridge
 )
@@ -38,6 +38,9 @@ $BridgeOut = Join-Path $Root "tools\PenguinBridge\bin\Release\net8.0"
 if (-not $SkipBridge) {
     Write-Host "[3/4] Build PenguinBridge ..."
     & dotnet build (Join-Path $Root "tools\PenguinBridge\PenguinBridge.csproj") -c Release
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet build PenguinBridge failed (exit $LASTEXITCODE). Run scripts\setup_penguin_tools.ps1 or pass -SkipBridge."
+    }
 } else {
     Write-Host "[3/4] Skip bridge build"
 }

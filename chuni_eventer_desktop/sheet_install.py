@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import tarfile
 import zipfile
 from pathlib import Path
 
@@ -84,7 +85,7 @@ def _acus_parent_for_leaf_folder(first_segment: str) -> str | None:
 
 def _map_internal_to_rel(p: str) -> Path:
     """
-    将 zip 内路径（已去 ACUS 前缀）映射为相对于 ACUS 根的路径。
+    将归档内路径（已去 ACUS 前缀）映射为相对于 ACUS 根的路径。
     """
     p = _norm_posix(p)
     if not p or p == ".":
@@ -109,7 +110,7 @@ def _map_internal_to_rel(p: str) -> Path:
     )
 
 
-def _mapper_for_zip(namelist: list[str]):
+def _mapper_for_paths(namelist: list[str]):
     names = [_norm_posix(n) for n in namelist if not _is_junk_member(n)]
     names = [n for n in names if n]
     if not names:
@@ -122,24 +123,18 @@ def _mapper_for_zip(namelist: list[str]):
         names = [_strip_acus_prefix(n) for n in names]
         names = [n for n in names if n]
 
-    def map_path(zip_internal: str) -> Path:
-        p = _strip_acus_prefix(_norm_posix(zip_internal))
+    def map_path(internal: str) -> Path:
+        p = _strip_acus_prefix(_norm_posix(internal))
         return _map_internal_to_rel(p)
 
     return map_path
 
 
-def install_zip_to_acus(zip_path: Path, acus_root: Path) -> list[str]:
-    """
-    解压 zip 到 ACUS。返回已写入文件的相对路径列表（posix）。
-    """
+def _install_zip_core(zip_path: Path, acus_root: Path) -> list[str]:
     acus_root = acus_root.resolve()
     written: list[str] = []
-    if not zipfile.is_zipfile(zip_path):
-        raise ValueError("下载的文件不是 zip 压缩包（本站若上传 rar/7z 需先改为 zip）。")
-
     with zipfile.ZipFile(zip_path, "r") as zf:
-        map_path = _mapper_for_zip(zf.namelist())
+        map_path = _mapper_for_paths(zf.namelist())
         for name in zf.namelist():
             if _is_junk_member(name):
                 continue
@@ -164,3 +159,71 @@ def install_zip_to_acus(zip_path: Path, acus_root: Path) -> list[str]:
             written.append(rel.as_posix())
 
     return written
+
+
+def _install_tar_core(tar_path: Path, acus_root: Path) -> list[str]:
+    acus_root = acus_root.resolve()
+    written: list[str] = []
+    with tarfile.open(tar_path, "r:*") as tf:
+        members = [m for m in tf.getmembers() if not _is_junk_member(m.name)]
+        namelist = [m.name for m in members]
+        map_path = _mapper_for_paths(namelist)
+        for m in members:
+            name = m.name
+            if m.isdir():
+                try:
+                    rel = map_path(name.rstrip("/") + "/")
+                except ValueError as e:
+                    raise ValueError(f"{e}\n（条目：{name!r}）") from e
+                if str(rel) in (".", ""):
+                    continue
+                dest_dir = (acus_root / rel).resolve()
+                if not str(dest_dir).startswith(str(acus_root)):
+                    raise ValueError(f"非法路径：{name!r}")
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                continue
+            if not m.isfile():
+                continue
+            if m.issym() or m.islnk():
+                continue
+            try:
+                rel = map_path(name)
+            except ValueError as e:
+                raise ValueError(f"{e}\n（条目：{name!r}）") from e
+            if str(rel) in (".", ""):
+                continue
+            dest = (acus_root / rel).resolve()
+            if not str(dest).startswith(str(acus_root)):
+                raise ValueError(f"非法路径（压缩包路径穿越）：{name!r}")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            f = tf.extractfile(m)
+            if f is None:
+                continue
+            dest.write_bytes(f.read())
+            written.append(rel.as_posix())
+
+    return written
+
+
+def install_zip_to_acus(archive_path: Path, acus_root: Path) -> list[str]:
+    """
+    将归档文件解压并写入 ACUS（不做谱面格式转换，仅按路径规则落位）。
+
+    仅使用标准库识别：zip、以及 tar（含 .tar.gz / .tar.bz2 / .tar.xz 等）。
+    下载到临时文件时请勿写死扩展名，以便按文件头正确识别。
+
+    函数名保留 install_zip_to_acus 以兼容旧调用处（Swan 站 / 本地导入）。
+    """
+    p = archive_path.expanduser().resolve()
+    if not p.is_file():
+        raise FileNotFoundError(str(p))
+
+    if zipfile.is_zipfile(p):
+        return _install_zip_core(p, acus_root)
+    if tarfile.is_tarfile(p):
+        return _install_tar_core(p, acus_root)
+
+    raise ValueError(
+        "无法识别该压缩包格式（需为 zip，或 tar / .tar.gz / .tar.bz2 / .tar.xz）。\n"
+        "若服务端是其它格式，请先在本机解压为上述格式再导入，或联系发布方提供 zip/tar 包。"
+    )

@@ -4,7 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
-from PyQt6.QtCore import Qt, QModelIndex, QSortFilterProxyModel
+from PyQt6.QtCore import QPoint, Qt, QModelIndex, QSortFilterProxyModel
 from PyQt6.QtGui import QPixmap, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSizePolicy,
@@ -32,6 +33,7 @@ from qfluentwidgets import BodyLabel, CaptionLabel, ComboBox as FluentComboBox, 
 from .fluent_dialogs import fly_critical, fly_message
 from .music_cards_view import MusicCardsView
 
+from ..chara_delete import delete_chara_from_acus
 from ..music_delete import execute_music_deletion, plan_music_deletion
 from ..acus_scan import (
     CharaItem,
@@ -268,6 +270,8 @@ class ManagerWidget(QWidget):
         self.table.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignLeft)
         self.table.selectionModel().selectionChanged.connect(self._on_select)
         self.table.doubleClicked.connect(self._on_table_double_clicked)
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._on_table_context_menu)
 
         self.preview_section = QWidget()
         pv = QVBoxLayout(self.preview_section)
@@ -852,7 +856,10 @@ class ManagerWidget(QWidget):
 
         try:
             out = apply_music_jacket_image(
-                item=it, source=Path(path), tool_path=tool
+                item=it,
+                source=Path(path),
+                tool_path=tool,
+                progress_parent=self.window(),
             )
         except Exception as e:
             fly_critical(self.window(), "更换封面失败", str(e))
@@ -887,6 +894,48 @@ class ManagerWidget(QWidget):
         except Exception as e:
             QMessageBox.critical(self.window(), "删除失败", str(e))
             return
+        self.reload()
+
+    def _on_table_context_menu(self, pos: QPoint) -> None:
+        if self._kind_key() != "Chara":
+            return
+        idx = self.table.indexAt(pos)
+        if not idx.isValid():
+            return
+        src_idx = self.proxy.mapToSource(idx)
+        item0 = self.model.item(src_idx.row(), 0)
+        if item0 is None:
+            return
+        payload = item0.data(Qt.ItemDataRole.UserRole)
+        if not isinstance(payload, CharaItem):
+            return
+        menu = QMenu(self.table)
+        act_del = menu.addAction("删除角色…")
+        chosen = menu.exec(self.table.viewport().mapToGlobal(pos))
+        if chosen != act_del:
+            return
+        self._delete_chara_item(payload)
+
+    def _delete_chara_item(self, it: CharaItem) -> None:
+        nm = (it.name.str or "").strip() or "—"
+        r = QMessageBox.question(
+            self.window(),
+            "删除角色",
+            f"将永久删除角色 ID {it.name.id}（{nm}）在 ACUS 下的目录：\n"
+            f"• chara/{it.xml_path.parent.name}/\n"
+            f"• ddsImage/ddsImage{it.name.id:06d}/（若存在）\n\n"
+            "此操作不可撤销，确定删除？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if r != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            delete_chara_from_acus(self._acus_root, it)
+        except Exception as e:
+            fly_critical(self.window(), "删除失败", str(e))
+            return
+        fly_message(self.window(), "已删除", f"已移除角色 {it.name.id} 的资源目录。")
         self.reload()
 
     def _on_select(self, *_args) -> None:

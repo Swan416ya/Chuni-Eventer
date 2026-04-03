@@ -60,8 +60,8 @@ class _InstallSheetThread(QThread):
     def run(self) -> None:
         try:
             data = download_sheet_archive(self._base, self._cid)
-            suffix = ".zip"
-            fd, path = tempfile.mkstemp(prefix="chuni_sheet_", suffix=suffix)
+            # 不写死 .zip：服务端可能是 zip/tar/7z/rar 等任意包；由 sheet_install 嗅探/解压
+            fd, path = tempfile.mkstemp(prefix="chuni_swan_")
             os.close(fd)
             tmp = Path(path)
             try:
@@ -154,11 +154,12 @@ class SwanSheetDownloadDialog(QDialog):
         self._status.setText("正在加载列表…")
         self._table.setRowCount(0)
         self._entries.clear()
-        self._fetch_thread = _FetchSheetsThread(base, parent=self)
-        self._fetch_thread.ok.connect(self._on_fetch_ok)
-        self._fetch_thread.fail.connect(self._on_fetch_fail)
-        self._fetch_thread.finished.connect(self._fetch_thread.deleteLater)
-        self._fetch_thread.start()
+        th = _FetchSheetsThread(base, parent=self)
+        self._fetch_thread = th
+        th.ok.connect(self._on_fetch_ok)
+        th.fail.connect(self._on_fetch_fail)
+        th.finished.connect(lambda t=th: self._finalize_fetch_thread(t))
+        th.start()
 
     def _on_fetch_ok(self, rows: object) -> None:
         if not isinstance(rows, list):
@@ -182,6 +183,16 @@ class SwanSheetDownloadDialog(QDialog):
         self._status.setText("加载失败。")
         fly_critical(self, "无法获取铺面列表", msg)
 
+    def _finalize_fetch_thread(self, th: _FetchSheetsThread) -> None:
+        if self._fetch_thread is th:
+            self._fetch_thread = None
+        th.deleteLater()
+
+    def _finalize_install_thread(self, th: _InstallSheetThread) -> None:
+        if self._install_thread is th:
+            self._install_thread = None
+        th.deleteLater()
+
     def _selected_entry(self) -> SheetListEntry | None:
         r = self._table.currentRow()
         if r < 0 or r >= len(self._entries):
@@ -197,11 +208,12 @@ class SwanSheetDownloadDialog(QDialog):
         if self._install_thread and self._install_thread.isRunning():
             return
         self._status.setText(f"正在下载并安装：{e.music_name or e.title or '所选条目'} …")
-        self._install_thread = _InstallSheetThread(base, e.content_id, self._acus_root, parent=self)
-        self._install_thread.ok.connect(self._on_install_ok)
-        self._install_thread.fail.connect(self._on_install_fail)
-        self._install_thread.finished.connect(self._install_thread.deleteLater)
-        self._install_thread.start()
+        th = _InstallSheetThread(base, e.content_id, self._acus_root, parent=self)
+        self._install_thread = th
+        th.ok.connect(self._on_install_ok)
+        th.fail.connect(self._on_install_fail)
+        th.finished.connect(lambda t=th: self._finalize_install_thread(t))
+        th.start()
 
     def _on_install_ok(self, msg: str) -> None:
         self._status.setText("安装完成。")

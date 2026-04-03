@@ -92,7 +92,7 @@ class MusicSheetChannelsDialog(QDialog):
         foot.setContentsMargins(0, 0, 0, 0)
         self._close_btn = PushButton("关闭", card)
         self._close_btn.setToolTip(
-            "左键：关闭。右键：从本地 ZIP 导入（与 Swan 下载后相同的自动解压逻辑）。"
+            "左键：关闭。右键：从本地压缩包导入（与 Swan 下载后相同的解压与落盘逻辑）。"
         )
         self._close_btn.setSizePolicy(
             QSizePolicy.Policy.Expanding,

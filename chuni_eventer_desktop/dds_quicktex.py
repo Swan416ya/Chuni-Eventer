@@ -13,6 +13,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from .cli_flags import QUICKTEX_WORKER_ARG
+
 
 def _package_parent_dir() -> Path:
     """含 `chuni_eventer_desktop` 包的目录（用于子进程 -m 导入时的 cwd）。"""
@@ -77,26 +79,43 @@ def encode_image_to_bc3_dds_quicktex(
     """
     使用 quicktex 将常见位图转为 DXT5/BC3 单级 mipmap DDS（与 CLI `encode bc3` 同类）。
 
-    在子进程中执行实际编码，避免 Windows 上 quicktex 原生 access violation 拖垮 PyQt 主进程。
+    始终在**子进程**中执行编码，避免 Windows 上 quicktex 原生崩溃/访问冲突拖垮 PyQt 主进程。
+
+    - 开发环境：``python -m chuni_eventer_desktop.quicktex_worker ...``
+    - PyInstaller：``ChuniEventer.exe --chuni-quicktex-worker ...``（run_desktop 入口在启动 GUI 前转交 quicktex_worker）
     """
-    root = _package_parent_dir()
-    cmd = [
-        sys.executable,
-        "-m",
-        "chuni_eventer_desktop.quicktex_worker",
-        str(input_image.resolve()),
-        str(output_dds.resolve()),
-        str(quality_level),
-        str(mip_count),
-    ]
+    in_p = str(input_image.resolve())
+    out_p = str(output_dds.resolve())
+    q = str(quality_level)
+    m = str(mip_count)
+
+    if getattr(sys, "frozen", False):
+        cmd = [sys.executable, QUICKTEX_WORKER_ARG, in_p, out_p, q, m]
+        popen_kw: dict = {}
+    else:
+        root = _package_parent_dir()
+        cmd = [
+            sys.executable,
+            "-m",
+            "chuni_eventer_desktop.quicktex_worker",
+            in_p,
+            out_p,
+            q,
+            m,
+        ]
+        popen_kw = {"cwd": str(root)}
+
+    if sys.platform == "win32":
+        popen_kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
     try:
         p = subprocess.run(
             cmd,
-            cwd=str(root),
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="replace",
+            **popen_kw,
         )
     except OSError as e:
         raise RuntimeError(f"无法启动 quicktex 子进程：{e}") from e
