@@ -56,6 +56,8 @@ def write_chara_xml(
     illustrator_id: int = -1,
     release_tag_id: int = -1,
     release_tag_str: str = "Invalid",
+    works_id: int = -1,
+    works_str: str = "Invalid",
     net_open_id: int = 2801,
     net_open_str: str = "v2_45 00_1",
 ) -> Path:
@@ -81,6 +83,13 @@ def write_chara_xml(
     ill_str = _esc(ill_raw) if ill_raw else "Invalid"
     ill_id = illustrator_id if ill_raw else -1
     rt_str = _esc((release_tag_str or "").strip() or "Invalid")
+    w_id = int(works_id)
+    w_raw = (works_str or "").strip()
+    if w_id == -1 or not w_raw or w_raw == "Invalid":
+        w_id = -1
+        w_str = "Invalid"
+    else:
+        w_str = _esc(w_raw)
 
     xml = f"""<?xml version="1.0" encoding="utf-8"?>
 <CharaData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
@@ -104,8 +113,8 @@ def write_chara_xml(
   <explainText />
   <sortName>{cid.chara_key}</sortName>
   <works>
-    <id>-1</id>
-    <str>Invalid</str>
+    <id>{w_id}</id>
+    <str>{w_str}</str>
     <data />
   </works>
   <illustratorName>

@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RewardData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dataName>reward020000302</dataName>
+  <name>
+    <id>20000302</id>
+    <str>キャラクターEXPブースト×3.0倍チケット</str>
+    <data />
+  </name>
+  <substances>
+    <list>
+      <RewardSubstanceData>
+        <type>1</type>
+        <gamePoint>
+          <gamePoint>0</gamePoint>
+        </gamePoint>
+        <ticket>
+          <ticketName>
+            <id>302</id>
+            <str>キャラクターEXPブースト×3.0倍チケット</str>
+            <data />
+          </ticketName>
+        </ticket>
+        <trophy>
+          <trophyName>
+            <id>-1</id>
+            <str>Invalid</str>
+            <data />
+          </trophyName>
+        </trophy>
+        <chara>
+          <charaName>
+            <id>-1</id>
+            <str>Invalid</str>
+            <data />
+          </charaName>
+        </chara>
+        <skillSeed>
+          <skillSeedName>
+            <id>-1</id>
+            <str>Invalid</str>
+            <data />
+          </skillSeedName>
+          <skillSeedCount>1</skillSeedCount>
+        </skillSeed>
+        <namePlate>
+          <namePlateName>
+            <id>-1</id>
+            <str>Invalid</str>
+            <data />
+          </namePlateName>
+        </namePlate>
+        <music>
+          <musicName>
+            <id>-1</id>
+            <str>Invalid</str>
+            <data />
+          </musicName>
+        </music>
+        <mapIcon>
+          <mapIconName>
+            <id>-1</id>
+            <str>Invalid</str>
+            <data />
+          </mapIconName>
+        </mapIcon>
+        <systemVoice>
+          <systemVoiceName>
+            <id>-1</id>
+            <str>Invalid</str>
+            <data />
+          </systemVoiceName>
+        </systemVoice>
+        <avatarAccessory>
+          <avatarAccessoryName>
+            <id>-1</id>
+            <str>Invalid</str>
+            <data />
+          </avatarAccessoryName>
+        </avatarAccessory>
+        <frame>
+          <frameName>
+            <id>-1</id>
+            <str>Invalid</str>
+            <data />
+          </frameName>
+        </frame>
+        <symbolChat>
+          <symbolChatName>
+            <id>-1</id>
+            <str>Invalid</str>
+            <data />
+          </symbolChatName>
+        </symbolChat>
+        <ultimaScore>
+          <musicName>
+            <id>-1</id>
+            <str>Invalid</str>
+            <data />
+          </musicName>
+        </ultimaScore>
+        <stage>
+          <stageName>
+            <id>-1</id>
+            <str>Invalid</str>
+            <data />
+          </stageName>
+        </stage>
+      </RewardSubstanceData>
+    </list>
+  </substances>
+</RewardData>

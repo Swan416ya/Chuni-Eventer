@@ -23,7 +23,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ..acus_scan import CharaItem, scan_charas
+from ..acus_scan import CharaItem
+from ..game_data_index import GameDataIndex, merged_chara_items
 from .map_add_dialog import RewardRef, load_chara_refs, load_nameplate_refs, load_trophy_refs
 
 
@@ -123,7 +124,13 @@ def _fill_ref_combo(cb: QComboBox, refs: list[RewardRef]) -> None:
 class QuestAddDialog(QDialog):
     """新建任务（Quest.xml）：多角色合计等级（sumRank）达成后发放称号/名牌/角色形象。"""
 
-    def __init__(self, *, acus_root: Path, parent=None) -> None:
+    def __init__(
+        self,
+        *,
+        acus_root: Path,
+        game_index: GameDataIndex | None = None,
+        parent=None,
+    ) -> None:
         super().__init__(parent=parent)
         self.setWindowTitle("新建任务")
         self.setModal(True)
@@ -137,7 +144,7 @@ class QuestAddDialog(QDialog):
 
         self._chara_list = QListWidget()
         self._chara_list.setMinimumHeight(180)
-        charas = scan_charas(acus_root)
+        charas = merged_chara_items(acus_root, game_index)
         self._chara_items: list[CharaItem] = charas
         for c in charas:
             it = QListWidgetItem(f"{c.name.id} · {c.name.str}")
@@ -146,9 +153,9 @@ class QuestAddDialog(QDialog):
             it.setData(Qt.ItemDataRole.UserRole, c)
             self._chara_list.addItem(it)
 
-        self._trophy_refs = load_trophy_refs(acus_root)
-        self._np_refs = load_nameplate_refs(acus_root)
-        self._chara_refs = load_chara_refs(acus_root)
+        self._trophy_refs = load_trophy_refs(acus_root, game_index)
+        self._np_refs = load_nameplate_refs(acus_root, game_index)
+        self._chara_refs = load_chara_refs(acus_root, game_index)
 
         self._tier_box = QVBoxLayout()
         self._tier_rows: list[_TierRow] = []

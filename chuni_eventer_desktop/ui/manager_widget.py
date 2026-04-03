@@ -40,6 +40,7 @@ from qfluentwidgets import (
 
 from .fluent_dialogs import fly_critical, fly_message
 from .music_cards_view import MusicCardsView
+from .works_dialogs import CharaEditWorksDialog, WorksLibraryManagerDialog
 
 from ..chara_delete import delete_chara_from_acus
 from ..music_delete import execute_music_deletion, plan_music_deletion
@@ -299,6 +300,18 @@ class ManagerWidget(QWidget):
         pv.addWidget(self.chara_triple)
         self.preview_section.setVisible(False)
 
+        self._chara_works_bar = QWidget()
+        cwb = QHBoxLayout(self._chara_works_bar)
+        cwb.setContentsMargins(0, 4, 0, 0)
+        self._btn_chara_edit_works = QPushButton("编辑作品（works）…")
+        self._btn_chara_works_lib = QPushButton("管理作品库…")
+        self._btn_chara_edit_works.clicked.connect(self._on_chara_edit_works_clicked)
+        self._btn_chara_works_lib.clicked.connect(self._on_chara_works_library_clicked)
+        cwb.addWidget(self._btn_chara_edit_works)
+        cwb.addWidget(self._btn_chara_works_lib)
+        cwb.addStretch(1)
+        self._chara_works_bar.setVisible(False)
+
         self.attrs_table = QTableWidget(0, 2)
         self.attrs_table.setHorizontalHeaderLabels(["属性", "值"])
         self.attrs_table.horizontalHeader().setStretchLastSection(True)
@@ -316,6 +329,7 @@ class ManagerWidget(QWidget):
         right_layout = QVBoxLayout(right_card)
         right_layout.setContentsMargins(12, 12, 12, 12)
         right_layout.addWidget(self.preview_section, stretch=0)
+        right_layout.addWidget(self._chara_works_bar)
         right_layout.addWidget(BodyLabel("属性"))
         right_layout.addWidget(self.attrs_table, stretch=1)
 
@@ -483,6 +497,7 @@ class ManagerWidget(QWidget):
         self.simple_preview.setVisible(False)
         self.chara_variant_tabs.setVisible(False)
         self.chara_triple.setVisible(False)
+        self._chara_works_bar.setVisible(False)
 
     def _rel_acus_path(self, p: Path) -> str:
         try:
@@ -505,6 +520,7 @@ class ManagerWidget(QWidget):
         self.attrs_table.setItem(r, 1, QTableWidgetItem(value))
 
     def _fill_attrs_table(self, it: object) -> None:
+        self._chara_works_bar.setVisible(False)
         self.attrs_table.setRowCount(0)
         for label, val in self._attr_rows(it):
             self._append_attr_row(label, val)
@@ -928,6 +944,11 @@ class ManagerWidget(QWidget):
         if k == "Chara":
             if not isinstance(payload, CharaItem):
                 return
+            act_works = Action(FIF.EDIT, "编辑作品（works）…", self.table)
+            act_works.triggered.connect(
+                lambda checked=False, p=payload: self._open_chara_edit_works_dialog(p)
+            )
+            menu.addAction(act_works)
             act_del = Action(FIF.DELETE, "删除角色…", self.table)
             act_del.triggered.connect(lambda checked=False, p=payload: self._delete_chara_item(p))
             menu.addAction(act_del)
@@ -983,6 +1004,20 @@ class ManagerWidget(QWidget):
             return
         fly_message(self.window(), "已删除", "已移除所选称号" + ("及关联角色资源。" if with_chara else "。"))
         self.reload()
+
+    def _on_chara_edit_works_clicked(self) -> None:
+        it = self._selected_chara
+        if it is not None:
+            self._open_chara_edit_works_dialog(it)
+
+    def _on_chara_works_library_clicked(self) -> None:
+        WorksLibraryManagerDialog(parent=self.window()).exec()
+
+    def _open_chara_edit_works_dialog(self, it: CharaItem) -> None:
+        dlg = CharaEditWorksDialog(xml_path=it.xml_path, parent=self.window())
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.reload()
+            fly_message(self.window(), "已更新", "已写入 Chara.xml 的 works 字段。")
 
     def _delete_chara_item(self, it: CharaItem) -> None:
         nm = (it.name.str or "").strip() or "—"
@@ -1082,6 +1117,7 @@ class ManagerWidget(QWidget):
 
     def _show_chara_detail(self, it: CharaItem) -> None:
         self._selected_chara = it
+        self._chara_works_bar.setVisible(True)
         self._chara_variant_map, meta = self._parse_chara_variants_and_meta(it.xml_path)
         self.attrs_table.setRowCount(0)
         for label, val in self._chara_attr_rows(it, meta):
@@ -1117,12 +1153,16 @@ class ManagerWidget(QWidget):
         release_tag_id = (root.findtext("releaseTagName/id") or "").strip()
         release_tag_str = (root.findtext("releaseTagName/str") or "").strip()
         illustrator = (root.findtext("illustratorName/str") or "").strip()
+        works_id = (root.findtext("works/id") or "").strip()
         works = (root.findtext("works/str") or "").strip()
         meta["name"] = name
         meta["id"] = base_id_raw
         meta["releaseTag"] = f"{release_tag_id}:{release_tag_str}"
         meta["illustrator"] = illustrator or "Invalid"
-        meta["works"] = works or "Invalid"
+        if works_id or works:
+            meta["works"] = f"{works_id or '?'}" + (" · " + works if works else "")
+        else:
+            meta["works"] = "Invalid"
         try:
             base_id = int(base_id_raw)
         except Exception:

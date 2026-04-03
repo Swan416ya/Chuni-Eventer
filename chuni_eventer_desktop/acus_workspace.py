@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,36 @@ def app_cache_dir() -> Path:
     return app_root_dir() / ".cache"
 
 
+def _acus_seed_source_dir() -> Path:
+    return Path(__file__).resolve().parent / "data" / "acus_seed"
+
+
+def _seed_acus_from_bundled(acus_root: Path) -> None:
+    """
+    首次创建 ACUS 时从随包数据复制：releaseTag（自制譜 / セカイ 等）、常用点数与功能票 Reward。
+    已存在的子目录不覆盖，避免冲掉用户修改。
+    """
+    seed = _acus_seed_source_dir()
+    if not seed.is_dir():
+        return
+    for sub in ("releaseTag", "reward"):
+        src = seed / sub
+        if not src.is_dir():
+            continue
+        dst = acus_root / sub
+        dst.mkdir(parents=True, exist_ok=True)
+        try:
+            for item in sorted(src.iterdir()):
+                if not item.is_dir():
+                    continue
+                dest_item = dst / item.name
+                if dest_item.exists():
+                    continue
+                shutil.copytree(item, dest_item)
+        except OSError:
+            continue
+
+
 def ensure_acus_layout() -> Path:
     """
     Create ACUS folder and core subfolders (A001-like roots we care about).
@@ -47,8 +78,10 @@ def ensure_acus_layout() -> Path:
         "namePlate",
         "trophy",
         "stage",
+        "releaseTag",
     ]:
         (root / d).mkdir(parents=True, exist_ok=True)
+    _seed_acus_from_bundled(root)
     # 缓存不再放在 ACUS 内，统一放应用根 .cache
     (app_cache_dir() / "dds_preview").mkdir(parents=True, exist_ok=True)
     return root

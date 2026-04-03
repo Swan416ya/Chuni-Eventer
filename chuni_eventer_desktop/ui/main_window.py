@@ -260,7 +260,7 @@ class MainWindow(MSFluentWindow):
                 parent=self,
             )
             if dlg.exec() == dlg.DialogCode.Accepted and dlg.result_cell is not None:
-                ensure_reward_xml(self._acus_root, dlg.result_cell)
+                ensure_reward_xml(self._acus_root, dlg.result_cell, gi)
                 self._on_refresh()
             return
 
@@ -298,7 +298,11 @@ class MainWindow(MSFluentWindow):
             return
 
         if idx == 3:
-            dlg = QuestAddDialog(acus_root=self._acus_root, parent=self)
+            dlg = QuestAddDialog(
+                acus_root=self._acus_root,
+                game_index=self._resolve_game_index(),
+                parent=self,
+            )
             if dlg.exec() == dlg.DialogCode.Accepted:
                 self._on_refresh()
             return

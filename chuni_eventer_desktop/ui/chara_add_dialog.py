@@ -21,6 +21,7 @@ from ..chuni_formats import ChuniCharaId
 from ..dds_convert import DdsToolError
 from ..xml_writer import write_chara_xml, write_ddsimage_xml
 from .dds_progress import run_bc3_jobs_with_progress
+from .works_dialogs import combo_works_id_str, make_works_picker_row, works_warning_label
 
 
 def _set_idstr(node: ET.Element, val_id: int, val_str: str) -> None:
@@ -102,10 +103,6 @@ class CharaAddDialog(QDialog):
         self.name.setPlaceholderText("角色显示名")
         self.illustrator = QLineEdit()
         self.illustrator.setPlaceholderText("绘师 / illustratorName.str（可选，不填则 Invalid）")
-        self.release_tag_id = QLineEdit("-1")
-        self.release_tag_id.setPlaceholderText("releaseTagName.id")
-        self.release_tag_str = QLineEdit("Invalid")
-        self.release_tag_str.setPlaceholderText("releaseTagName.str")
 
         self.head = QLineEdit()
         self.half = QLineEdit()
@@ -124,8 +121,10 @@ class CharaAddDialog(QDialog):
         form.addRow("最终ID", self.cid_preview)
         form.addRow("角色名", self.name)
         form.addRow("绘师（可选）", self.illustrator)
-        form.addRow("releaseTagName.id", self.release_tag_id)
-        form.addRow("releaseTagName.str", self.release_tag_str)
+        self._works_row, self._works_combo = make_works_picker_row(parent=self)
+        form.addRow("作品（works）", self._works_row)
+        form.addRow("", works_warning_label())
+        # releaseTagName 固定为 -1 / Invalid；游戏侧通过 ACUS 预置的 releaseTag XML 显示为「自制譜」等，不由本工具填写。
         # A001：CHU_UI_Character_*_00/01/02 = 全身 / 半身 / 大头（与 ddsFile0/1/2 一致）
         form.addRow(
             "全身（_00）",
@@ -238,24 +237,18 @@ class CharaAddDialog(QDialog):
 
             write_ddsimage_xml(out_dir=self._acus_root, chara_id=cid.raw)
             ill = self.illustrator.text().strip() or None
-            rt_id_s = self.release_tag_id.text().strip()
-            if rt_id_s == "":
-                rt_id = -1
-            else:
-                try:
-                    rt_id = int(rt_id_s)
-                except ValueError as e:
-                    raise ValueError("releaseTagName.id 必须是整数") from e
-            rt_str = self.release_tag_str.text().strip() or "Invalid"
             chara_name = self.name.text().strip()
+            w_id, w_str = combo_works_id_str(self._works_combo)
             if var == 0:
                 write_chara_xml(
                     out_dir=self._acus_root,
                     chara_id=cid.raw,
                     chara_name=chara_name,
                     illustrator_name=ill,
-                    release_tag_id=rt_id,
-                    release_tag_str=rt_str,
+                    release_tag_id=-1,
+                    release_tag_str="Invalid",
+                    works_id=w_id,
+                    works_str=w_str,
                 )
             else:
                 update_chara_variant_slot(

@@ -37,9 +37,12 @@ from qfluentwidgets import LineEdit as FluentLineEdit
 from ..dds_convert import DdsToolError, ingest_to_bc3_dds
 from ..game_data_index import (
     GameDataIndex,
+    merged_chara_pairs,
     merged_dds_map_pairs,
     merged_music_pairs,
+    merged_nameplate_pairs,
     merged_stage_pairs,
+    merged_trophy_pairs,
 )
 
 from .dds_progress import run_bc3_jobs_with_progress
@@ -239,26 +242,44 @@ def _parse_grid_int(el: ET.Element | None, tag: str, default: int) -> int:
     return int(t) if t.isdigit() else default
 
 
-def _reward_source_roots(acus_root: Path) -> list[Path]:
+def _reward_source_roots(acus_root: Path, idx: GameDataIndex | None = None) -> list[Path]:
     """
     Reward 参考源：
     - ACUS（用户自定义）
     - 仓库 A001（官方基础奖励，如企鹅/功能票等）
+    - 已索引的游戏数据包（与 ddsImage 等合并范围一致）
     """
     roots: list[Path] = [acus_root]
     a001 = acus_root.parent / "A001"
-    if a001.is_dir() and a001 != acus_root:
+    if a001.is_dir() and a001.resolve() not in {r.resolve() for r in roots}:
         roots.append(a001)
+    if idx is not None:
+        try:
+            gr = Path(idx.game_root).resolve()
+        except OSError:
+            gr = None
+        if gr is not None:
+            seen = {r.resolve() for r in roots}
+            for rel in idx.roots_scanned:
+                try:
+                    p = (gr / rel).resolve()
+                    if p.is_dir() and p not in seen:
+                        seen.add(p)
+                        roots.append(p)
+                except OSError:
+                    continue
     return roots
 
 
-def resolve_reward_xml(acus_root: Path, rid: int) -> Path | None:
+def resolve_reward_xml(
+    acus_root: Path, rid: int, idx: GameDataIndex | None = None
+) -> Path | None:
     """
     定位 Reward.xml。优先 reward{9位零填充}；否则在 reward/*/Reward.xml 里按 name/id 匹配。
     """
     if rid < 0:
         return None
-    for root in _reward_source_roots(acus_root):
+    for root in _reward_source_roots(acus_root, idx):
         p9 = root / "reward" / f"reward{rid:09d}" / "Reward.xml"
         if p9.exists():
             return p9
@@ -287,12 +308,14 @@ def resolve_reward_xml(acus_root: Path, rid: int) -> Path | None:
     return None
 
 
-def enrich_cell_from_reward_xml(acus_root: Path, cell: CellData) -> None:
+def enrich_cell_from_reward_xml(
+    acus_root: Path, cell: CellData, idx: GameDataIndex | None = None
+) -> None:
     """根据 reward XML 补全 reward_kind、目标实体 id（reward_inner_id）与课题曲。"""
     rid = cell.reward_id
     if rid is None or rid < 0:
         return
-    p = resolve_reward_xml(acus_root, rid)
+    p = resolve_reward_xml(acus_root, rid, idx)
     if p is None:
         cell.reward_kind = "外部奖励ID"
         return
@@ -356,7 +379,9 @@ def enrich_cell_from_reward_xml(acus_root: Path, cell: CellData) -> None:
 
 
 def parse_maparea_file(
-    acus_root: Path, area_xml: Path
+    acus_root: Path,
+    area_xml: Path,
+    game_index: GameDataIndex | None = None,
 ) -> tuple[list[CellData], MapAreaExtras, list[int | None], bool]:
     """
     解析 MapArea 九宫格。
@@ -392,7 +417,7 @@ def parse_maparea_file(
                 display_type=dt,
                 cell_type=ct,
             )
-            enrich_cell_from_reward_xml(acus_root, c)
+            enrich_cell_from_reward_xml(acus_root, c, game_index)
         rows.append((gix, c))
 
     rows.sort(key=lambda x: x[0])
@@ -445,12 +470,14 @@ class CellEditDialog(QDialog):
         stage_refs: list[RewardRef],
         music_refs: list[MusicRef],
         data: CellData,
+        game_index: GameDataIndex | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent=parent)
         self.setWindowTitle("配置格子奖励")
         self.setModal(True)
         self._acus_root = acus_root
+        self._game_index = game_index
         self._reward_refs = reward_refs
         self._chara_refs = chara_refs
         self._trophy_refs = trophy_refs
@@ -699,7 +726,7 @@ class CellEditDialog(QDialog):
             out.reward_id = ref.id
             out.reward_name = ref.name
             out.reward_kind = "外部奖励ID"
-            enrich_cell_from_reward_xml(self._acus_root, out)
+            enrich_cell_from_reward_xml(self._acus_root, out, self._game_index)
         elif rm == "手填奖励ID":
             rid = _safe_int(self.reward_id.text())
             if rid is None:
@@ -1301,10 +1328,12 @@ class RewardCreateDialog(QDialog):
         self.accept()
 
 
-def load_reward_refs(acus_root: Path) -> list[RewardRef]:
+def load_reward_refs(
+    acus_root: Path, idx: GameDataIndex | None = None
+) -> list[RewardRef]:
     refs: list[RewardRef] = []
     seen: set[int] = set()
-    for root in _reward_source_roots(acus_root):
+    for root in _reward_source_roots(acus_root, idx):
         for p in root.glob("reward/**/Reward.xml"):
             try:
                 r = ET.parse(p).getroot()
@@ -1327,7 +1356,7 @@ def load_reward_refs(acus_root: Path) -> list[RewardRef]:
                     if not allow_a001:
                         continue
                 c = CellData(reward_id=rid, reward_name=name or f"Reward{rid}")
-                enrich_cell_from_reward_xml(acus_root, c)
+                enrich_cell_from_reward_xml(acus_root, c, idx)
                 k = _kind_label(c.reward_kind)
                 label = f"[{k}] {c.reward_name or f'Reward{rid}'}"
                 if c.reward_inner_id is not None and c.reward_inner_id >= 0:
@@ -1361,46 +1390,31 @@ def load_music_refs(acus_root: Path) -> list[MusicRef]:
     return sorted(refs, key=lambda x: x.id)
 
 
-def load_chara_refs(acus_root: Path) -> list[RewardRef]:
-    refs: list[RewardRef] = []
-    for p in acus_root.glob("chara/**/Chara.xml"):
-        try:
-            r = ET.parse(p).getroot()
-            cid = _safe_int(r.findtext("name/id") or "")
-            name = (r.findtext("name/str") or "").strip()
-            if cid is not None:
-                refs.append(RewardRef(cid, name or f"Chara{cid}"))
-        except Exception:
-            continue
-    return sorted(refs, key=lambda x: x.id)
+def load_chara_refs(
+    acus_root: Path, idx: GameDataIndex | None = None
+) -> list[RewardRef]:
+    return [
+        RewardRef(i, n, "")
+        for i, n in merged_chara_pairs(acus_root, idx)
+    ]
 
 
-def load_nameplate_refs(acus_root: Path) -> list[RewardRef]:
-    refs: list[RewardRef] = []
-    for p in acus_root.glob("namePlate/**/NamePlate.xml"):
-        try:
-            r = ET.parse(p).getroot()
-            nid = _safe_int(r.findtext("name/id") or "")
-            name = (r.findtext("name/str") or "").strip()
-            if nid is not None:
-                refs.append(RewardRef(nid, name or f"NamePlate{nid}"))
-        except Exception:
-            continue
-    return sorted(refs, key=lambda x: x.id)
+def load_nameplate_refs(
+    acus_root: Path, idx: GameDataIndex | None = None
+) -> list[RewardRef]:
+    return [
+        RewardRef(i, n, "")
+        for i, n in merged_nameplate_pairs(acus_root, idx)
+    ]
 
 
-def load_trophy_refs(acus_root: Path) -> list[RewardRef]:
-    refs: list[RewardRef] = []
-    for p in acus_root.glob("trophy/**/Trophy.xml"):
-        try:
-            r = ET.parse(p).getroot()
-            tid = _safe_int(r.findtext("name/id") or "")
-            name = (r.findtext("name/str") or "").strip()
-            if tid is not None:
-                refs.append(RewardRef(tid, name or f"Trophy{tid}"))
-        except Exception:
-            continue
-    return sorted(refs, key=lambda x: x.id)
+def load_trophy_refs(
+    acus_root: Path, idx: GameDataIndex | None = None
+) -> list[RewardRef]:
+    return [
+        RewardRef(i, n, "")
+        for i, n in merged_trophy_pairs(acus_root, idx)
+    ]
 
 
 def load_dds_map_refs(acus_root: Path) -> list[RewardRef]:
@@ -1602,19 +1616,21 @@ def reward_dialog_bundle(
 ]:
     return (
         _merged_music_refs(acus_root, game_index),
-        load_chara_refs(acus_root),
-        load_trophy_refs(acus_root),
-        load_nameplate_refs(acus_root),
+        load_chara_refs(acus_root, game_index),
+        load_trophy_refs(acus_root, game_index),
+        load_nameplate_refs(acus_root, game_index),
         _merged_stage_reward_refs(acus_root, game_index),
         next_custom_reward_id(acus_root),
     )
 
 
-def ensure_reward_xml(acus_root: Path, cell: CellData) -> None:
+def ensure_reward_xml(
+    acus_root: Path, cell: CellData, idx: GameDataIndex | None = None
+) -> None:
     if cell.reward_id is None:
         return
     rid = cell.reward_id
-    if resolve_reward_xml(acus_root, rid) is not None:
+    if resolve_reward_xml(acus_root, rid, idx) is not None:
         return
     rdir = acus_root / "reward" / f"reward{rid:09d}"
     rdir.mkdir(parents=True, exist_ok=True)
@@ -1684,6 +1700,7 @@ def ensure_points_reward_xml(
     reward_id: int,
     reward_name: str = "3000 Points",
     points: int = 3000,
+    idx: GameDataIndex | None = None,
 ) -> None:
     """
     保证存在一个纯 Points 类型 Reward（type=0, gamePoint=points）。
@@ -1691,7 +1708,7 @@ def ensure_points_reward_xml(
     """
     if reward_id < 0:
         return
-    if resolve_reward_xml(acus_root, reward_id) is not None:
+    if resolve_reward_xml(acus_root, reward_id, idx) is not None:
         return
     rdir = acus_root / "reward" / f"reward{reward_id:09d}"
     rdir.mkdir(parents=True, exist_ok=True)
@@ -1743,10 +1760,10 @@ class MapAddDialog(QDialog):
         self._acus_root = acus_root
         self._tool = tool_path
         self._game_index = game_index
-        self._reward_refs = load_reward_refs(acus_root)
-        self._chara_refs = load_chara_refs(acus_root)
-        self._trophy_refs = load_trophy_refs(acus_root)
-        self._nameplate_refs = load_nameplate_refs(acus_root)
+        self._reward_refs = load_reward_refs(acus_root, game_index)
+        self._chara_refs = load_chara_refs(acus_root, game_index)
+        self._trophy_refs = load_trophy_refs(acus_root, game_index)
+        self._nameplate_refs = load_nameplate_refs(acus_root, game_index)
         self._music_refs = _merged_music_refs(acus_root, game_index)
         self._stage_refs = _merged_stage_reward_refs(acus_root, game_index)
         self._dds_map_refs = _merged_dds_map_reward_refs(acus_root, game_index)
@@ -2169,7 +2186,7 @@ class MapAddDialog(QDialog):
             if info_rid is not None and info_rid >= 0:
                 info_cell.reward_id = info_rid
                 info_cell.reward_name = info_rstr or f"Reward{info_rid}"
-                enrich_cell_from_reward_xml(self._acus_root, info_cell)
+                enrich_cell_from_reward_xml(self._acus_root, info_cell, self._game_index)
             if info_mid is not None and info_mid >= 0:
                 info_cell.music_id = info_mid
                 info_cell.music_name = info_mstr or f"Music{info_mid}"
@@ -2181,7 +2198,9 @@ class MapAddDialog(QDialog):
                     rel = ap
                 return f"找不到 MapArea 文件：{rel}"
             try:
-                cells, extras, grid_indices, truncated = parse_maparea_file(self._acus_root, ap)
+                cells, extras, grid_indices, truncated = parse_maparea_file(
+                    self._acus_root, ap, self._game_index
+                )
             except Exception as e:
                 return f"读取 MapArea 失败 ({ap.name}): {e}"
             if truncated:
@@ -2599,6 +2618,7 @@ class MapAddDialog(QDialog):
             stage_refs=self._stage_refs,
             music_refs=self._music_refs,
             data=d,
+            game_index=self._game_index,
             parent=self,
         )
         if dlg.exec() == dlg.DialogCode.Accepted:
@@ -2615,6 +2635,7 @@ class MapAddDialog(QDialog):
             stage_refs=self._stage_refs,
             music_refs=self._music_refs,
             data=d,
+            game_index=self._game_index,
             parent=self,
         )
         if dlg.exec() == dlg.DialogCode.Accepted:
@@ -2651,7 +2672,7 @@ class MapAddDialog(QDialog):
         self._edit_page_slot_single_dialog(area_idx)
 
     def _is_intermediate_reward_allowed(self, rid: int) -> bool:
-        rx = resolve_reward_xml(self._acus_root, rid)
+        rx = resolve_reward_xml(self._acus_root, rid, self._game_index)
         if rx is None:
             return False
         try:
@@ -2939,8 +2960,8 @@ class MapAddDialog(QDialog):
                 parent=dlg,
             )
             if rd.exec() == rd.DialogCode.Accepted and rd.result_cell is not None:
-                ensure_reward_xml(self._acus_root, rd.result_cell)
-                self._reward_refs = load_reward_refs(self._acus_root)
+                ensure_reward_xml(self._acus_root, rd.result_cell, self._game_index)
+                self._reward_refs = load_reward_refs(self._acus_root, self._game_index)
                 reward_pick.clear()
                 reward_pick.addItem("(请选择)")
                 for rr in self._reward_refs:
@@ -2973,7 +2994,7 @@ class MapAddDialog(QDialog):
             cell.reward_inner_id = None
             cell.music_id = None
             cell.music_name = ""
-            enrich_cell_from_reward_xml(self._acus_root, cell)
+            enrich_cell_from_reward_xml(self._acus_root, cell, self._game_index)
             if music_on.isChecked():
                 mi = _combo_pick_id(music_pick)
                 if mi is None:
@@ -2998,6 +3019,7 @@ class MapAddDialog(QDialog):
                 reward_id=points_reward_id,
                 reward_name="3000 Points",
                 points=3000,
+                idx=self._game_index,
             )
 
             by_step: dict[int, CellData] = {
@@ -3228,7 +3250,7 @@ class MapAddDialog(QDialog):
                 rid = c.reward_id
                 assert rid is not None
                 rname = c.reward_name or f"Reward{rid}"
-                ensure_reward_xml(self._acus_root, c)
+                ensure_reward_xml(self._acus_root, c, self._game_index)
             else:
                 rid = -1
                 rname = "Invalid"

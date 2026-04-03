@@ -7,12 +7,12 @@ from pathlib import Path
 from typing import Any
 import xml.etree.ElementTree as ET
 
-from .acus_scan import MusicItem, scan_dds_images, scan_music, scan_stages
+from .acus_scan import CharaItem, MusicItem, scan_charas, scan_dds_images, scan_music, scan_nameplates, scan_stages, scan_trophies
 from .acus_workspace import app_cache_dir
 from .dds_convert import convert_dds_to_png
 
 
-INDEX_VERSION = 2
+INDEX_VERSION = 3
 INDEX_FILENAME = "game_data_index.json"
 
 
@@ -86,6 +86,37 @@ def enumerate_game_data_roots(game_root: Path) -> list[Path]:
                 try:
                     if (child / "music").is_dir():
                         roots.append(child.resolve())
+                except OSError:
+                    continue
+        except OSError:
+            continue
+
+    # 无 music/ 但含 chara / reward / releaseTag 的扩展包（如 bin/option/ACUS、AKAO）
+    for bin_name in ("bin", "Bin"):
+        bo = root / bin_name / "option"
+        try:
+            if not bo.is_dir():
+                continue
+            for child in sorted(bo.iterdir()):
+                if not child.is_dir():
+                    continue
+                try:
+                    if (child / "music").is_dir():
+                        continue
+                except OSError:
+                    continue
+                has_pack = False
+                for sub in ("chara", "reward", "releaseTag"):
+                    try:
+                        if (child / sub).is_dir():
+                            has_pack = True
+                            break
+                    except OSError:
+                        continue
+                if not has_pack:
+                    continue
+                try:
+                    roots.append(child.resolve())
                 except OSError:
                     continue
         except OSError:
@@ -287,6 +318,27 @@ def _aggregate_stages_dds_from_roots(roots: list[Path]) -> tuple[list[tuple[int,
     )
 
 
+def _aggregate_chara_np_trophy_from_roots(
+    roots: list[Path],
+) -> tuple[list[tuple[int, str]], list[tuple[int, str]], list[tuple[int, str]]]:
+    """合并多个根下的 chara / namePlate / trophy（按 id 去重，后者覆盖前者）。"""
+    chara_m: dict[int, str] = {}
+    np_m: dict[int, str] = {}
+    tr_m: dict[int, str] = {}
+    for r in roots:
+        for c in scan_charas(r):
+            chara_m[c.name.id] = (c.name.str or "").strip() or f"Chara{c.name.id}"
+        for n in scan_nameplates(r):
+            np_m[n.name.id] = (n.name.str or "").strip() or f"NamePlate{n.name.id}"
+        for t in scan_trophies(r):
+            tr_m[t.name.id] = (t.name.str or "").strip() or f"Trophy{t.name.id}"
+    return (
+        sorted(chara_m.items(), key=lambda x: x[0]),
+        sorted(np_m.items(), key=lambda x: x[0]),
+        sorted(tr_m.items(), key=lambda x: x[0]),
+    )
+
+
 def _pairs_acus_music(acus_root: Path) -> list[tuple[int, str]]:
     return [
         (m.name.id, (m.name.str or "").strip() or f"Music{m.name.id}")
@@ -310,6 +362,27 @@ def _pairs_acus_dds_image(acus_root: Path) -> list[tuple[int, str]]:
 
 def _pairs_acus_dds_map(acus_root: Path) -> list[tuple[int, str]]:
     return _scan_dds_map_pairs(acus_root)
+
+
+def _pairs_acus_chara(acus_root: Path) -> list[tuple[int, str]]:
+    return [
+        (c.name.id, (c.name.str or "").strip() or f"Chara{c.name.id}")
+        for c in scan_charas(acus_root)
+    ]
+
+
+def _pairs_acus_nameplate(acus_root: Path) -> list[tuple[int, str]]:
+    return [
+        (n.name.id, (n.name.str or "").strip() or f"NamePlate{n.name.id}")
+        for n in scan_nameplates(acus_root)
+    ]
+
+
+def _pairs_acus_trophy(acus_root: Path) -> list[tuple[int, str]]:
+    return [
+        (t.name.id, (t.name.str or "").strip() or f"Trophy{t.name.id}")
+        for t in scan_trophies(acus_root)
+    ]
 
 
 def _merge_pairs(
@@ -336,6 +409,9 @@ class GameDataIndex:
     stage: list[tuple[int, str]]
     dds_image: list[tuple[int, str]]
     dds_map: list[tuple[int, str]]
+    chara: list[tuple[int, str]]
+    nameplate: list[tuple[int, str]]
+    trophy: list[tuple[int, str]]
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -349,6 +425,9 @@ class GameDataIndex:
             "stage": [{"id": a, "str": b} for a, b in self.stage],
             "dds_image": [{"id": a, "str": b} for a, b in self.dds_image],
             "dds_map": [{"id": a, "str": b} for a, b in self.dds_map],
+            "chara": [{"id": a, "str": b} for a, b in self.chara],
+            "nameplate": [{"id": a, "str": b} for a, b in self.nameplate],
+            "trophy": [{"id": a, "str": b} for a, b in self.trophy],
         }
 
     @classmethod
@@ -417,6 +496,9 @@ class GameDataIndex:
             stage=read_pairs("stage"),
             dds_image=read_pairs("dds_image"),
             dds_map=read_pairs("dds_map"),
+            chara=read_pairs("chara"),
+            nameplate=read_pairs("nameplate"),
+            trophy=read_pairs("trophy"),
         )
 
 
@@ -458,6 +540,7 @@ def build_game_data_index(*, game_root: Path) -> GameDataIndex:
     music_pairs = [(int(r["id"]), str(r["title"])) for r in merged_catalog]
 
     stage_t, dds_i_t, dds_m_t = _aggregate_stages_dds_from_roots(roots)
+    chara_t, np_t, tr_t = _aggregate_chara_np_trophy_from_roots(roots)
 
     primary = roots_rel[0] if roots_rel else str(gr)
     return GameDataIndex(
@@ -470,6 +553,9 @@ def build_game_data_index(*, game_root: Path) -> GameDataIndex:
         stage=stage_t,
         dds_image=dds_i_t,
         dds_map=dds_m_t,
+        chara=chara_t,
+        nameplate=np_t,
+        trophy=tr_t,
     )
 
 
@@ -523,3 +609,62 @@ def merged_dds_image_pairs(acus_root: Path, idx: GameDataIndex | None) -> list[t
     acus = _pairs_acus_dds_image(acus_root)
     game = idx.dds_image if idx else None
     return _merge_pairs(game, acus)
+
+
+def merged_chara_pairs(acus_root: Path, idx: GameDataIndex | None) -> list[tuple[int, str]]:
+    acus = _pairs_acus_chara(acus_root)
+    game = idx.chara if idx else None
+    return _merge_pairs(game, acus)
+
+
+def merged_nameplate_pairs(acus_root: Path, idx: GameDataIndex | None) -> list[tuple[int, str]]:
+    acus = _pairs_acus_nameplate(acus_root)
+    game = idx.nameplate if idx else None
+    return _merge_pairs(game, acus)
+
+
+def merged_trophy_pairs(acus_root: Path, idx: GameDataIndex | None) -> list[tuple[int, str]]:
+    acus = _pairs_acus_trophy(acus_root)
+    game = idx.trophy if idx else None
+    return _merge_pairs(game, acus)
+
+
+def merged_chara_items(acus_root: Path, idx: GameDataIndex | None) -> list[CharaItem]:
+    """
+    合并各数据包中的 Chara.xml（同 id 后者覆盖；工作区 ACUS 始终最后扫描以覆盖自定义）。
+    """
+    roots: list[Path] = []
+    if idx:
+        try:
+            gr = Path(idx.game_root).resolve()
+        except OSError:
+            gr = None
+        if gr is not None:
+            for rel in idx.roots_scanned:
+                try:
+                    p = (gr / rel).resolve()
+                    if p.is_dir():
+                        roots.append(p)
+                except OSError:
+                    continue
+    a001 = acus_root.parent / "A001"
+    if a001.is_dir():
+        try:
+            a1r = a001.resolve()
+            if a1r not in {r.resolve() for r in roots}:
+                roots.append(a1r)
+        except OSError:
+            pass
+    try:
+        acusr = acus_root.resolve()
+    except OSError:
+        acusr = None
+    if acusr is not None:
+        roots = [p for p in roots if p.resolve() != acusr]
+    roots.append(acus_root)
+
+    by_id: dict[int, CharaItem] = {}
+    for r in roots:
+        for c in scan_charas(r):
+            by_id[c.name.id] = c
+    return sorted(by_id.values(), key=lambda x: x.name.id)
