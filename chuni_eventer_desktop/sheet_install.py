@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import re
+import shutil
 import tarfile
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -205,11 +207,64 @@ def _install_tar_core(tar_path: Path, acus_root: Path) -> list[str]:
     return written
 
 
+def _is_7z_magic(path: Path) -> bool:
+    """7z 文件头：37 7A BC AF 27 1C（与 py7zr 一致）。"""
+    try:
+        with path.open("rb") as f:
+            return f.read(6) == b"7z\xbc\xaf\x27\x1c"
+    except OSError:
+        return False
+
+
+def _install_from_flat_dir(root: Path, acus_root: Path) -> list[str]:
+    """将已展开到 root 的目录树按与 zip 相同规则写入 ACUS。"""
+    acus_root = acus_root.resolve()
+    root = root.resolve()
+    rels: list[str] = []
+    for p in root.rglob("*"):
+        if p.is_file():
+            rels.append(p.relative_to(root).as_posix())
+    if not rels:
+        raise ValueError("解压后的目录中没有文件。")
+    map_path = _mapper_for_paths(rels)
+    written: list[str] = []
+    for p in root.rglob("*"):
+        if not p.is_file():
+            continue
+        name = p.relative_to(root).as_posix()
+        try:
+            rel = map_path(name)
+        except ValueError as e:
+            raise ValueError(f"{e}\n（条目：{name!r}）") from e
+        if str(rel) in (".", ""):
+            continue
+        dest = (acus_root / rel).resolve()
+        if not str(dest).startswith(str(acus_root)):
+            raise ValueError(f"非法路径：{name!r}")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(p, dest)
+        written.append(rel.as_posix())
+    return written
+
+
+def _install_7z_core(archive: Path, acus_root: Path) -> list[str]:
+    """使用纯 Python 的 py7zr 解压 .7z（不依赖本机安装 7-Zip）。"""
+    import py7zr
+
+    td = Path(tempfile.mkdtemp(prefix="chuni_7z_"))
+    try:
+        with py7zr.SevenZipFile(archive, mode="r") as z:
+            z.extractall(path=td)
+        return _install_from_flat_dir(td, acus_root)
+    finally:
+        shutil.rmtree(td, ignore_errors=True)
+
+
 def install_zip_to_acus(archive_path: Path, acus_root: Path) -> list[str]:
     """
     将归档文件解压并写入 ACUS（不做谱面格式转换，仅按路径规则落位）。
 
-    仅使用标准库识别：zip、以及 tar（含 .tar.gz / .tar.bz2 / .tar.xz 等）。
+    支持：zip、tar（含 .tar.gz / .bz2 / .xz）、7z（依赖 py7zr，见 requirements.txt）。
     下载到临时文件时请勿写死扩展名，以便按文件头正确识别。
 
     函数名保留 install_zip_to_acus 以兼容旧调用处（Swan 站 / 本地导入）。
@@ -223,7 +278,20 @@ def install_zip_to_acus(archive_path: Path, acus_root: Path) -> list[str]:
     if tarfile.is_tarfile(p):
         return _install_tar_core(p, acus_root)
 
+    try:
+        import py7zr
+    except ImportError:
+        py7zr = None  # type: ignore[assignment]
+
+    if py7zr is not None and py7zr.is_7zfile(p):
+        return _install_7z_core(p, acus_root)
+    if _is_7z_magic(p):
+        raise ValueError(
+            "检测到 7z 压缩包，但当前环境未安装 py7zr。\n"
+            "请执行：pip install py7zr\n"
+            "（随项目 requirements.txt 安装依赖即可）"
+        )
     raise ValueError(
-        "无法识别该压缩包格式（需为 zip，或 tar / .tar.gz / .tar.bz2 / .tar.xz）。\n"
-        "若服务端是其它格式，请先在本机解压为上述格式再导入，或联系发布方提供 zip/tar 包。"
+        "无法识别该压缩包格式（支持 zip、tar / .tar.gz 等、以及 7z）。\n"
+        "若为 rar 等其它格式，请先在本机解压为上述格式再导入。"
     )

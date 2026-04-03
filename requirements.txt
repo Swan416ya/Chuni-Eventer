@@ -6,3 +6,5 @@ Pillow>=12.0.0
 quicktex>=0.3.0
 # PJSK long audio -> CHUNITHM ACB/AWB (optional; needs ffmpeg on PATH too)
 PyCriCodecsEx>=0.0.5
+# 7z archive extract for sheet install (no external 7-Zip needed)
+py7zr>=0.20.0

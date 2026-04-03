@@ -288,7 +288,7 @@ class MainWindow(MSFluentWindow):
                     self,
                     "选择自制谱压缩包",
                     "",
-                    "ZIP / TAR (*.zip *.tar *.tar.gz *.tar.bz2 *.tar.xz);;所有文件 (*.*)",
+                    "ZIP / TAR / 7z (*.zip *.tar *.tar.gz *.tar.bz2 *.tar.xz *.7z);;所有文件 (*.*)",
                 )
                 if not path.strip():
                     return
