@@ -15,7 +15,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMenu,
     QMessageBox,
     QPushButton,
     QSizePolicy,
@@ -28,13 +27,23 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from qfluentwidgets import BodyLabel, CaptionLabel, ComboBox as FluentComboBox, TableView
+from qfluentwidgets import (
+    Action,
+    BodyLabel,
+    CaptionLabel,
+    ComboBox as FluentComboBox,
+    FluentIcon as FIF,
+    MenuAnimationType,
+    RoundMenu,
+    TableView,
+)
 
 from .fluent_dialogs import fly_critical, fly_message
 from .music_cards_view import MusicCardsView
 
 from ..chara_delete import delete_chara_from_acus
 from ..music_delete import execute_music_deletion, plan_music_deletion
+from ..trophy_delete import execute_trophy_deletion, plan_trophy_deletion
 from ..acus_scan import (
     CharaItem,
     DdsImageItem,
@@ -897,7 +906,8 @@ class ManagerWidget(QWidget):
         self.reload()
 
     def _on_table_context_menu(self, pos: QPoint) -> None:
-        if self._kind_key() != "Chara":
+        k = self._kind_key()
+        if k not in ("Chara", "Trophy"):
             return
         idx = self.table.indexAt(pos)
         if not idx.isValid():
@@ -907,14 +917,72 @@ class ManagerWidget(QWidget):
         if item0 is None:
             return
         payload = item0.data(Qt.ItemDataRole.UserRole)
-        if not isinstance(payload, CharaItem):
+
+        menu = RoundMenu(parent=self.table)
+        menu.setItemHeight(36)
+        vf = menu.view.font()
+        vf.setPointSize(max(12, vf.pointSize()))
+        menu.view.setFont(vf)
+        gpos = self.table.viewport().mapToGlobal(pos)
+
+        if k == "Chara":
+            if not isinstance(payload, CharaItem):
+                return
+            act_del = Action(FIF.DELETE, "删除角色…", self.table)
+            act_del.triggered.connect(lambda checked=False, p=payload: self._delete_chara_item(p))
+            menu.addAction(act_del)
+            menu.exec(gpos, ani=True, aniType=MenuAnimationType.DROP_DOWN)
             return
-        menu = QMenu(self.table)
-        act_del = menu.addAction("删除角色…")
-        chosen = menu.exec(self.table.viewport().mapToGlobal(pos))
-        if chosen != act_del:
+
+        if k == "Trophy":
+            if not isinstance(payload, TrophyItem):
+                return
+            act_trophy_only = Action(FIF.DELETE, "删除称号…", self.table)
+            act_trophy_only.triggered.connect(
+                lambda checked=False, p=payload: self._delete_trophy_item(p, with_chara=False)
+            )
+            menu.addAction(act_trophy_only)
+            try:
+                plan_preview = plan_trophy_deletion(
+                    self._acus_root, payload, scan_charas(self._acus_root)
+                )
+            except ValueError:
+                plan_preview = None
+            if plan_preview is not None and plan_preview.linked_chara_ids:
+                act_both = Action(FIF.PEOPLE, "删除称号并删除关联角色…", self.table)
+                act_both.triggered.connect(
+                    lambda checked=False, p=payload: self._delete_trophy_item(p, with_chara=True)
+                )
+                menu.addAction(act_both)
+            menu.exec(gpos, ani=True, aniType=MenuAnimationType.DROP_DOWN)
+
+    def _delete_trophy_item(self, it: TrophyItem, *, with_chara: bool) -> None:
+        try:
+            plan = plan_trophy_deletion(self._acus_root, it, scan_charas(self._acus_root))
+        except ValueError as e:
+            QMessageBox.warning(self.window(), "无法删除", str(e))
             return
-        self._delete_chara_item(payload)
+        lines = plan.summary_lines(include_chara=with_chara)
+        if with_chara and plan.linked_chara_ids and not plan.chara_items_to_remove:
+            lines.append("（未找到可删的角色目录，将仅删除称号）")
+        title = "删除称号并删除关联角色" if with_chara else "删除称号"
+        body = "将执行以下操作：\n\n• " + "\n• ".join(lines) + "\n\n此操作不可撤销，确定删除？"
+        r = QMessageBox.question(
+            self.window(),
+            title,
+            body,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if r != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            execute_trophy_deletion(self._acus_root, plan, delete_linked_charas=with_chara)
+        except Exception as e:
+            QMessageBox.critical(self.window(), "删除失败", str(e))
+            return
+        fly_message(self.window(), "已删除", "已移除所选称号" + ("及关联角色资源。" if with_chara else "。"))
+        self.reload()
 
     def _delete_chara_item(self, it: CharaItem) -> None:
         nm = (it.name.str or "").strip() or "—"
