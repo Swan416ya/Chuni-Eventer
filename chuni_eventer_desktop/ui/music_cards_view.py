@@ -83,12 +83,14 @@ class FlipMusicCard(QFrame):
     deleteRequested = pyqtSignal(object)
     trophyRequested = pyqtSignal(object)
     jacketReplaceRequested = pyqtSignal(object)
+    unlockChallengeRequested = pyqtSignal(object)
 
     def __init__(
         self,
         item: MusicItem,
         jacket: QPixmap | None,
         card_size: int,
+        *,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -143,6 +145,7 @@ class FlipMusicCard(QFrame):
 
         act_jacket = Action(FIF.PHOTO, "更换封面…", self)
         act_trophy = Action(FIF.TAG, "生成课题称号…", self)
+        act_unlock = Action(FIF.IOT, "创建解锁挑战事件…", self)
         act_del = Action(FIF.DELETE, "删除乐曲…", self)
         act_jacket.triggered.connect(
             lambda: self.jacketReplaceRequested.emit(self._item)
@@ -150,9 +153,13 @@ class FlipMusicCard(QFrame):
         act_trophy.triggered.connect(
             lambda: self.trophyRequested.emit(self._item)
         )
+        act_unlock.triggered.connect(
+            lambda: self.unlockChallengeRequested.emit(self._item)
+        )
         act_del.triggered.connect(lambda: self.deleteRequested.emit(self._item))
         menu.addAction(act_jacket)
         menu.addAction(act_trophy)
+        menu.addAction(act_unlock)
         menu.addAction(act_del)
         menu.exec(
             event.globalPos(),
@@ -197,6 +204,18 @@ class FlipMusicCard(QFrame):
             cov = _cover_pixmap(self._jacket, fw, fh)
             painter.drawPixmap(x0, y0, cov)
             painter.setClipping(False)
+            if self._item.has_perfect_challenge:
+                bw = max(26, fw // 5)
+                bh = max(24, fh // 5)
+                br = QRectF(x0 + 3, y0 + 3, float(bw), float(bh))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QColor("#2563eb"))
+                painter.drawRoundedRect(br, 5.0, 5.0)
+                painter.setPen(QColor("#facc15"))
+                bf = QFont()
+                bf.setPixelSize(max(13, int(bh * 0.55)))
+                painter.setFont(bf)
+                painter.drawText(br.toRect(), Qt.AlignmentFlag.AlignCenter, "🔒")
         else:
             self._draw_cover_shadow(painter, x0, y0, fw, fh, radius)
             path = QPainterPath()
@@ -210,6 +229,18 @@ class FlipMusicCard(QFrame):
             f.setPointSize(max(9, min(fw, fh) // 18))
             painter.setFont(f)
             painter.drawText(r, Qt.AlignmentFlag.AlignCenter, "无封面")
+            if self._item.has_perfect_challenge:
+                bw = max(26, fw // 5)
+                bh = max(24, fh // 5)
+                br = QRectF(x0 + 3, y0 + 3, float(bw), float(bh))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QColor("#2563eb"))
+                painter.drawRoundedRect(br, 5.0, 5.0)
+                painter.setPen(QColor("#facc15"))
+                bf = QFont()
+                bf.setPixelSize(max(13, int(bh * 0.55)))
+                painter.setFont(bf)
+                painter.drawText(br.toRect(), Qt.AlignmentFlag.AlignCenter, "🔒")
 
     def _paint_back(self, painter: QPainter, full: QRect, bg: QColor, fg: QColor) -> None:
         dark = _is_dark_ui()
@@ -397,6 +428,7 @@ class MusicCardsView(QWidget):
     musicDeleteRequested = pyqtSignal(object)
     musicTrophyRequested = pyqtSignal(object)
     musicJacketReplaceRequested = pyqtSignal(object)
+    musicUnlockChallengeRequested = pyqtSignal(object)
 
     def __init__(
         self,
@@ -530,6 +562,7 @@ class MusicCardsView(QWidget):
             card.deleteRequested.connect(self.musicDeleteRequested.emit)
             card.trophyRequested.connect(self.musicTrophyRequested.emit)
             card.jacketReplaceRequested.connect(self.musicJacketReplaceRequested.emit)
+            card.unlockChallengeRequested.connect(self.musicUnlockChallengeRequested.emit)
             self._cards.append(card)
             row, col = divmod(idx, cols)
             self._grid.addWidget(

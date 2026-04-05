@@ -73,6 +73,7 @@ def ensure_acus_layout() -> Path:
         "mapArea",
         "mapBonus",
         "event",
+        "unlockChallenge",
         "course",
         "reward",
         "cueFile",

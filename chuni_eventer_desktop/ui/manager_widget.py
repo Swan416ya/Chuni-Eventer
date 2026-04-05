@@ -239,6 +239,24 @@ class ManagerWidget(QWidget):
         ev_row.addWidget(self.event_filter, stretch=1)
         self.event_bar.setVisible(False)
 
+        self.reward_type_filter = QComboBox()
+        self.reward_type_filter.addItem("全部类型", None)
+        self.reward_type_filter.addItem("功能票", 1)
+        self.reward_type_filter.addItem("称号", 2)
+        self.reward_type_filter.addItem("角色", 3)
+        self.reward_type_filter.addItem("姓名牌", 5)
+        self.reward_type_filter.addItem("乐曲解锁", 6)
+        self.reward_type_filter.addItem("地图图标", 7)
+        self.reward_type_filter.addItem("头像配件", 9)
+        self.reward_type_filter.addItem("场景", 13)
+        self.reward_type_filter.currentIndexChanged.connect(self.reload)
+        self.reward_bar = QWidget()
+        rr = QHBoxLayout(self.reward_bar)
+        rr.setContentsMargins(0, 0, 0, 0)
+        rr.addWidget(QLabel("奖励类型"))
+        rr.addWidget(self.reward_type_filter, stretch=1)
+        self.reward_bar.setVisible(False)
+
         self.search = QLineEdit()
         self.search.setPlaceholderText(
             "搜索：ID / 名称 / 关键字（地图双击编辑；歌曲双击生成课题称号）"
@@ -347,6 +365,9 @@ class ManagerWidget(QWidget):
         self.music_cards_view.musicJacketReplaceRequested.connect(
             self._on_music_jacket_replace_requested
         )
+        self.music_cards_view.musicUnlockChallengeRequested.connect(
+            self._on_music_unlock_challenge_requested
+        )
 
         self._main_stack = QStackedWidget()
         self._main_stack.addWidget(split)
@@ -356,6 +377,7 @@ class ManagerWidget(QWidget):
         if not self._embedded:
             layout.addLayout(top)
         layout.addWidget(self.event_bar)
+        layout.addWidget(self.reward_bar)
         layout.addWidget(self._main_stack, stretch=1)
 
         self._items: list[object] = []
@@ -408,6 +430,7 @@ class ManagerWidget(QWidget):
 
         k = self._kind_key()
         self.event_bar.setVisible(k == "Event")
+        self.reward_bar.setVisible(k == "Reward")
 
         if k == "Quest":
             self.model.setHorizontalHeaderLabels(["ID", "名称", "角色条件", "奖励阶段", "来源(XML)"])
@@ -469,9 +492,13 @@ class ManagerWidget(QWidget):
                 self._append_row(it.name.id, it.name.str, "NamePlate装饰", it.xml_path, it)
         elif k == "Reward":
             items = scan_rewards(self._acus_root)
-            self._items = items
+            type_f = self.reward_type_filter.currentData()
+            self._items = []
             for it in items:
+                if type_f is not None and it.substance_type != type_f:
+                    continue
                 self._append_reward_row(it)
+                self._items.append(it)
         else:
             items = scan_dds_images(self._acus_root)
             self._items = items
@@ -891,6 +918,24 @@ class ManagerWidget(QWidget):
             return
         fly_message(self.window(), "已更新封面", f"已写入：\n{out.name}")
         self.reload()
+
+    def _on_music_unlock_challenge_requested(self, it: object) -> None:
+        if not isinstance(it, MusicItem):
+            return
+        from .music_unlock_challenge_dialog import MusicUnlockChallengeDialog
+
+        dlg = MusicUnlockChallengeDialog(
+            acus_root=self._acus_root,
+            item=it,
+            parent=self.window(),
+        )
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.reload()
+            fly_message(
+                self.window(),
+                "已创建",
+                "已生成 Reward(2xxxxxxxxx)、5×Course(31xxxx)、UnlockChallenge 与 Event(type=16)。",
+            )
 
     def _on_music_delete_requested(self, it: object) -> None:
         if not isinstance(it, MusicItem):

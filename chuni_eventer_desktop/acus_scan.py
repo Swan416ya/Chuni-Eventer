@@ -49,6 +49,8 @@ class MusicItem:
     jacket_path: str
     # 是否存在已启用的 Ultima 谱面（fumen type/id=4），用于课题称号 rareType=8
     has_ultima: bool
+    # ACUS 内 UnlockChallenge 是否引用本曲（乐曲卡片「完美挑战」角标）
+    has_perfect_challenge: bool = False
 
 
 @dataclass(frozen=True)
@@ -195,8 +197,27 @@ def scan_dds_images(acus_root: Path) -> list[DdsImageItem]:
     return sorted(items, key=lambda x: x.name.id)
 
 
+def scan_unlock_challenge_music_ids(acus_root: Path) -> set[int]:
+    """解析 unlockChallenge/*/UnlockChallenge.xml 中出现的乐曲 ID（unlockChallengeMusicData/name）。"""
+    out: set[int] = set()
+    uc = acus_root / "unlockChallenge"
+    if not uc.is_dir():
+        return out
+    for xp in uc.glob("unlockChallenge*/UnlockChallenge.xml"):
+        try:
+            r = ET.parse(xp).getroot()
+            for el in r.findall(".//unlockChallengeMusicData/name/id"):
+                t = (el.text or "").strip()
+                if t.isdigit():
+                    out.add(int(t))
+        except Exception:
+            continue
+    return out
+
+
 def scan_music(acus_root: Path) -> list[MusicItem]:
     items: list[MusicItem] = []
+    uc_mids = scan_unlock_challenge_music_ids(acus_root)
     for p in iter_xml_files(acus_root, "music/**/Music.xml"):
         try:
             r = ET.parse(p).getroot()
@@ -249,6 +270,7 @@ def scan_music(acus_root: Path) -> list[MusicItem]:
                     levels=tuple(levels),
                     jacket_path=jacket,
                     has_ultima=has_ultima,
+                    has_perfect_challenge=name.id in uc_mids,
                 )
             )
         except Exception:
