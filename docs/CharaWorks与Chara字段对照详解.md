@@ -95,7 +95,7 @@
 - **含义**：该作品在选角 UI 中归属的 **「大类 / 版本带」**（与 `ReleaseTag` 体系一致）。
 - **链接**：
   - **必须与** 引用该 `works.id` 的 **`Chara.xml` → `releaseTagName`** 完全一致。
-  - 自制扩展时，应与 **`{ACUS根}/releaseTag/releaseTagXXXXXX/ReleaseTag.xml`** 中的 **`<name><id>` / `<name><str>`** 一致（例如 `id=-2 str=PJSK` 对应某条自制 ReleaseTag）；**界面显示的大类文案**通常来自同文件的 **`titleName`**，见 [chara_releaseTag_works_选角分类说明.md](./chara_releaseTag_works_选角分类说明.md)。
+  - 自制扩展时，应与**已加载 option 中某条** **`ReleaseTag.xml` 的 `name`（id/str）** 一致。本工具默认把 Chara/CharaWorks 写成 **`0` / `v1 1.00.00`**（一般对应本体底包已有条目，**不要求**在 ACUS 再建 `releaseTag000000`）。若使用 **`id=-2 str=PJSK`** 等，则需在包内提供对应 `ReleaseTag`；**界面大类文案**通常看该条的 **`titleName`**，见 [chara_releaseTag_works_选角分类说明.md](./chara_releaseTag_works_选角分类说明.md)。
 
 ### 3.3 `netOpenName`（id / str / data）
 

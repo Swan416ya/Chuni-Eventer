@@ -1,8 +1,8 @@
-# 创建「解锁挑战（完美挑战）」时写入的 XML 说明
+# 解锁挑战（完美挑战）相关 XML 说明（参考）
 
-本文说明在 **歌曲卡片右键 →「创建解锁挑战事件…」** 并成功确认后，工具对当前工作区 **ACUS 根目录** 下写入或修改了哪些 XML 文件。
+**说明：前端已不再提供「从乐曲创建解锁挑战」入口**（右键菜单已关闭）；若需生成，可自备脚本调用 `chuni_eventer_desktop/unlock_challenge.py` 中的 `create_unlock_challenge_bundle`（或手工维护 XML）。
 
-实现入口：`chuni_eventer_desktop/unlock_challenge.py` 中的 `create_unlock_challenge_bundle`，以及 `chuni_eventer_desktop/ui/music_unlock_challenge_dialog.py`。
+下文描述 **一次完整生成** 时会在 **ACUS 根目录** 下涉及哪些路径（供对照）。
 
 参考数据：A001 `unlockChallenge00010002`、`course00300005`～`009`、`reward040002705`、`event00016044`。
 

@@ -21,7 +21,13 @@ from PyQt6.QtWidgets import (
 )
 
 from ..works_library import add_work_entry, load_works_library, remove_work_entry, WORKS_CUSTOM_ID_START
-from ..xml_writer import ensure_chara_works_xml
+from ..xml_writer import (
+    CHARA_DEFAULT_NET_OPEN_ID,
+    CHARA_DEFAULT_NET_OPEN_STR,
+    CHARA_DEFAULT_RELEASE_TAG_ID,
+    CHARA_DEFAULT_RELEASE_TAG_STR,
+    ensure_chara_works_xml,
+)
 
 
 WORKS_WARNING_TEXT = (
@@ -252,10 +258,10 @@ def parse_chara_xml_net_open(xml_path: Path) -> tuple[int, str]:
         try:
             iid = int(ni)
         except ValueError:
-            iid = 2801
-        return iid, (ns or "").strip() or "v2_45 00_1"
+            iid = CHARA_DEFAULT_NET_OPEN_ID
+        return iid, (ns or "").strip() or CHARA_DEFAULT_NET_OPEN_STR
     except Exception:
-        return 2801, "v2_45 00_1"
+        return CHARA_DEFAULT_NET_OPEN_ID, CHARA_DEFAULT_NET_OPEN_STR
 
 
 def parse_chara_xml_release_tag(xml_path: Path) -> tuple[int, str]:
@@ -266,10 +272,10 @@ def parse_chara_xml_release_tag(xml_path: Path) -> tuple[int, str]:
         try:
             iid = int(ri)
         except ValueError:
-            iid = -1
-        return iid, rs or "Invalid"
+            iid = CHARA_DEFAULT_RELEASE_TAG_ID
+        return iid, rs or CHARA_DEFAULT_RELEASE_TAG_STR
     except Exception:
-        return -1, "Invalid"
+        return CHARA_DEFAULT_RELEASE_TAG_ID, CHARA_DEFAULT_RELEASE_TAG_STR
 
 
 def parse_chara_xml_works(xml_path: Path) -> tuple[int, str]:

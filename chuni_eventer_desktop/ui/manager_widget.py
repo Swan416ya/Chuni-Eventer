@@ -365,9 +365,6 @@ class ManagerWidget(QWidget):
         self.music_cards_view.musicJacketReplaceRequested.connect(
             self._on_music_jacket_replace_requested
         )
-        self.music_cards_view.musicUnlockChallengeRequested.connect(
-            self._on_music_unlock_challenge_requested
-        )
 
         self._main_stack = QStackedWidget()
         self._main_stack.addWidget(split)
@@ -918,24 +915,6 @@ class ManagerWidget(QWidget):
             return
         fly_message(self.window(), "已更新封面", f"已写入：\n{out.name}")
         self.reload()
-
-    def _on_music_unlock_challenge_requested(self, it: object) -> None:
-        if not isinstance(it, MusicItem):
-            return
-        from .music_unlock_challenge_dialog import MusicUnlockChallengeDialog
-
-        dlg = MusicUnlockChallengeDialog(
-            acus_root=self._acus_root,
-            item=it,
-            parent=self.window(),
-        )
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            self.reload()
-            fly_message(
-                self.window(),
-                "已创建",
-                "已生成 Reward(2xxxxxxxxx)、5×Course(31xxxx)、UnlockChallenge 与 Event(type=16)。",
-            )
 
     def _on_music_delete_requested(self, it: object) -> None:
         if not isinstance(it, MusicItem):

@@ -45,7 +45,8 @@
 - **`titleName`**：选角等界面上的**大类显示文案**（例如 **自制譜**、**PJSK**）。
 
 因此：**不要把「自制譜」写在 `name.str` 里指望当显示用**；应 **`name` 保持 Invalid/短码 + `titleName` 写玩家看到的分类名**。  
-`Chara.xml` 的 `releaseTagName` 应与 **`ReleaseTag` 的 `name`（id/str）** 一致，例如 `-1` + `Invalid`；界面上的「自制譜」由对应 `ReleaseTag.xml` 的 **`titleName`** 提供。
+若走 **-1 / Invalid** 这条自制大类，`Chara.xml` 的 `releaseTagName` 应与该 **`ReleaseTag` 的 `name`** 一致；界面上的「自制譜」由对应 **`titleName`** 提供。  
+**本工具默认**则把 **`releaseTagName` 写成 `0` / `v1 1.00.00`**（见 §2.1），与底包常见版本带对齐，**不在 ACUS 增加 ReleaseTag 文件**。
 
 参考（与你本机游戏内文件一致的结构）：
 
@@ -80,15 +81,17 @@
 
 ### 2.1 `releaseTagName`（Chara）与 `ReleaseTag.xml`（`name` / `titleName`）
 
-| 项目 | 官方示例 | 工具默认（未改参数时） |
+| 项目 | 官方示例 | 本仓库工具默认（`write_chara_xml` 未改参数时） |
 |------|----------|------------------------|
-| `id` | 正数，且在 `releaseTag/*/ReleaseTag.xml` 有定义（如 20） | **-1** |
-| `str` | 与主数据 `name` 一致（如 `v2 2.45.00`） | **Invalid** |
+| `id` | 正数，且在 `releaseTag/*/ReleaseTag.xml` 有定义（如 20） | **0** |
+| `str` | 与主数据 `name` 一致（如 `v2 2.45.00`） | **`v1 1.00.00`** |
 
-**自制扩展（与 `ACUS/AKAO` 内 ReleaseTag 一致时）：**
+常量：`chuni_eventer_desktop/xml_writer.py` 中的 **`CHARA_DEFAULT_RELEASE_TAG_ID` / `CHARA_DEFAULT_RELEASE_TAG_STR`**。
 
-- `Chara.releaseTagName` 应与 **`ReleaseTag.xml` 的 `name`** 一致：例如 **`id=-1`、`str=Invalid`**。
-- **大类显示名**在 **`ReleaseTag.xml` 的 `titleName`**（如 **自制譜**），**不要**误把显示名只写在 `name.str` 而省略 `titleName`。
+**本工具做法（只改 Chara / CharaWorks 内联字段）：**
+
+- `write_chara_xml` 默认把 **`releaseTagName` 写成 `0` / `v1 1.00.00`**，与**本体或高版本 option 里已存在的** `ReleaseTag`（`name.id = 0`）对齐；**不在 ACUS 内新建 `releaseTag000000` 等主数据**。
+- 若你采用 **`id=-1`、`str=Invalid` + `titleName=自制譜`** 的自制大类，则 **`Chara.releaseTagName` 也应对齐 -1 / Invalid**，并在 ACUS 保留对应 **`ReleaseTag.xml`**；与工具默认的 `0` / `v1 1.00.00` 是两套方案，勿混用。
 
 ### 2.2 `works`
 
@@ -104,7 +107,10 @@
 ### 2.3 其它结构差异（一般不影响「分类树」，但可能影响别的问题）
 
 - 官方常有多形态 `addImages1..` 且 `changeImg=true`；工具模板多为占位 `Invalid`。这与**分类**无直接关系，与**立绘/变体**有关。
-- `netOpenName`、`disableFlag` 等与解禁/显示有关；工具默认与 A001 常见值接近，但若客户端按版本过滤，仍需自行对照版本逻辑。
+- **`netOpenName`**：XVERSE 实机 **`data/A000/chara`** 与对应 **`charaWorks`**、**`ddsImage`** 多为 **`2800` / `v2_45 00_0`**（如 `chara000780`）。若自制仍写 **`2801` / `v2_45 00_1`**，可能与底包解禁轴不一致，出现**角色或作品主数据不被加载**。本工具默认已与 A000 对齐。
+- **根元素**：官方 `CharaData` / `CharaWorksData` 带 **`xmlns:xsd` / `xmlns:xsi`**；缺省时部分环境解析异常。新建与修复脚本会补全。
+- **`ranks` / `rewardSkillSeed`**：官方为**有效奖励 id**；若写 **`-1` / `Invalid`**，部分版本会**拒掉整卡**。新建角色模板已与 A000 `chara024680` 的 5 段 ranks 一致。
+- 已落盘的 ACUS 可运行 **`python scripts/fix_acus_chara_a000_compat.py [ACUS根路径]`** 批量修正上述项（含同包 **`ddsImage`** 的 `netOpenName`）。
 
 ---
 
@@ -116,7 +122,7 @@
 
 期望结构应是：
 
-- **大类（releaseTag）**：例如统一 **`id = -1`**（或你自定义的一个**专用正数 id**，并在 `ReleaseTag.xml` 里定义）→ 显示「自制譜」。
+- **大类（releaseTag）**：例如统一 **`id = 0` / `v1 1.00.00`**（依赖底包已有定义，无需在 ACUS 再加一条），或 **`id = -1` / `Invalid`**（需在 ACUS 提供对应 `ReleaseTag`）→ 显示由已加载包里的 **`titleName`** 等决定。
 - **小类（works）**：  
   - PJSK 角色：`works.id = A`，`works.str = …`（如 `プロジェクトセカイ` 或你希望的日文/中文显示名）；  
   - 明日方舟：`works.id = B`，`works.str = …`。
@@ -134,20 +140,18 @@
 
 ---
 
-## 4. 推荐配置示例（目标：大类「自制譜」、小类「PJSK」「明日方舟」）
+## 4. 推荐配置示例（工具默认：底包大类 + 小类「PJSK」「明日方舟」）
 
-以下为**数据语义**示例，id 数字需在你工程内**唯一、且不与会冲突的官方 id 撞车**（自制常用 9xxxxx 段或工具「作品库」生成的 id）。
+以下为**数据语义**示例；`works.id` 需在你工程内**唯一**（自制常用 9xxxxx 段或工具「作品库」生成的 id）。
 
-**ACUS（或合并包）内 ReleaseTag（大类）一条即可，例如：**
+**大类：** 本工具写入 **`releaseTagName` = `0` / `v1 1.00.00`** 时，**不要求**在 ACUS 再放 `ReleaseTag.xml`（沿用游戏已加载 option 里 **id=0** 的那条即可）。若你要大类显示为 **自制譜** 且用 **-1 / Invalid**，请改用该套 `releaseTag` 并把 Chara 的 `releaseTagName` 也改成 **-1 / Invalid**（与第 1.1.1 节一致）。
 
-- `releaseTag/.../ReleaseTag.xml`：`name.id = -1`，`name.str = Invalid`，**`titleName = 自制譜`**
-
-**PJSK 角色 `Chara.xml`：**
+**PJSK 角色 `Chara.xml`（与 `write_chara_xml` 默认一致）：**
 
 ```xml
 <releaseTagName>
-  <id>-1</id>
-  <str>Invalid</str>
+  <id>0</id>
+  <str>v1 1.00.00</str>
   <data />
 </releaseTagName>
 <works>
@@ -161,8 +165,8 @@
 
 ```xml
 <releaseTagName>
-  <id>-1</id>
-  <str>Invalid</str>
+  <id>0</id>
+  <str>v1 1.00.00</str>
   <data />
 </releaseTagName>
 <works>
@@ -179,7 +183,7 @@
 ## 5. 自检清单（游戏内仍看不到预期分类时）
 
 1. **`Chara.releaseTagName.id`** 是否在**任意已加载包**的 `ReleaseTag/*/ReleaseTag.xml` 里存在同 id 的 `name`？
-2. **`Chara.releaseTagName`** 是否与 `ReleaseTag` 的 **`name`（id/str）** 一致？自制侧常见 **`-1` + `Invalid`**；**显示名**看 **`titleName`**。
+2. **`Chara.releaseTagName`** 是否与**任意已加载包**里某条 `ReleaseTag` 的 **`name`（id/str）** 一致？本工具默认写 **`0` + `v1 1.00.00`**（通常来自底包，非 ACUS 新建）；**显示名**看该条的 **`titleName`**。
 3. **小类**是否落在 **`works`**：`works.id` 是否**按 IP 分开**？是否仍为 `-1` / `Invalid`？
 4. 是否误把 IP 写成了**第二个 ReleaseTag**，导致大类变成「プロセカ」等而非「自制譜」下子类？
 5. 自定义包是否在游戏**实际读取路径**（如 `bin/option/ACUS`）且**被加载顺序覆盖/合并**？
@@ -188,10 +192,12 @@
 
 ## 6. 与仓库内种子的关系说明
 
-当前仓库内 `chuni_eventer_desktop/data/acus_seed/releaseTag/` 已与游戏内 **ACUS / AKAO** 样本对齐格式：
+当前仓库内 `chuni_eventer_desktop/data/acus_seed/releaseTag/` **不再**附带 `releaseTag000000`：`write_chara_xml` 写入的 **`0` / `v1 1.00.00`** 仅出现在 **Chara / CharaWorks** 中，**ReleaseTag 主数据沿用你游戏本体/option 里已有定义**。
 
-- `releaseTag000021`：`name` 为 **`-1` / `Invalid`**，`titleName` 为 **自制譜**（界面大类）。
-- `releaseTag000022`：`name` 为 **`-2` / `PJSK`**，`titleName` 为 **PJSK**（另一条顶层大类；若不要该大类，角色不要引用 `-2`）。
+种子中仍可选样本：
+
+- `releaseTag000021`：`name` 为 **`-1` / `Invalid`**，`titleName` 为 **自制譜**。
+- `releaseTag000022`：`name` 为 **`-2` / `PJSK`**，`titleName` 为 **PJSK**。
 
 **注意：** 你本机 `ACUS\releaseTag000021` 目录下的文件曾出现 **`dataName` 仍为 `releaseTag000020`** 的拷贝痕迹；种子与仓库已改为 **`dataName` 与目录名一致**（`releaseTag000021` / `releaseTag000022`）。若游戏强绑定 `dataName` 与路径，请与实机包保持一致。
 
@@ -204,7 +210,7 @@
 | 大类 | `Chara.releaseTagName` + `ReleaseTag.xml` | 与版本/发行带对应，宜**全自制共用同一 releaseTag id** |
 | 小类 | `Chara.works`（仅 Chara 内联，无单独 works 主表文件） | **PJSK / 明日方舟等 IP** 用**不同 `works.id`** 区分 |
 
-本工具将 `Chara.releaseTagName` 固定为 **`-1` / `Invalid`** 与 **ACUS 侧 `ReleaseTag.name`** 一致；**大类显示**依赖同包或合并加载的 **`ReleaseTag.titleName`（如 自制譜）**。IP 小类仍建议放在 **`works`**；是否需要第二条顶层 ReleaseTag（如 `-2` PJSK）按你的分区设计决定。
+本工具将 `Chara` / `CharaWorks` 的 **`releaseTagName` 默认写为 `0` / `v1 1.00.00`**，**不修改、不新增** ACUS 下的 `ReleaseTag.xml`。大类在 UI 上的文案以**实际加载到的** `ReleaseTag` 为准。IP 小类仍建议放在 **`works`**。
 
 ---
 

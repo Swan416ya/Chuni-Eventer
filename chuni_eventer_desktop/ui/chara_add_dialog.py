@@ -19,7 +19,15 @@ from PyQt6.QtWidgets import (
 
 from ..chuni_formats import ChuniCharaId
 from ..dds_convert import DdsToolError
-from ..xml_writer import ensure_chara_works_xml, write_chara_xml, write_ddsimage_xml
+from ..xml_writer import (
+    CHARA_DEFAULT_NET_OPEN_ID,
+    CHARA_DEFAULT_NET_OPEN_STR,
+    CHARA_DEFAULT_RELEASE_TAG_ID,
+    CHARA_DEFAULT_RELEASE_TAG_STR,
+    ensure_chara_works_xml,
+    write_chara_xml,
+    write_ddsimage_xml,
+)
 from .dds_progress import run_bc3_jobs_with_progress
 from .works_dialogs import combo_works_id_str, make_works_picker_row, works_warning_label
 
@@ -124,7 +132,7 @@ class CharaAddDialog(QDialog):
         self._works_row, self._works_combo = make_works_picker_row(parent=self, acus_root=self._acus_root)
         form.addRow("作品（works）", self._works_row)
         form.addRow("", works_warning_label())
-        # releaseTagName 固定为 -1 / Invalid；游戏侧通过 ACUS 预置的 releaseTag XML 显示为「自制譜」等，不由本工具填写。
+        # releaseTagName 默认 0 / v1 1.00.00（CHARA_DEFAULT_*，与底包已有 id=0 的 ReleaseTag 对齐）。
         # A001：CHU_UI_Character_*_00/01/02 = 全身 / 半身 / 大头（与 ddsFile0/1/2 一致）
         form.addRow(
             "全身（_00）",
@@ -245,8 +253,8 @@ class CharaAddDialog(QDialog):
                     chara_id=cid.raw,
                     chara_name=chara_name,
                     illustrator_name=ill,
-                    release_tag_id=-1,
-                    release_tag_str="Invalid",
+                    release_tag_id=CHARA_DEFAULT_RELEASE_TAG_ID,
+                    release_tag_str=CHARA_DEFAULT_RELEASE_TAG_STR,
                     works_id=w_id,
                     works_str=w_str,
                 )
@@ -254,10 +262,10 @@ class CharaAddDialog(QDialog):
                     out_dir=self._acus_root,
                     works_id=w_id,
                     works_str=w_str,
-                    release_tag_id=-1,
-                    release_tag_str="Invalid",
-                    net_open_id=2801,
-                    net_open_str="v2_45 00_1",
+                    release_tag_id=CHARA_DEFAULT_RELEASE_TAG_ID,
+                    release_tag_str=CHARA_DEFAULT_RELEASE_TAG_STR,
+                    net_open_id=CHARA_DEFAULT_NET_OPEN_ID,
+                    net_open_str=CHARA_DEFAULT_NET_OPEN_STR,
                 )
             else:
                 update_chara_variant_slot(

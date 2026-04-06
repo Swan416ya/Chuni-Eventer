@@ -3,8 +3,107 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+# 仅影响写入 Chara.xml / CharaWorks.xml 的 releaseTagName（不再默认 -1 / Invalid）。
+# id/str 与官方 option 底包里常见的「初版带」一致（如 0 / v1 1.00.00）；不在 ACUS 内追加 ReleaseTag 主数据。
+CHARA_DEFAULT_RELEASE_TAG_ID = 0
+CHARA_DEFAULT_RELEASE_TAG_STR = "v1 1.00.00"
 
-def write_ddsimage_xml(*, out_dir: Path, chara_id: int, net_open_id: int = 2801, net_open_str: str = "v2_45 00_1") -> Path:
+# 与 XVERSE `data/A000/chara` 官方样本一致（如 chara000780、chara024680）；曾用 2801/00_1 时易出现与底包解禁轴不一致。
+CHARA_DEFAULT_NET_OPEN_ID = 2800
+CHARA_DEFAULT_NET_OPEN_STR = "v2_45 00_0"
+
+# 与 A000 `chara024680` 的 ranks 一致；reward 为 Invalid 时部分版本整卡不加载。
+CHARA_DEFAULT_RANKS_XML = """  <ranks>
+    <CharaRankData>
+      <index>1</index>
+      <type>1</type>
+      <rewardSkillSeed>
+        <rewardSkillSeed>
+          <id>61030025</id>
+          <str>【HARD】ジャッジメント×5</str>
+          <data />
+        </rewardSkillSeed>
+      </rewardSkillSeed>
+      <text>
+        <flavorTxtFile>
+          <path />
+        </flavorTxtFile>
+      </text>
+    </CharaRankData>
+    <CharaRankData>
+      <index>10</index>
+      <type>1</type>
+      <rewardSkillSeed>
+        <rewardSkillSeed>
+          <id>61030025</id>
+          <str>【HARD】ジャッジメント×5</str>
+          <data />
+        </rewardSkillSeed>
+      </rewardSkillSeed>
+      <text>
+        <flavorTxtFile>
+          <path />
+        </flavorTxtFile>
+      </text>
+    </CharaRankData>
+    <CharaRankData>
+      <index>25</index>
+      <type>1</type>
+      <rewardSkillSeed>
+        <rewardSkillSeed>
+          <id>61000101</id>
+          <str>【OTHER】限界突破の証×1</str>
+          <data />
+        </rewardSkillSeed>
+      </rewardSkillSeed>
+      <text>
+        <flavorTxtFile>
+          <path />
+        </flavorTxtFile>
+      </text>
+    </CharaRankData>
+    <CharaRankData>
+      <index>50</index>
+      <type>1</type>
+      <rewardSkillSeed>
+        <rewardSkillSeed>
+          <id>61000111</id>
+          <str>【OTHER】真・限界突破の証×1</str>
+          <data />
+        </rewardSkillSeed>
+      </rewardSkillSeed>
+      <text>
+        <flavorTxtFile>
+          <path />
+        </flavorTxtFile>
+      </text>
+    </CharaRankData>
+    <CharaRankData>
+      <index>100</index>
+      <type>1</type>
+      <rewardSkillSeed>
+        <rewardSkillSeed>
+          <id>61000121</id>
+          <str>【OTHER】絆・限界突破の証×1</str>
+          <data />
+        </rewardSkillSeed>
+      </rewardSkillSeed>
+      <text>
+        <flavorTxtFile>
+          <path />
+        </flavorTxtFile>
+      </text>
+    </CharaRankData>
+  </ranks>"""
+
+
+def write_ddsimage_xml(
+    *,
+    out_dir: Path,
+    chara_id: int,
+    net_open_id: int = CHARA_DEFAULT_NET_OPEN_ID,
+    net_open_str: str = CHARA_DEFAULT_NET_OPEN_STR,
+) -> Path:
     """
     Writes:
       out_dir/ddsImage/ddsImage{ID6}/DDSImage.xml
@@ -66,13 +165,13 @@ def write_chara_works_xml(
     out_dir: Path,
     works_id: int,
     works_str: str,
-    release_tag_id: int = -1,
-    release_tag_str: str = "Invalid",
-    net_open_id: int = 2801,
-    net_open_str: str = "v2_45 00_1",
+    release_tag_id: int = CHARA_DEFAULT_RELEASE_TAG_ID,
+    release_tag_str: str = CHARA_DEFAULT_RELEASE_TAG_STR,
+    net_open_id: int = CHARA_DEFAULT_NET_OPEN_ID,
+    net_open_str: str = CHARA_DEFAULT_NET_OPEN_STR,
 ) -> Path:
     """
-    写入作品主数据（与 A001 `charaWorks/charaWorksXXXXXX/CharaWorks.xml` 同结构）。
+    写入作品主数据（与 A000 `charaWorks/charaWorksXXXXXX/CharaWorks.xml` 同结构）。
 
     客户端会把 **本条 CharaWorks** 与 **引用同一 works.id 的 Chara** 放在同一筛选维度下；因此下列字段须与
     **该批角色各自的 Chara.xml** 一致（见仓库 `docs/CharaWorks与Chara字段对照详解.md`）：
@@ -89,8 +188,8 @@ def write_chara_works_xml(
         raise ValueError("works_id 须为非负整数")
     row = f"{wid:06d}"
     safe_works = _esc((works_str or "").strip() or f"Works{wid}")
-    rt_str = _esc((release_tag_str or "").strip() or "Invalid")
-    no_str = _esc((net_open_str or "").strip() or "v2_45 00_1")
+    rt_str = _esc((release_tag_str or "").strip() or CHARA_DEFAULT_RELEASE_TAG_STR)
+    no_str = _esc((net_open_str or "").strip() or CHARA_DEFAULT_NET_OPEN_STR)
     sort_sn = _esc(_works_sort_name(works_str, wid))
 
     wdir = out_dir / "charaWorks" / f"charaWorks{row}"
@@ -129,13 +228,13 @@ def ensure_chara_works_xml(
     out_dir: Path,
     works_id: int,
     works_str: str,
-    release_tag_id: int = -1,
-    release_tag_str: str = "Invalid",
-    net_open_id: int = 2801,
-    net_open_str: str = "v2_45 00_1",
+    release_tag_id: int = CHARA_DEFAULT_RELEASE_TAG_ID,
+    release_tag_str: str = CHARA_DEFAULT_RELEASE_TAG_STR,
+    net_open_id: int = CHARA_DEFAULT_NET_OPEN_ID,
+    net_open_str: str = CHARA_DEFAULT_NET_OPEN_STR,
 ) -> Path | None:
     """
-    若 works 有效则写入/覆盖 charaWorks；否则跳过（与 Chara 中 -1/Invalid 一致）。
+    若 works 有效则写入/覆盖 charaWorks；否则跳过（works 仍为 -1/Invalid 时不写）。
     """
     if int(works_id) < 0:
         return None
@@ -178,15 +277,15 @@ def read_chara_xml_works_release_netopen(xml_path: Path) -> tuple[int, str, int,
         try:
             r_id = int(ri)
         except ValueError:
-            r_id = -1
-        r_s = rs or "Invalid"
+            r_id = CHARA_DEFAULT_RELEASE_TAG_ID
+        r_s = rs or CHARA_DEFAULT_RELEASE_TAG_STR
         ni = (root.findtext("netOpenName/id") or "").strip()
         ns = (root.findtext("netOpenName/str") or "").strip()
         try:
             n_id = int(ni)
         except ValueError:
-            n_id = 2801
-        n_s = (ns or "").strip() or "v2_45 00_1"
+            n_id = CHARA_DEFAULT_NET_OPEN_ID
+        n_s = (ns or "").strip() or CHARA_DEFAULT_NET_OPEN_STR
         return w_id, ws, r_id, r_s, n_id, n_s
     except Exception:
         return None
@@ -261,18 +360,18 @@ def write_chara_xml(
     chara_name: str,
     illustrator_name: str | None = None,
     illustrator_id: int = -1,
-    release_tag_id: int = -1,
-    release_tag_str: str = "Invalid",
+    release_tag_id: int = CHARA_DEFAULT_RELEASE_TAG_ID,
+    release_tag_str: str = CHARA_DEFAULT_RELEASE_TAG_STR,
     works_id: int = -1,
     works_str: str = "Invalid",
-    net_open_id: int = 2801,
-    net_open_str: str = "v2_45 00_1",
+    net_open_id: int = CHARA_DEFAULT_NET_OPEN_ID,
+    net_open_str: str = CHARA_DEFAULT_NET_OPEN_STR,
 ) -> Path:
     """
     Writes:
       out_dir/chara/chara{ID6}/Chara.xml
 
-    Minimal-ish CharaData for tooling purposes (mirrors fields used in A001).
+    Minimal-ish CharaData for tooling purposes（字段与 `data/A000/chara` 官方对齐）。
     defaultImages references {chara_key} (which in turn maps to ddsImage name.str).
     """
     from .chuni_formats import ChuniCharaId
@@ -287,9 +386,18 @@ def write_chara_xml(
 
     safe_name = _esc((chara_name or "").strip() or f"EX_CHARA_{cid.raw}")
     ill_raw = (illustrator_name or "").strip()
-    ill_str = _esc(ill_raw) if ill_raw else "Invalid"
-    ill_id = illustrator_id if ill_raw else -1
-    rt_str = _esc((release_tag_str or "").strip() or "Invalid")
+    if ill_raw:
+        ill_block = (
+            f"  <illustratorName>\n    <id>{int(illustrator_id)}</id>\n"
+            f"    <str>{_esc(ill_raw)}</str>\n    <data />\n  </illustratorName>"
+        )
+    else:
+        ill_block = """  <illustratorName>
+    <id>50</id>
+    <str />
+    <data />
+  </illustratorName>"""
+    rt_str = _esc((release_tag_str or "").strip() or CHARA_DEFAULT_RELEASE_TAG_STR)
     w_id = int(works_id)
     w_raw = (works_str or "").strip()
     if w_id == -1 or not w_raw or w_raw == "Invalid":
@@ -298,7 +406,8 @@ def write_chara_xml(
     else:
         w_str = _esc(w_raw)
 
-    xml = f"""<?xml version="1.0" encoding="utf-8"?>
+    xml = (
+        f"""<?xml version="1.0" encoding="utf-8"?>
 <CharaData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <dataName>chara{cid.raw6}</dataName>
   <releaseTagName>
@@ -324,11 +433,7 @@ def write_chara_xml(
     <str>{w_str}</str>
     <data />
   </works>
-  <illustratorName>
-    <id>{ill_id}</id>
-    <str>{ill_str}</str>
-    <data />
-  </illustratorName>
+{ill_block}
   <defaultHave>false</defaultHave>
   <rareType>0</rareType>
   <normCondition>
@@ -467,26 +572,12 @@ def write_chara_xml(
     <rank>1</rank>
   </addImages9>
   <priority>0</priority>
-  <ranks>
-    <CharaRankData>
-      <index>1</index>
-      <type>1</type>
-      <rewardSkillSeed>
-        <rewardSkillSeed>
-          <id>-1</id>
-          <str>Invalid</str>
-          <data />
-        </rewardSkillSeed>
-      </rewardSkillSeed>
-      <text>
-        <flavorTxtFile>
-          <path />
-        </flavorTxtFile>
-      </text>
-    </CharaRankData>
-  </ranks>
+"""
+        + CHARA_DEFAULT_RANKS_XML
+        + """
 </CharaData>
 """
+    )
     xml_path.write_text(xml, encoding="utf-8")
     return xml_path
 
