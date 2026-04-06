@@ -15,7 +15,9 @@ powershell -ExecutionPolicy Bypass -File ".\scripts\setup_penguin_tools.ps1"
 在仓库根目录执行：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File ".\scripts\build_windows.ps1" -Version 0.4.3
+powershell -ExecutionPolicy Bypass -File ".\scripts\build_windows.ps1" -Version 0.4.8
+
+若未安装 **.NET 10 SDK**（当前上游 `PenguinTools` 目标框架为 net10.0），`PenguinBridge` 会编译失败。可先执行 `scripts\setup_penguin_tools.ps1` 克隆依赖后安装 [.NET 10 SDK](https://aka.ms/dotnet/download)，或使用 **`-SkipBridge`** 打出不含 `PenguinBridge` 的分发包（pgko C# 转码不可用，其余功能正常）。
 ```
 
 该命令会自动完成：
@@ -28,8 +30,8 @@ powershell -ExecutionPolicy Bypass -File ".\scripts\build_windows.ps1" -Version 
 ## 产物位置
 
 - 主程序：`dist/ChuniEventer.exe`
-- 分发目录：`dist/release/Chuni-Eventer-v0.4.3/`
-- 分发压缩包：`dist/Chuni-Eventer-v0.4.3.zip`
+- 分发目录：`dist/release/Chuni-Eventer-v0.4.8/`
+- 分发压缩包：`dist/Chuni-Eventer-v0.4.8.zip`
 
 分发目录中会包含：
 
@@ -39,7 +41,7 @@ powershell -ExecutionPolicy Bypass -File ".\scripts\build_windows.ps1" -Version 
 
 ## 可选参数
 
-- `-Version 0.4.3`：设置分发目录和 zip 的版本号
+- `-Version 0.4.8`：设置分发目录和 zip 的版本号
 - `-SkipPyInstaller`：跳过主程序构建（仅重组装）
 - `-SkipBridge`：跳过 bridge 构建（仅在已存在 bridge 产物时使用）
 

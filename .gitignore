@@ -30,3 +30,6 @@ _tmp_pjsk_test/
 
 # 官方 A001 参考包（体积大，仅本地对照，勿提交）
 A001/
+
+# scripts/setup_penguin_tools.ps1 克隆的依赖（构建 PenguinBridge 用，勿提交）
+PenguinTools/

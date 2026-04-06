@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "0.4.3",
+    [string]$Version = "0.4.8",
     [switch]$SkipPyInstaller,
     [switch]$SkipBridge,
     [switch]$SkipCompressonator
@@ -96,9 +96,6 @@ New-Item -ItemType Directory -Path $OutDir | Out-Null
 Copy-Item $AppExe (Join-Path $OutDir "ChuniEventer.exe") -Force
 
 $BridgeExe = Join-Path $BridgeOut "PenguinBridge.exe"
-if (-not (Test-Path $BridgeExe)) {
-    throw "PenguinBridge.exe not found: $BridgeExe"
-}
 function Copy-PenguinBridgePublish([string]$dest) {
     New-Item -ItemType Directory -Path $dest -Force | Out-Null
     # 复制 net8.0 输出目录内除 pdb 外的全部文件（含 PenguinTools.Core 及其依赖 dll）
@@ -107,18 +104,24 @@ function Copy-PenguinBridgePublish([string]$dest) {
     }
 }
 
-$BridgeDist = Join-Path $OutDir ".tools\PenguinBridge"
-Copy-PenguinBridgePublish $BridgeDist
-
-# Also place bridge under dist/.tools for users who directly run dist\ChuniEventer.exe.
-$DistTools = Join-Path $Root "dist\.tools"
-$DistBridge = Join-Path $DistTools "PenguinBridge"
-Copy-PenguinBridgePublish $DistBridge
+if (Test-Path $BridgeExe) {
+    $BridgeDist = Join-Path $OutDir ".tools\PenguinBridge"
+    Copy-PenguinBridgePublish $BridgeDist
+    # Also place bridge under dist/.tools for users who directly run dist\ChuniEventer.exe.
+    $DistTools = Join-Path $Root "dist\.tools"
+    $DistBridge = Join-Path $DistTools "PenguinBridge"
+    Copy-PenguinBridgePublish $DistBridge
+} elseif ($SkipBridge) {
+    Write-Host "  Skip PenguinBridge bundle (no $BridgeExe ; pgko C# 转码需本机 dotnet build 或安装 .NET 10 SDK 后重打)"
+} else {
+    throw "PenguinBridge.exe not found: $BridgeExe"
+}
 
 if (-not $SkipCompressonator) {
     $OutTools = Join-Path $OutDir ".tools"
+    $DistToolsRoot = Join-Path $Root "dist\.tools"
     Copy-CompressonatorBundle $OutTools
-    Copy-CompressonatorBundle $DistTools
+    Copy-CompressonatorBundle $DistToolsRoot
 }
 
 $ThirdParty = Join-Path $Root "packaging\THIRD_PARTY_COMPRESSONATOR.txt"
