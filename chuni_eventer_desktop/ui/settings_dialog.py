@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
-from PyQt6.QtWidgets import QDialog, QFileDialog, QHBoxLayout, QVBoxLayout
+from PyQt6.QtWidgets import QDialog, QFileDialog, QHBoxLayout, QInputDialog, QVBoxLayout
 
 from qfluentwidgets import BodyLabel, CardWidget, LineEdit, PrimaryPushButton, PushButton
 
 from ..acus_workspace import AcusConfig
+from ..dds_convert import DdsToolError, is_bc3_dds, run_cmd, validate_compressonator_tool
+from ..dds_quicktex import encode_image_to_bc3_dds_quicktex, quicktex_available
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
 from .index_progress import run_rebuild_game_index_with_progress
 from .pjsk_hub_dialog import PjskHubDialog
@@ -80,11 +83,14 @@ class SettingsDialog(QDialog):
 
         browse = PushButton("浏览…", self)
         browse.clicked.connect(self._pick_tool)
+        test_btn = PushButton("测试转换能力", self)
+        test_btn.clicked.connect(self._test_dds_convert)
 
         row = QHBoxLayout()
         row.setSpacing(8)
         row.addWidget(self.compressonator, stretch=1)
         row.addWidget(browse)
+        row.addWidget(test_btn)
 
         card = CardWidget(self)
         card_layout = QVBoxLayout(card)
@@ -175,6 +181,101 @@ class SettingsDialog(QDialog):
             parent=self,
         )
         hub.exec()
+
+    def _test_dds_convert(self) -> None:
+        selected, ok = QInputDialog.getItem(
+            self,
+            "选择测试方式",
+            "请选择要测试的转换逻辑：",
+            ["内置 quicktex", "内置 Pillow(DXT5)", "compressonator CLI"],
+            0,
+            False,
+        )
+        if not ok:
+            return
+
+        test_png_size = (4, 4)
+        with tempfile.TemporaryDirectory(prefix="chuni_dds_test_") as tmp:
+            tmp_dir = Path(tmp)
+            png = tmp_dir / "sample.png"
+            dds_quick = tmp_dir / "quicktex.dds"
+            dds_cli = tmp_dir / "compressonator.dds"
+
+            try:
+                from PIL import Image
+
+                Image.new("RGBA", test_png_size, (255, 0, 255, 255)).save(png, "PNG")
+            except Exception as e:
+                fly_critical(self, "测试失败", f"无法生成测试图片：{e}")
+                return
+
+            if selected == "内置 quicktex":
+                quick_ok = False
+                quick_msg = ""
+                if not quicktex_available():
+                    quick_msg = "未检测到 quicktex（打包遗漏或依赖不可用）"
+                else:
+                    try:
+                        encode_image_to_bc3_dds_quicktex(input_image=png, output_dds=dds_quick)
+                        quick_ok = is_bc3_dds(dds_quick)
+                        quick_msg = "可用（已成功生成 BC3 DDS）" if quick_ok else "输出存在但不是 BC3 DDS"
+                    except Exception as e:
+                        quick_msg = str(e)
+                title = "quicktex 测试完成" if quick_ok else "quicktex 测试失败"
+                text = f"DDS 转换自检结果：\n- 内置 quicktex：{'OK' if quick_ok else 'FAIL'}\n  {quick_msg}"
+                if quick_ok:
+                    fly_message(self, title, text)
+                else:
+                    fly_warning(self, title, text)
+                return
+            if selected == "内置 Pillow(DXT5)":
+                pillow_ok = False
+                pillow_msg = ""
+                try:
+                    from PIL import Image
+
+                    Image.open(png).convert("RGBA").save(dds_quick, format="DDS", pixel_format="DXT5")
+                    pillow_ok = is_bc3_dds(dds_quick)
+                    pillow_msg = "可用（已成功生成 BC3 DDS）" if pillow_ok else "输出存在但不是 BC3 DDS"
+                except Exception as e:
+                    pillow_msg = str(e)
+                title = "Pillow(DXT5) 测试完成" if pillow_ok else "Pillow(DXT5) 测试失败"
+                text = f"DDS 转换自检结果：\n- 内置 Pillow(DXT5)：{'OK' if pillow_ok else 'FAIL'}\n  {pillow_msg}"
+                if pillow_ok:
+                    fly_message(self, title, text)
+                else:
+                    fly_warning(self, title, text)
+                return
+
+            cli_ok = False
+            cli_msg = ""
+            tool = self._resolve_tool_path_for_test()
+            if tool is None:
+                cli_msg = "未配置 compressonatorcli（且未检测到附带 CLI）"
+            else:
+                try:
+                    validate_compressonator_tool(tool)
+                    run_cmd([str(tool), "-fd", "BC3", str(png), str(dds_cli)])
+                    cli_ok = is_bc3_dds(dds_cli)
+                    cli_msg = f"可用（{tool}）" if cli_ok else f"执行成功但输出不是 BC3（{tool}）"
+                except (DdsToolError, OSError) as e:
+                    cli_msg = f"{tool}\n{e}"
+            title = "compressonator CLI 测试完成" if cli_ok else "compressonator CLI 测试失败"
+            text = f"DDS 转换自检结果：\n- compressonator CLI：{'OK' if cli_ok else 'FAIL'}\n  {cli_msg}"
+            if cli_ok:
+                fly_message(self, title, text)
+            else:
+                fly_warning(self, title, text)
+
+    def _resolve_tool_path_for_test(self) -> Path | None:
+        raw = (self.compressonator.text() or "").strip()
+        if raw:
+            try:
+                p = Path(raw).expanduser().resolve(strict=False)
+            except OSError:
+                return None
+            return p if p.is_file() else None
+        return self._get_tool_path()
 
     def apply(self) -> None:
         raw = self.compressonator.text().strip()

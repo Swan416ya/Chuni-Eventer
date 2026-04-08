@@ -142,18 +142,31 @@ def encode_image_to_bc3_dds_quicktex(
         return
 
     err = (p.stderr or p.stdout or "").strip()
+    cmd_text = " ".join(f'"{x}"' if " " in x else x for x in cmd)
+    stdout_text = (p.stdout or "").strip()
+    stderr_text = (p.stderr or "").strip()
+    common_diag = (
+        f"quicktex worker 启动命令: {cmd_text}\n"
+        f"sys.executable: {sys.executable}\n"
+        f"frozen: {getattr(sys, 'frozen', False)}\n"
+        f"returncode: {p.returncode} (hex: {p.returncode & 0xFFFFFFFF:#010x})\n"
+        f"stdout:\n{stdout_text or '<empty>'}\n"
+        f"stderr:\n{stderr_text or '<empty>'}"
+    )
     # Windows: 0xC0000005 STATUS_ACCESS_VIOLATION，常见于 quicktex 原生编码器
     if p.returncode in (-1073741819, 3221225477):
         hint = (
             "quicktex 在子进程内发生访问冲突（access violation），主界面已保持运行。\n"
-            "打包版请在【设置】中填写 compressonatorcli 完整路径并保存，"
-            "生成 BC3 时将优先使用 Compressonator（比 quicktex 更稳）。"
+            "这通常是 quicktex 原生扩展在当前机器/运行库上的兼容性问题。\n"
+            "程序会继续尝试内置备用编码器（Pillow DDS DXT5）；若仍失败再回退 Compressonator。"
         )
-        err = f"{hint}\n\n{err}" if err else hint
+        err = f"{hint}\n\n{common_diag}\n\n原始错误:\n{err or '<empty>'}"
     elif not err:
         err = (
             f"quicktex 编码子进程异常结束（exit {p.returncode}）。"
-            "若在部分图片上稳定复现，多为 quicktex 在 Windows 上的原生问题，"
-            "可在【设置】中配置 compressonatorcli 作为回退。"
+            "若在部分图片上稳定复现，多为 quicktex 在 Windows 上的原生问题。"
         )
+        err = f"{err}\n\n{common_diag}"
+    else:
+        err = f"{err}\n\n{common_diag}"
     raise RuntimeError(err)

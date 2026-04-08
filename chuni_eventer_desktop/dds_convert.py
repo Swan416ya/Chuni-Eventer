@@ -104,14 +104,13 @@ def convert_to_bc3_dds(*, tool_path: Path | None, input_image: Path, output_dds:
     """
     图片 → BC3(DXT5) DDS。
 
-    开发环境：优先 **quicktex**（无需单独安装 Compressonator），失败时再尝试 **compressonatorcli**。
+    默认优先 **Pillow DDS(DXT5)**（纯内置、打包稳定），失败时尝试 **quicktex**，
+    最后回退 **compressonatorcli**（若已配置）。
 
-    PyInstaller 打包版：若已在【设置】中配置 compressonatorcli，则**优先使用 CLI**（避免 Windows 上
-    quicktex 子进程访问冲突）；否则仍先尝试 quicktex。
+    说明：Pillow 的 DDS 写出为内置编码路径，不依赖外部 exe，可提升打包版可用性。
     """
     from . import dds_quicktex
 
-    frozen = getattr(sys, "frozen", False)
     last: Exception | None = None
 
     def _try_quicktex() -> bool:
@@ -122,6 +121,22 @@ def convert_to_bc3_dds(*, tool_path: Path | None, input_image: Path, output_dds:
             dds_quicktex.encode_image_to_bc3_dds_quicktex(
                 input_image=input_image, output_dds=output_dds
             )
+            return True
+        except Exception as e:
+            last = e
+            return False
+
+    def _try_pillow_dds() -> bool:
+        nonlocal last
+        try:
+            from PIL import Image
+
+            with Image.open(input_image) as im:
+                rgba = im.convert("RGBA")
+                output_dds.parent.mkdir(parents=True, exist_ok=True)
+                rgba.save(output_dds, format="DDS", pixel_format="DXT5")
+            if not is_bc3_dds(output_dds):
+                raise DdsToolError("Pillow 已输出 DDS，但格式校验不是 BC3(DXT5)。")
             return True
         except Exception as e:
             last = e
@@ -141,32 +156,20 @@ def convert_to_bc3_dds(*, tool_path: Path | None, input_image: Path, output_dds:
             last = e
             return False
 
-    if frozen and tool_path is not None:
-        if _try_compress():
-            return
-        if _try_quicktex():
-            return
-    else:
-        if _try_quicktex():
-            return
-        if _try_compress():
-            return
+    if _try_pillow_dds():
+        return
+    if _try_quicktex():
+        return
+    if _try_compress():
+        return
 
-    if frozen:
-        hint = (
-            "请任选其一：\n"
-            "1) 在【设置】中配置 compressonatorcli 可执行文件路径（打包版推荐，最稳定）\n"
-            "2) 依赖内置 quicktex：请确认图片宽高为 4 的倍数；若仍报访问冲突，请改用第 1 项"
-        )
-    else:
-        hint = (
-            "请任选其一：\n"
-            "1) pip install quicktex（推荐，可不装 compressonator）\n"
-            "2) 在【设置】中配置 compressonatorcli 可执行文件路径"
-        )
+    hint = (
+        "可用转换链路均失败：Pillow DDS(DXT5) -> quicktex -> compressonatorcli。\n"
+        "请在【设置】中测试各路径，并优先确认输入图片可被 PIL 正常读取。"
+    )
     if last is not None:
         raise DdsToolError(f"生成 BC3 DDS 失败。\n{hint}\n\n底层错误：{last}") from last
-    raise DdsToolError(f"无法生成 BC3 DDS：未安装 quicktex 且未配置 compressonatorcli。\n{hint}")
+    raise DdsToolError(f"无法生成 BC3 DDS。\n{hint}")
 
 
 def convert_dds_to_png(*, tool_path: Path | None, input_dds: Path, output_png: Path) -> None:
