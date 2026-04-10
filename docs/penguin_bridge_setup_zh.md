@@ -31,16 +31,16 @@ powershell -ExecutionPolicy Bypass -File ".\scripts\setup_penguin_tools.ps1"
 1. **仓库内**：`Chuni-Eventer/PenguinTools/PenguinTools.Core/PenguinTools.Core.csproj`
 2. **与仓库同级**：`<上级目录>/PenguinTools/PenguinTools.Core/PenguinTools.Core.csproj`
 
-## 1. 构建 Bridge
+## 1. 构建 / 发布 Bridge
 
 ```powershell
-dotnet build "tools/PenguinBridge/PenguinBridge.csproj" -c Release
+dotnet publish "tools/PenguinBridge/PenguinBridge.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false
 ```
 
 输出目录（示例）：
 
-- `tools/PenguinBridge/bin/Release/net8.0/PenguinBridge.exe`
-- 同目录下还应有 `PenguinTools.Core.dll` 以及其它依赖 dll（由 dotnet 自动复制）
+- `tools/PenguinBridge/bin/Release/net8.0/win-x64/publish/PenguinBridge.exe`
+- 同目录下还应有 `assets.json`、`PenguinTools.Core.dll` 以及其它依赖 dll（由项目构建步骤复制）
 
 ## 2. Python 侧识别路径
 
@@ -49,7 +49,8 @@ dotnet build "tools/PenguinBridge/PenguinBridge.csproj" -c Release
 1. 环境变量 `CHUNI_PENGUIN_BRIDGE`
 2. `<应用根>/.tools/PenguinBridge/PenguinBridge.exe`
 3. `tools/PenguinBridge/bin/Release/net8.0/PenguinBridge.exe`
-4. 以及若干 cwd / exe 目录候选
+4. `tools/PenguinBridge/bin/Release/net8.0/win-x64/publish/PenguinBridge.exe`
+5. 以及若干 cwd / exe 目录候选
 
 可选：若你把 `PenguinTools.Core.dll` 放在与 `PenguinBridge.exe` 不同目录，可设置：
 

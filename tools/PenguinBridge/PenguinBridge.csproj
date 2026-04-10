@@ -7,11 +7,39 @@
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="System.Text.Json" Version="9.0.0" />
+  </ItemGroup>
+
   <!--
     该桥接程序采用反射调用 PenguinTools.Core，不做编译期项目引用。
     运行时请满足以下任一条件：
       1) CHUNI_PENGUIN_TOOLS_CORE_DLL 指向 PenguinTools.Core.dll
-      2) PenguinTools.Core.dll 与 PenguinBridge.exe 同目录
+      2) PenguinTools.Core.dll 与 PenguinBridge.exe 同目录（构建后由 CopyPenguinToolsRuntime 自动复制）
   -->
+
+  <ItemGroup>
+    <None
+      Include="..\..\PenguinTools\PenguinTools\Resources\assets.json"
+      Link="assets.json"
+      CopyToOutputDirectory="PreserveNewest"
+      Condition="Exists('..\..\PenguinTools\PenguinTools\Resources\assets.json')" />
+  </ItemGroup>
+
+  <Target Name="CopyPenguinToolsRuntime" AfterTargets="Build">
+    <PropertyGroup>
+      <_PtCoreDir>$(MSBuildThisFileDirectory)..\..\PenguinTools\PenguinTools.Core\bin\$(Configuration)\net8.0\</_PtCoreDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <_PtCoreFiles Include="$(_PtCoreDir)PenguinTools.Core.dll" />
+      <_PtCoreFiles Include="$(_PtCoreDir)SonicAudioLib.dll" />
+      <_PtCoreFiles Include="$(_PtCoreDir)VGAudio.dll" />
+    </ItemGroup>
+    <Copy
+      SourceFiles="@(_PtCoreFiles)"
+      DestinationFolder="$(OutputPath)"
+      SkipUnchangedFiles="true"
+      Condition="Exists('$(_PtCoreDir)PenguinTools.Core.dll')" />
+  </Target>
 </Project>
 

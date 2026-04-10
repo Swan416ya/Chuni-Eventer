@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("PenguinBridge")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+76ca28b7edd38171d99a93245e9caa60df03ba5e")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+e427eec2af86725e29788d1b3ed007cdf1558e19")]
 [assembly: System.Reflection.AssemblyProductAttribute("PenguinBridge")]
 [assembly: System.Reflection.AssemblyTitleAttribute("PenguinBridge")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

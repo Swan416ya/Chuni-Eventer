@@ -1,5 +1,4 @@
 using System.Reflection;
-using System.Text;
 using System.Threading.Tasks;
 
 static void FinishAsync(object? invokeResult)
@@ -73,18 +72,24 @@ static int MainImpl(string[] args)
         var assetMgrType = coreAsm.GetType("PenguinTools.Core.Asset.AssetManager");
         if (assetMgrType is not null)
         {
-            try
+            var assetsPath = Path.Combine(AppContext.BaseDirectory, "assets.json");
+            if (!File.Exists(assetsPath))
             {
-                var emptyAssets = new MemoryStream(Encoding.UTF8.GetBytes("{}"));
-                var assets = Activator.CreateInstance(assetMgrType, emptyAssets);
-                var ap = parserType.GetProperty("Assets");
-                if (assets is not null && ap is not null && ap.CanWrite)
-                    ap.SetValue(parser, assets);
+                Console.Error.WriteLine(
+                    "assets.json not found next to PenguinBridge.exe (expected from PenguinTools GUI Resources). "
+                    + $"Looked for: {assetsPath}");
+                return 11;
             }
-            catch (Exception ex)
+
+            using var assetsStream = File.OpenRead(assetsPath);
+            var assets = Activator.CreateInstance(assetMgrType, assetsStream);
+            var ap = parserType.GetProperty("Assets");
+            if (assets is null || ap is null || !ap.CanWrite)
             {
-                Console.Error.WriteLine($"Warning: could not attach AssetManager: {ex.Message}");
+                Console.Error.WriteLine("Failed to construct AssetManager or set MgxcParser.Assets.");
+                return 12;
             }
+            ap.SetValue(parser, assets);
         }
 
         // 必须等待异步解析/转换完成；否则可能读到未填充的 Mgxc 或尚未写入的 c2s。

@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "0.4.8",
+    [string]$Version = "0.5.0",
     [switch]$SkipPyInstaller,
     [switch]$SkipBridge,
     [switch]$SkipCompressonator
@@ -35,12 +35,12 @@ if (-not $SkipPyInstaller) {
     Write-Host "[2/5] Skip PyInstaller"
 }
 
-$BridgeOut = Join-Path $Root "tools\PenguinBridge\bin\Release\net8.0"
+$BridgeOut = Join-Path $Root "tools\PenguinBridge\bin\Release\net8.0\win-x64\publish"
 if (-not $SkipBridge) {
-    Write-Host "[3/5] Build PenguinBridge ..."
-    & dotnet build (Join-Path $Root "tools\PenguinBridge\PenguinBridge.csproj") -c Release
+    Write-Host "[3/5] Publish PenguinBridge (self-contained) ..."
+    & dotnet publish (Join-Path $Root "tools\PenguinBridge\PenguinBridge.csproj") -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false
     if ($LASTEXITCODE -ne 0) {
-        throw "dotnet build PenguinBridge failed (exit $LASTEXITCODE). Run scripts\setup_penguin_tools.ps1 or pass -SkipBridge."
+        throw "dotnet publish PenguinBridge failed (exit $LASTEXITCODE). Run scripts\setup_penguin_tools.ps1 (and ensure PenguinTools.Core can build), or pass -SkipBridge."
     }
 } else {
     Write-Host "[3/5] Skip bridge build"
@@ -98,7 +98,7 @@ Copy-Item $AppExe (Join-Path $OutDir "ChuniEventer.exe") -Force
 $BridgeExe = Join-Path $BridgeOut "PenguinBridge.exe"
 function Copy-PenguinBridgePublish([string]$dest) {
     New-Item -ItemType Directory -Path $dest -Force | Out-Null
-    # 复制 net8.0 输出目录内除 pdb 外的全部文件（含 PenguinTools.Core 及其依赖 dll）
+    # 复制 self-contained 发布目录内除 pdb 外的全部文件（含 core 依赖）
     Get-ChildItem $BridgeOut -File | Where-Object { $_.Extension -ne ".pdb" } | ForEach-Object {
         Copy-Item $_.FullName $dest -Force
     }
@@ -112,7 +112,7 @@ if (Test-Path $BridgeExe) {
     $DistBridge = Join-Path $DistTools "PenguinBridge"
     Copy-PenguinBridgePublish $DistBridge
 } elseif ($SkipBridge) {
-    Write-Host "  Skip PenguinBridge bundle (no $BridgeExe ; pgko C# 转码需本机 dotnet build 或安装 .NET 10 SDK 后重打)"
+    Write-Host "  Skip PenguinBridge bundle (no $BridgeExe ; pgko C# 转码不可用)"
 } else {
     throw "PenguinBridge.exe not found: $BridgeExe"
 }

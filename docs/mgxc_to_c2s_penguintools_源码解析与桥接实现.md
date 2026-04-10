@@ -131,7 +131,7 @@
 - 显式等待 `ActionAsync`（`Task.GetAwaiter().GetResult()`）
   - 防止“未解析完就取结果”造成空谱/损坏输出
 - 反射注入 `AssetManager`
-  - 用空 JSON（`{}`）初始化，满足 `MgxcParser.Assets` 必需依赖
+  - 使用上游 `assets.json`（`PenguinTools/Resources/assets.json`）初始化，避免元数据解析时空引用
 - 运行时加载策略：
   - `CHUNI_PENGUIN_TOOLS_CORE_DLL`
   - 或与 exe 同目录的 `PenguinTools.Core.dll`
@@ -184,4 +184,53 @@ $env:CHUNI_PENGUIN_TOOLS_CORE_DLL = "D:\path\to\PenguinTools.Core.dll"
 - 转谱语义与上游一致
 - Python 调用接口稳定
 - 后续跟随上游升级时只需替换 Core 二进制，桥接层改动很小
+
+---
+
+## 8. 本仓库一键构建与分发说明
+
+### 8.1 一键构建（当前仓库）
+
+已提供脚本：
+- `scripts/build_penguin_tools_core_and_bridge.ps1`
+
+用途：
+- 构建 `PenguinTools.Core`（含依赖）
+- 构建 `PenguinBridge`
+- 将运行时所需文件复制到 `tools/PenguinBridge/bin/Release/net8.0`
+
+典型输出目录应包含：
+- `PenguinBridge.exe`
+- `assets.json`
+- `PenguinTools.Core.dll`
+- `SonicAudioLib.dll`
+- `VGAudio.dll`
+- `System.Text.Json.dll`
+
+### 8.2 与上游差异（为本地可构建性做的适配）
+
+为兼容本仓库构建环境，做了最小适配（不改变 mgxc->c2s 业务流程）：
+- 将若干 C# 14 `extension {}` 语法改写为经典扩展方法
+- 将 `Lock` / `field` 等新语法改写为旧语法等价实现
+- 统一目标框架到 `net8.0`（便于和 Bridge 运行时一致）
+
+这些改动主要在 vendored `PenguinTools` 子目录内；后续若同步上游，需要注意冲突。
+
+### 8.3 分发给他人是否需要安装 .NET SDK？
+
+结论：**通常不需要 SDK**。
+
+- 如果你直接分发 `tools/PenguinBridge/bin/Release/net8.0` 这套文件：
+  - 对方只需要安装 **.NET 8 Runtime（Desktop/ASP.NET 任一含 CoreCLR 运行时）**
+  - 不需要安装 .NET SDK
+- 如果想做到“目标机完全免装 .NET”：
+  - 可额外做 `self-contained` 发布（体积更大）
+
+示例（x64 自包含）：
+
+```powershell
+dotnet publish tools\PenguinBridge\PenguinBridge.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true
+```
+
+注意：自包含发布后，仍需同时带上 `assets.json` 与 `PenguinTools.Core.dll`/相关依赖（或在发布流程里复制）。
 

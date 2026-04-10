@@ -413,8 +413,14 @@ class PgkoSheetDownloadDialog(QDialog):
         fly_critical(self, "重转失败", msg)
 
     def _try_convert_pgko_to_c2s(self, output: Path) -> None:
+        mgxc_list: list[Path] = []
+        if output.is_dir():
+            mgxc_list = sorted(p for p in output.glob("**/*.mgxc") if p.is_file())
+        elif output.is_file() and output.suffix.lower() == ".mgxc":
+            mgxc_list = [output]
+
         pick = pick_pgko_chart_for_convert(output)
-        if pick is None:
+        if not mgxc_list and pick is None:
             fly_warning(
                 self,
                 "未找到谱面文件",
@@ -422,12 +428,49 @@ class PgkoSheetDownloadDialog(QDialog):
                 "说明：暂不支持 ugc 直转，需存在 mgxc 文件。",
             )
             return
+
+        converted: list[tuple[Path, Path, str]] = []
+        cs_ok = 0
+        py_ok = 0
+        errs: list[str] = []
+        for mg in mgxc_list:
+            try:
+                out_i, backend_i = convert_pgko_chart_pick_to_c2s_with_backend(
+                    PgkoChartPick(path=mg, ext="mgxc")
+                )
+                converted.append((mg, out_i, backend_i))
+                if backend_i == "cs":
+                    cs_ok += 1
+                else:
+                    py_ok += 1
+            except Exception as e:
+                errs.append(f"{mg.name}: {type(e).__name__}: {e}")
+
+        out: Path | None = None
+        backend: str = "python"
+        if converted:
+            if pick is not None:
+                for src_i, out_i, backend_i in converted:
+                    if src_i.resolve() == pick.path.resolve():
+                        out, backend = out_i, backend_i
+                        break
+            if out is None:
+                _src0, out, backend = converted[0]
+
         try:
-            out, backend = convert_pgko_chart_pick_to_c2s_with_backend(pick)
+            if out is None:
+                if pick is None:
+                    raise RuntimeError("未找到可转换的 mgxc 文件")
+                out, backend = convert_pgko_chart_pick_to_c2s_with_backend(pick)
+                if backend == "cs":
+                    cs_ok += 1
+                else:
+                    py_ok += 1
         except NotImplementedError as e:
-            self._status.setText(
-                f"已选转码源：{pick.path.name}（{pick.ext}，优先级规则：mgxc > ugc）"
-            )
+            if pick is not None:
+                self._status.setText(
+                    f"已选转码源：{pick.path.name}（{pick.ext}，优先级规则：mgxc > ugc）"
+                )
             fly_warning(self, "暂不支持该格式", str(e))
             return
         except Exception as e:
@@ -436,17 +479,31 @@ class PgkoSheetDownloadDialog(QDialog):
             return
 
         backend_tip = "C#(PenguinBridge)" if backend == "cs" else "Python(回退)"
-        self._status.setText(f"转码完成：{out.name}（{backend_tip}）")
-        if backend != "cs":
+        total_ok = cs_ok + py_ok
+        self._status.setText(
+            f"转码完成：{total_ok} 个（C#={cs_ok}, Python={py_ok}），主谱 {out.name}（{backend_tip}）"
+        )
+        if py_ok > 0:
             bridge = resolve_penguin_bridge()
             why = "未找到 PenguinBridge.exe" if bridge is None else f"PenguinBridge 调用失败：{bridge}"
             detail = explain_penguin_bridge_lookup() if bridge is None else ""
             fly_warning(
                 self,
                 "C# 转换未生效",
-                f"本次已回退到 Python 转换。\n原因：{why}\n\n{detail}".strip(),
+                f"本次已有 {py_ok} 个谱面回退到 Python 转换。\n原因：{why}\n\n{detail}".strip(),
+            )
+        if errs:
+            fly_warning(
+                self,
+                "部分谱面转换失败",
+                "以下谱面未成功转换（最多显示 10 条）：\n" + "\n".join(errs[:10]),
             )
         try:
+            if pick is None:
+                if converted:
+                    pick = PgkoChartPick(path=converted[0][0], ext="mgxc")
+                else:
+                    raise RuntimeError("缺少用于读取元数据的谱面源")
             meta = read_pgko_meta_for_pick(pick)
         except Exception as e:
             fly_warning(self, "读取元数据失败", f"{type(e).__name__}: {e}")

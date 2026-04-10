@@ -13,3 +13,10 @@ e:\Python Project\Chuni-Eventer\tools\PenguinBridge\obj\Release\net8.0\refint\Pe
 e:\Python Project\Chuni-Eventer\tools\PenguinBridge\obj\Release\net8.0\PenguinBridge.pdb
 e:\Python Project\Chuni-Eventer\tools\PenguinBridge\obj\Release\net8.0\PenguinBridge.genruntimeconfig.cache
 e:\Python Project\Chuni-Eventer\tools\PenguinBridge\obj\Release\net8.0\ref\PenguinBridge.dll
+E:\Python Project\Chuni-Eventer\tools\PenguinBridge\bin\Release\net8.0\assets.json
+E:\Python Project\Chuni-Eventer\tools\PenguinBridge\bin\Release\net8.0\System.IO.Pipelines.dll
+E:\Python Project\Chuni-Eventer\tools\PenguinBridge\bin\Release\net8.0\System.Text.Encodings.Web.dll
+E:\Python Project\Chuni-Eventer\tools\PenguinBridge\bin\Release\net8.0\System.Text.Json.dll
+E:\Python Project\Chuni-Eventer\tools\PenguinBridge\bin\Release\net8.0\runtimes\browser\lib\net8.0\System.Text.Encodings.Web.dll
+E:\Python Project\Chuni-Eventer\tools\PenguinBridge\obj\Release\net8.0\PenguinBridge.csproj.AssemblyReference.cache
+E:\Python Project\Chuni-Eventer\tools\PenguinBridge\obj\Release\net8.0\PenguinB.D81E1948.Up2Date
