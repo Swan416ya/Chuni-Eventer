@@ -24,23 +24,43 @@ class BpmSetting(C2sObject):
 
 
 class MeterSetting(C2sObject):
+    """signature 存 (分子, 分母)；输出顺序与 PenguinTools c2s.Met 一致：先分母后分子。"""
+
     signature: tuple[int, int] = (0, 0)
 
     def __str__(self) -> str:
+        num, den = int(self.signature[0]), int(self.signature[1])
         return "MET\t%s\t%s\t%s\t%s" % (
             self.measure,
             self.tick,
-            self.signature[0],
-            self.signature[1],
+            den,
+            num,
         )
 
 
 class SpeedSetting(C2sObject):
+    """已弃用：PenguinTools 对 smod 使用 DCM。保留以兼容旧调用。"""
+
     length: int = 0
     speed: float = 1.0
 
     def __str__(self) -> str:
         return "SFL\t%s\t%s\t%s\t%s" % (
+            self.measure,
+            self.tick,
+            self.length,
+            self.speed,
+        )
+
+
+class DcmSetting(C2sObject):
+    """对应 PenguinTools c2s.Dcm（原 SFL 已 Obsolete）。"""
+
+    length: int = 0
+    speed: float = 1.0
+
+    def __str__(self) -> str:
+        return "DCM\t%s\t%s\t%s\t%.6f" % (
             self.measure,
             self.tick,
             self.length,
@@ -54,7 +74,7 @@ class TimelineSpeedSetting(C2sObject):
     timeline: int = 0
 
     def __str__(self) -> str:
-        return "SLP\t%s\t%s\t%s\t%s\t%s" % (
+        return "SLP\t%s\t%s\t%s\t%.6f\t%s" % (
             self.measure,
             self.tick,
             self.length,
@@ -148,7 +168,8 @@ class SlideNote(C2sNote):
 
     def __str__(self) -> str:
         tag = "SLC" if self.is_curve else "SLD"
-        return "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s" % (
+        # PenguinTools Slide.Text 在末尾固定追加 \\tSLD（及可选 ExTap 效果）；与首字段 SLC/SLD 并存。
+        return "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\tSLD" % (
             tag,
             self.measure,
             self.tick,
@@ -197,9 +218,13 @@ def create_file(
     creator: str,
     bpm_def: float,
     version: str = "1.13.00",
+    met_def: tuple[int, int] | None = None,
+    include_footer: bool = True,
 ) -> str:
     bpm_s = f"{bpm_def:.3f}"
     cr = creator.strip() or "SUS import"
+    md = met_def if met_def is not None else (4, 4)
+    met_d0, met_n0 = int(md[0]), int(md[1])
     header = "\n".join(
         [
             f"VERSION\t{version}\t{version}",
@@ -209,7 +234,8 @@ def create_file(
             "LEVEL\t0.0",
             f"CREATOR\t{cr}",
             f"BPM_DEF\t{bpm_s}\t{bpm_s}\t{bpm_s}\t{bpm_s}",
-            "MET_DEF\t4\t4",
+            # 与 C2SConverter：MET_DEF\tBgmInitialDenominator\tBgmInitialNumerator
+            f"MET_DEF\t{met_d0}\t{met_n0}",
             f"RESOLUTION\t{C2S_TICKS_PER_MEASURE}",
             f"CLK_DEF\t{C2S_TICKS_PER_MEASURE}",
             "PROGJUDGE_BPM\t240.000",
@@ -296,11 +322,14 @@ T_PROG_95\t81
 
     body_defs = "\n".join(str(d) for d in defs)
     body_notes = "\n".join(str(n) for n in notes)
-    return (
-        header
-        + body_defs
-        + "\n\n"
-        + body_notes
-        + "\n\n"
-        + sample_footer
-    )
+    if include_footer:
+        return (
+            header
+            + body_defs
+            + "\n\n"
+            + body_notes
+            + "\n\n"
+            + sample_footer
+        )
+    # PenguinTools C2SConverter 仅输出头 + 事件 + 笔记，无 T_REC/T_NOTE 统计尾段。
+    return header + body_defs + "\n\n" + body_notes + "\n"

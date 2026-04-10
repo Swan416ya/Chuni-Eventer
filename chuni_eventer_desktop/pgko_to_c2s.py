@@ -25,12 +25,12 @@ from ._suspect.c2s_emit import (
     AirNote,
     BpmSetting,
     ChargeNote,
+    DcmSetting,
     FlickNote,
     HoldNote,
     MeterSetting,
     MineNote,
     SlideNote,
-    SpeedSetting,
     TimelineSpeedSetting,
     TapNote,
     create_file,
@@ -437,7 +437,7 @@ def convert_pgko_chart_pick_to_c2s_with_backend(pick: PgkoChartPick) -> tuple[Pa
     bpm_def = sorted((e for e in events if e.kind == "bpm"), key=lambda x: x.tick)[0].value
     scale = 384.0 / 480.0
 
-    defs: list[BpmSetting | MeterSetting | SpeedSetting | TimelineSpeedSetting] = []
+    defs: list[BpmSetting | MeterSetting | DcmSetting | TimelineSpeedSetting] = []
     bpm_events = sorted((e for e in events if e.kind == "bpm"), key=lambda x: x.tick)
     for e in bpm_events:
         obj = BpmSetting()
@@ -485,7 +485,7 @@ def convert_pgko_chart_pick_to_c2s_with_backend(pick: PgkoChartPick) -> tuple[Pa
                 continue
             if abs(float(s.value) - 1.0) < 1e-6:
                 continue
-            sp = SpeedSetting()
+            sp = DcmSetting()
             sp.measure = start // 384
             sp.tick = start % 384
             sp.length = end - start
@@ -771,11 +771,18 @@ def convert_pgko_chart_pick_to_c2s_with_backend(pick: PgkoChartPick) -> tuple[Pa
         or "MGXC import"
     )
 
+    b0 = beat_events[0]
+    met_def_hdr = (
+        max(1, int(b0.value2)),
+        max(1, int(round(b0.value))),
+    )
     text = create_file(
         defs,
         notes_out,
         creator=creator_name,
         bpm_def=float(bpm_def),
+        met_def=met_def_hdr,
+        include_footer=False,
     )
     out.write_text(text, encoding="utf-8")
     return out, "python"

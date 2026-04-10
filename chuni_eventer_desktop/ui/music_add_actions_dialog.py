@@ -86,8 +86,8 @@ class MusicSheetChannelsDialog(QDialog):
         row.addWidget(
             mk(
                 "pgko.jpg",
-                "pgko.dev 入口暂不可用（维护中）",
-                enabled=False,
+                "从 pgko.dev 获取自制谱",
+                enabled=True,
                 act="pgko",
             )
         )

@@ -8,29 +8,10 @@
   </PropertyGroup>
 
   <!--
-    需要本地存在 Foahh/PenguinTools 源码（含 PenguinTools.Core）。
-    支持两种布局（二选一）：
-      1) 仓库内： Chuni-Eventer/PenguinTools/PenguinTools.Core/...
-      2) 与仓库同级： <parent>/PenguinTools/PenguinTools.Core/...
-    一键准备： powershell -ExecutionPolicy Bypass -File scripts/setup_penguin_tools.ps1
+    该桥接程序采用反射调用 PenguinTools.Core，不做编译期项目引用。
+    运行时请满足以下任一条件：
+      1) CHUNI_PENGUIN_TOOLS_CORE_DLL 指向 PenguinTools.Core.dll
+      2) PenguinTools.Core.dll 与 PenguinBridge.exe 同目录
   -->
-  <Choose>
-    <When Condition="Exists('..\..\PenguinTools\PenguinTools.Core\PenguinTools.Core.csproj')">
-      <ItemGroup>
-        <ProjectReference Include="..\..\PenguinTools\PenguinTools.Core\PenguinTools.Core.csproj" />
-      </ItemGroup>
-    </When>
-    <Otherwise>
-      <ItemGroup Condition="Exists('..\..\..\PenguinTools\PenguinTools.Core\PenguinTools.Core.csproj')">
-        <ProjectReference Include="..\..\..\PenguinTools\PenguinTools.Core\PenguinTools.Core.csproj" />
-      </ItemGroup>
-    </Otherwise>
-  </Choose>
-
-  <Target Name="EnsurePenguinToolsCore" BeforeTargets="ResolveProjectReferences">
-    <Error
-      Condition="!Exists('..\..\PenguinTools\PenguinTools.Core\PenguinTools.Core.csproj') And !Exists('..\..\..\PenguinTools\PenguinTools.Core\PenguinTools.Core.csproj')"
-      Text="未找到 PenguinTools.Core。请克隆 https://github.com/Foahh/PenguinTools 到本仓库下的 PenguinTools 目录，或与 Chuni-Eventer 同级的 PenguinTools 目录，然后重新 dotnet build。也可运行: scripts\setup_penguin_tools.ps1" />
-  </Target>
 </Project>
 

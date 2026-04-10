@@ -1,4 +1,12 @@
 using System.Reflection;
+using System.Text;
+using System.Threading.Tasks;
+
+static void FinishAsync(object? invokeResult)
+{
+    if (invokeResult is Task t)
+        t.GetAwaiter().GetResult();
+}
 
 static int MainImpl(string[] args)
 {
@@ -60,8 +68,29 @@ static int MainImpl(string[] args)
         var parser = Activator.CreateInstance(parserType, diag, null);
         if (parser is null) return 7;
         parserType.GetProperty("Path")?.SetValue(parser, inPath);
-        parserType.GetMethod("ActionAsync", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)
-            ?.Invoke(parser, new object?[] { default(CancellationToken) });
+
+        // PenguinTools 的 MgxcParser 需要 AssetManager（与 GUI 一致：硬资产 JSON 流）。
+        var assetMgrType = coreAsm.GetType("PenguinTools.Core.Asset.AssetManager");
+        if (assetMgrType is not null)
+        {
+            try
+            {
+                var emptyAssets = new MemoryStream(Encoding.UTF8.GetBytes("{}"));
+                var assets = Activator.CreateInstance(assetMgrType, emptyAssets);
+                var ap = parserType.GetProperty("Assets");
+                if (assets is not null && ap is not null && ap.CanWrite)
+                    ap.SetValue(parser, assets);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Warning: could not attach AssetManager: {ex.Message}");
+            }
+        }
+
+        // 必须等待异步解析/转换完成；否则可能读到未填充的 Mgxc 或尚未写入的 c2s。
+        FinishAsync(
+            parserType.GetMethod("ActionAsync", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)
+                ?.Invoke(parser, new object?[] { default(CancellationToken) }));
 
         // 某些版本 ActionAsync 返回 Task<Chart>；这里通过属性取结果对象。
         var mgxcProp = parserType.GetProperty("Mgxc", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
@@ -76,8 +105,9 @@ static int MainImpl(string[] args)
         if (conv is null) return 9;
         convType.GetProperty("OutPath")?.SetValue(conv, outPath);
         convType.GetProperty("Mgxc")?.SetValue(conv, mgxc);
-        convType.GetMethod("ActionAsync", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)
-            ?.Invoke(conv, new object?[] { default(CancellationToken) });
+        FinishAsync(
+            convType.GetMethod("ActionAsync", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)
+                ?.Invoke(conv, new object?[] { default(CancellationToken) }));
 
         if (!File.Exists(outPath))
         {
