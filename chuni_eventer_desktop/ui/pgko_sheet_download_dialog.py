@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 import zipfile
 
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
+from PyQt6.QtGui import QEnterEvent, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -12,11 +14,13 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QCheckBox,
     QComboBox,
+    QLabel,
     QLineEdit,
     QMessageBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
+    QWidget,
 )
 from qfluentwidgets import BodyLabel, CardWidget, PrimaryPushButton, PushButton
 
@@ -32,7 +36,6 @@ from ..pgko_sheet_client import (
 )
 from ..pgko_to_c2s import (
     convert_pgko_audio_to_chuni_from_pick,
-    convert_pgko_chart_pick_to_c2s,
     convert_pgko_chart_pick_to_c2s_with_backend,
     install_pgko_pick_to_acus,
     PgkoChartPick,
@@ -133,40 +136,215 @@ class _InstallPgkoThread(QThread):
             self.fail.emit(f"{type(e).__name__}: {e}")
 
 
-class _ReconvertLocalPgkoThread(QThread):
-    ok = pyqtSignal(str)
-    fail = pyqtSignal(str)
+def _margrete_ugc_help_image_path() -> Path:
+    return Path(__file__).resolve().parents[1] / "static" / "help" / "margrete_input_ugc.jpg"
 
-    def run(self) -> None:
-        try:
-            root = app_cache_dir() / "pgko_downloads"
-            if not root.exists():
-                self.ok.emit("未找到 .cache/pgko_downloads，跳过。")
-                return
-            mgxcs = sorted(p for p in root.glob("**/*.mgxc") if p.is_file())
-            if not mgxcs:
-                self.ok.emit("未找到本地 mgxc 文件。")
-                return
-            cs_ok = 0
-            py_ok = 0
-            errs: list[str] = []
-            for p in mgxcs:
+
+def _enumerate_pgko_cache_bundle_dirs(cache_root: Path) -> list[Path]:
+    """列出 `pgko_downloads` 下「含有任意 .mgxc」的顶层目录；若根目录直接放有 mgxc 则包含根。"""
+    if not cache_root.is_dir():
+        return []
+    out: list[Path] = []
+    if any(cache_root.glob("*.mgxc")):
+        out.append(cache_root)
+    for p in sorted(cache_root.iterdir(), key=lambda x: x.name.lower()):
+        if p.is_dir() and any(p.glob("**/*.mgxc")):
+            out.append(p)
+    # 去重并保持顺序
+    seen: set[str] = set()
+    uniq: list[Path] = []
+    for p in out:
+        key = str(p.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(p)
+    return uniq
+
+
+class _MargreteScreenshotHover(QWidget):
+    """默认只显示提示语；鼠标悬停在本区域时展开 Margrete 菜单截图。"""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setMouseTracking(True)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
+        self._hint = QLabel("鼠标移到这里查看演示截图", self)
+        self._hint.setStyleSheet(
+            "color:#1565c0;text-decoration:underline;padding-bottom:4px;"
+        )
+        self._hint.setWordWrap(True)
+        self._hint.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self._img = QLabel(self)
+        self._img.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        pm = QPixmap(str(_margrete_ugc_help_image_path()))
+        if pm.isNull():
+            self._img.setText("（演示图缺失）")
+        else:
+            max_w = 640
+            if pm.width() > max_w:
+                pm = pm.scaledToWidth(max_w, Qt.TransformationMode.SmoothTransformation)
+            self._img.setPixmap(pm)
+        self._img.hide()
+
+        lay.addWidget(self._hint)
+        lay.addWidget(self._img)
+
+    def enterEvent(self, event: QEnterEvent) -> None:
+        self._img.show()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self._img.hide()
+        super().leaveEvent(event)
+
+
+class _PgkoUgcGuideDialog(QDialog):
+    """
+    UGC 无法直转时的引导：Margrete 手工转 mgxc + 浏览本地 pgko_downloads 缓存中的 mgxc 包。
+    """
+
+    def __init__(
+        self,
+        *,
+        on_open_bundle: Callable[[Path], None],
+        parent=None,
+    ) -> None:
+        super().__init__(parent=parent)
+        self.setWindowTitle("UGC → mgxc 与本地缓存谱面")
+        self.setModal(True)
+        self.resize(780, 640)
+        self._on_open_bundle = on_open_bundle
+
+        help_panel = QWidget(self)
+        hp = QVBoxLayout(help_panel)
+        hp.setContentsMargins(0, 0, 0, 0)
+        hp.setSpacing(8)
+
+        title = QLabel("如何将下载的 UGC 转为 mgxc", help_panel)
+        title.setStyleSheet("font-size:15pt;font-weight:700;color:#b71c1c;")
+
+        step1 = QLabel(help_panel)
+        step1.setOpenExternalLinks(True)
+        step1.setWordWrap(True)
+        step1.setTextFormat(Qt.TextFormat.RichText)
+        step1.setText(
+            "1. 在 "
+            "<a href=\"https://umgr.inonote.jp/en/docs/releases\">UMIGURI 官方下载页（Margrete）</a> "
+            "下载并安装 <b>Margrete</b> 制谱器（版本以官网为准，例如 v1.8.0）。"
+        )
+
+        step2 = QLabel(
+            "2. 打开 Margrete，在菜单栏选择「ファイル」→「他形式譜面取り込み…」，从本机选择要导入的 UGC 文件。",
+            help_panel,
+        )
+        step2.setWordWrap(True)
+
+        shot_hover = _MargreteScreenshotHover(help_panel)
+
+        step3 = QLabel(help_panel)
+        step3.setTextFormat(Qt.TextFormat.RichText)
+        step3.setWordWrap(True)
+        step3.setText(
+            "3. 使用快捷键 <b>Ctrl+Shift+S</b> 将谱面另存为 <b>mgxc</b>，"
+            "保存到与原始 <b>ugc</b> 相同的文件夹（便于本工具与音频、封面等资源同目录识别）。"
+        )
+
+        hp.addWidget(title)
+        hp.addWidget(step1)
+        hp.addWidget(step2)
+        hp.addWidget(shot_hover)
+        hp.addWidget(step3)
+
+        hint_below = BodyLabel(
+            "下方列表来自本应用缓存目录下的 pgko_downloads（与线上下载解压位置一致）。"
+            "仅显示含有 .mgxc 的文件夹；双击一行将按与「线上下载后转 c2s」相同的流程处理。"
+        )
+        hint_below.setWordWrap(True)
+
+        self._table = QTableWidget(0, 5, self)
+        apply_fluent_sheet_table(self._table)
+        self._table.setHorizontalHeaderLabels(
+            ["缓存文件夹", "曲名（mgxc 元数据）", "艺术家", "谱师", "mgxc 数"]
+        )
+        hh = self._table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._table.doubleClicked.connect(self._on_row_activated)
+
+        refresh = PushButton("刷新列表", self)
+        refresh.clicked.connect(self._reload_table)
+        close = PushButton("关闭", self)
+        close.clicked.connect(self.reject)
+        row = QHBoxLayout()
+        row.addWidget(refresh)
+        row.addStretch(1)
+        row.addWidget(close)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(16, 16, 16, 16)
+        root.setSpacing(10)
+        root.addWidget(help_panel)
+        root.addWidget(hint_below)
+        root.addWidget(self._table, stretch=1)
+        root.addLayout(row)
+
+        self._reload_table()
+
+    def _reload_table(self) -> None:
+        self._table.setRowCount(0)
+        root = app_cache_dir() / "pgko_downloads"
+        bundles = _enumerate_pgko_cache_bundle_dirs(root)
+        for bundle in bundles:
+            mgxcs = sorted(bundle.glob("**/*.mgxc")) if bundle.is_dir() else []
+            pick = pick_pgko_chart_for_convert(bundle)
+            title = artist = designer = "—"
+            n_mg = len(mgxcs)
+            if pick is not None:
                 try:
-                    _out, backend = convert_pgko_chart_pick_to_c2s_with_backend(
-                        PgkoChartPick(path=p, ext="mgxc")
-                    )
-                    if backend == "cs":
-                        cs_ok += 1
-                    else:
-                        py_ok += 1
-                except Exception as e:
-                    errs.append(f"{p.name}: {type(e).__name__}: {e}")
-            msg = f"重转完成：总计 {len(mgxcs)}，C#={cs_ok}，Python={py_ok}，失败={len(errs)}"
-            if errs:
-                msg += "\n\n失败样例：\n" + "\n".join(errs[:10])
-            self.ok.emit(msg)
-        except Exception as e:
-            self.fail.emit(f"{type(e).__name__}: {e}")
+                    meta = read_pgko_meta_for_pick(pick)
+                    title = str(meta.get("title") or "—").strip() or "—"
+                    artist = str(meta.get("artist") or "—").strip() or "—"
+                    designer = str(meta.get("designer") or "—").strip() or "—"
+                except Exception:
+                    pass
+            r = self._table.rowCount()
+            self._table.insertRow(r)
+            folder_disp = bundle.name if bundle != root else "（pgko_downloads 根目录）"
+            it0 = QTableWidgetItem(folder_disp)
+            it0.setData(Qt.ItemDataRole.UserRole, str(bundle.resolve()))
+            self._table.setItem(r, 0, it0)
+            self._table.setItem(r, 1, QTableWidgetItem(title))
+            self._table.setItem(r, 2, QTableWidgetItem(artist))
+            self._table.setItem(r, 3, QTableWidgetItem(designer))
+            self._table.setItem(r, 4, QTableWidgetItem(str(n_mg)))
+
+    def _on_row_activated(self, _index) -> None:
+        r = self._table.currentRow()
+        if r < 0:
+            return
+        it = self._table.item(r, 0)
+        if it is None:
+            return
+        raw = it.data(Qt.ItemDataRole.UserRole)
+        if not raw:
+            return
+        folder = Path(str(raw))
+        if not folder.is_dir():
+            fly_warning(self, "路径无效", f"不是有效文件夹：\n{folder}")
+            return
+        self.accept()
+        self._on_open_bundle(folder)
 
 
 class PgkoSheetDownloadDialog(QDialog):
@@ -183,11 +361,23 @@ class PgkoSheetDownloadDialog(QDialog):
         self._is_fetching_more = False
         self._seen_bundle_ids: set[str] = set()
 
+        credit = QLabel(self)
+        credit.setTextFormat(Qt.TextFormat.RichText)
+        credit.setOpenExternalLinks(True)
+        credit.setText(
+            '<p style="margin:0;line-height:1.5;">'
+            '<span style="color:#c62828;font-weight:700;">※</span> '
+            "<b>pgko.dev</b> 列表数据与 <b>mgxc → c2s</b> 转谱逻辑均参考作者 "
+            '<a href="https://github.com/Foahh" style="color:#1565c0;font-weight:600;text-decoration:none;">Foahh</a> '
+            "的开源项目（如 PenguinTools）。"
+            "</p>"
+        )
+        credit.setWordWrap(True)
+
         card = CardWidget(self)
         hint = BodyLabel(
-            "加载 pgko.dev 可下载的 ugc/mgxc。双击行或点击下载保存到本地缓存。"
-            "下载完成后可选择是否转码为 c2s（优先 mgxc）。"
-            "暂不支持 ugc 直转；部分不含 mgxc 文件的谱面无法转化。"
+            "加载 pgko.dev 可下载条目。双击行或点「下载选中项」解压到本地缓存，并可转 c2s（需包内存在 mgxc）。"
+            "若只有 UGC，请点「UGC → mgxc…」查看用 Margrete 手工导出 mgxc 的步骤，并浏览已缓存的 mgxc 包。"
         )
         hint.setWordWrap(True)
 
@@ -216,8 +406,8 @@ class PgkoSheetDownloadDialog(QDialog):
 
         refresh = PushButton("刷新列表", self)
         refresh.clicked.connect(self._on_refresh)
-        reconv = PushButton("重转本地 pgko_downloads", self)
-        reconv.clicked.connect(self._on_reconvert_local)
+        ugc = PushButton("UGC → mgxc 说明 / 本地缓存", self)
+        ugc.clicked.connect(self._on_ugc_guide)
         dl = PrimaryPushButton("下载选中项", self)
         dl.clicked.connect(self._on_download)
         close = PushButton("关闭", self)
@@ -225,7 +415,7 @@ class PgkoSheetDownloadDialog(QDialog):
 
         btns = QHBoxLayout()
         btns.addWidget(refresh)
-        btns.addWidget(reconv)
+        btns.addWidget(ugc)
         btns.addStretch(1)
         btns.addWidget(dl)
         btns.addWidget(close)
@@ -233,6 +423,7 @@ class PgkoSheetDownloadDialog(QDialog):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(16, 16, 16, 16)
         lay.setSpacing(12)
+        lay.addWidget(credit)
         lay.addWidget(card, stretch=1)
         lay.addLayout(btns)
 
@@ -275,6 +466,9 @@ class PgkoSheetDownloadDialog(QDialog):
 
         th.finished.connect(_on_finished)
         th.start()
+
+    def _on_ugc_guide(self) -> None:
+        _PgkoUgcGuideDialog(on_open_bundle=self._try_convert_pgko_to_c2s, parent=self).exec()
 
     def _on_refresh(self) -> None:
         if self._thread_running_safe(self._fetch_thread):
@@ -385,32 +579,6 @@ class PgkoSheetDownloadDialog(QDialog):
             "调试信息（复制给开发者）：\n"
             f"{msg}",
         )
-
-    def _on_reconvert_local(self) -> None:
-        ans = QMessageBox.question(
-            self,
-            "重转本地缓存",
-            "将扫描 .cache/pgko_downloads 下所有 mgxc 并重转为 c2s。\n是否继续？",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if ans != QMessageBox.StandardButton.Yes:
-            return
-        self._status.setText("正在重转本地 pgko_downloads…")
-        th = _ReconvertLocalPgkoThread(parent=self)
-        self._download_thread = th  # 复用下载线程槽位，避免重复启动下载
-        th.ok.connect(self._on_reconvert_local_ok)
-        th.fail.connect(self._on_reconvert_local_fail)
-        th.finished.connect(th.deleteLater)
-        th.start()
-
-    def _on_reconvert_local_ok(self, msg: str) -> None:
-        self._status.setText("本地重转完成。")
-        fly_message(self, "重转结果", msg)
-
-    def _on_reconvert_local_fail(self, msg: str) -> None:
-        self._status.setText("本地重转失败。")
-        fly_critical(self, "重转失败", msg)
 
     def _try_convert_pgko_to_c2s(self, output: Path) -> None:
         mgxc_list: list[Path] = []

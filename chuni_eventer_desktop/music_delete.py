@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .acus_scan import MusicItem
+from .dds_preview import remove_cached_pngs_for_dds_basenames
 
 
 @dataclass
@@ -16,6 +17,8 @@ class MusicDeletionPlan:
     stage_dir: Path | None = None
     event_dirs_to_remove: list[Path] = field(default_factory=list)
     event_xmls_to_rewrite: list[Path] = field(default_factory=list)
+    # 乐曲目录内各 .dds 在 .cache/dds_preview 下的解码 PNG，删除乐曲时需一并删掉以免预览串图
+    dds_preview_basenames: list[str] = field(default_factory=list)
 
     def summary_lines(self) -> list[str]:
         lines: list[str] = []
@@ -169,6 +172,11 @@ def plan_music_deletion(acus_root: Path, item: MusicItem) -> MusicDeletionPlan:
     ]
     plan.event_dirs_to_remove = list(dict.fromkeys(plan.event_dirs_to_remove))
     plan.event_xmls_to_rewrite = list(dict.fromkeys(plan.event_xmls_to_rewrite))
+
+    if plan.music_dir is not None and plan.music_dir.is_dir():
+        plan.dds_preview_basenames = sorted(
+            {p.name for p in plan.music_dir.glob("*.dds") if p.is_file()}
+        )
     return plan
 
 
@@ -213,5 +221,7 @@ def execute_music_deletion(plan: MusicDeletionPlan) -> None:
         rp = p.resolve()
         if rp in removed_dirs or not rp.is_dir():
             continue
+        if p is plan.music_dir and plan.dds_preview_basenames:
+            remove_cached_pngs_for_dds_basenames(plan.dds_preview_basenames)
         shutil.rmtree(rp)
         removed_dirs.add(rp)

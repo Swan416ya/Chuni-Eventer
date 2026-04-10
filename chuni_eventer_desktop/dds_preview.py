@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
@@ -14,6 +15,23 @@ def preview_cache_dir(acus_root: Path) -> Path:
     # 保留 acus_root 参数以兼容调用方签名；缓存位置统一在应用根目录
     _ = acus_root
     return app_cache_dir() / "dds_preview"
+
+
+def remove_cached_png_for_dds_basename(dds_basename: str) -> None:
+    """删除与某 DDS 文件名对应的磁盘预览缓存（dds_to_pixmap 使用 <basename>.dds.png）。"""
+    name = Path(dds_basename).name
+    if not name:
+        return
+    p = app_cache_dir() / "dds_preview" / f"{name}.png"
+    try:
+        p.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def remove_cached_pngs_for_dds_basenames(basenames: Iterable[str]) -> None:
+    for b in basenames:
+        remove_cached_png_for_dds_basename(b)
 
 
 def dds_to_pixmap(

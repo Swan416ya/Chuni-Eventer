@@ -8,6 +8,7 @@ from typing import BinaryIO
 
 from . import pjsk_audio_chuni as pjsk_ac
 from .dds_convert import convert_to_bc3_dds
+from .music_jacket_replace import JACKET_BC3_EDGE, _prepare_square_jacket_png
 from .pgko_cs_bridge import convert_mgxc_with_penguin_bridge
 from .pjsk_acus_install import (
     append_event_sort,
@@ -340,19 +341,37 @@ def _find_fallback_mgxc(source: Path) -> Path | None:
     return None
 
 
-def _try_read_ugc_designer_near(mgxc_path: Path) -> str:
+def _iter_ugc_paths_near_mgxc(mgxc_path: Path) -> list[Path]:
+    """与 mgxc 同目录的 ugc：优先同名，再按名排序的其余 *.ugc。"""
     candidates: list[Path] = []
     same = mgxc_path.with_suffix(".ugc")
     if same.exists() and same.is_file():
         candidates.append(same)
     candidates.extend(sorted(p for p in mgxc_path.parent.glob("*.ugc") if p.is_file()))
     seen: set[Path] = set()
+    out: list[Path] = []
     for p in candidates:
         if p in seen:
             continue
         seen.add(p)
+        out.append(p)
+    return out
+
+
+def _read_ugc_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except Exception:
         try:
-            text = p.read_text(encoding="utf-8", errors="ignore")
+            return path.read_text(encoding="cp932", errors="ignore")
+        except Exception:
+            return path.read_text(encoding="utf-8", errors="ignore")
+
+
+def _try_read_ugc_designer_near(mgxc_path: Path) -> str:
+    for p in _iter_ugc_paths_near_mgxc(mgxc_path):
+        try:
+            text = _read_ugc_text(p)
         except Exception:
             continue
         for ln in text.splitlines():
@@ -361,6 +380,48 @@ def _try_read_ugc_designer_near(mgxc_path: Path) -> str:
                 if v:
                     return v
     return ""
+
+
+def _try_read_ugc_jacket_filename_near(mgxc_path: Path) -> str:
+    """
+    UGC 文本中的封面文件名，例如：@JACKET<TAB>arghena.jpg（@JACKET 与文件名之间为空白即可）。
+    """
+    tag = "@jacket"
+    for p in _iter_ugc_paths_near_mgxc(mgxc_path):
+        try:
+            text = _read_ugc_text(p)
+        except Exception:
+            continue
+        for raw in text.splitlines():
+            ln = raw.strip()
+            if len(ln) <= len(tag) or not ln.lower().startswith(tag):
+                continue
+            rest = ln[len(tag) :].lstrip()
+            if not rest:
+                continue
+            fn = rest.strip()
+            if fn:
+                return fn
+    return ""
+
+
+def _resolve_jacket_path_from_ugc_near(mgxc_path: Path) -> Path | None:
+    """按 ugc 中 @JACKET 指向的文件名，在 mgxc 同目录查找封面图。"""
+    fn = _try_read_ugc_jacket_filename_near(mgxc_path)
+    if not fn:
+        return None
+    safe = Path(fn.replace("\\", "/")).name
+    if not safe or safe in (".", ".."):
+        return None
+    base = mgxc_path.parent.resolve()
+    p = (mgxc_path.parent / safe).resolve()
+    if not p.is_file():
+        return None
+    try:
+        p.relative_to(base)
+    except ValueError:
+        return None
+    return p
 
 
 def _derive_music_id(meta: _MgxcMeta, mgxc_path: Path) -> int:
@@ -980,14 +1041,30 @@ def install_pgko_pick_to_acus(
         slot_map[slot] = c2s_dst
         levels_by_type[slot] = _const_to_level_pair(mm.level_const)
 
-    jacket_src = source_path.with_suffix(".png")
-    if not jacket_src.exists():
-        cands = sorted(p for p in source_path.parent.glob("*.png") if p.is_file())
-        if not cands:
-            raise FileNotFoundError("未找到封面 PNG（需要与 mgxc 同目录）")
-        jacket_src = cands[0]
+    # 封面一律按邻近 ugc 的 @JACKET 路径选取；与是否走 PenguinBridge 转 c2s 无关，并始终在本步骤重转 DDS（覆盖同名文件）。
+    jacket_raw = _resolve_jacket_path_from_ugc_near(source_path)
+    if jacket_raw is None:
+        declared = _try_read_ugc_jacket_filename_near(source_path)
+        if not declared:
+            raise FileNotFoundError(
+                "导入 pgko：请在邻近 ugc 中声明 @JACKET <封面文件名>，"
+                "并把该图片放在与 mgxc 同一目录。"
+                "即使已用外部 exe 生成 c2s，封面仍须由此处按 ugc 指定文件重新生成。"
+            )
+        raise FileNotFoundError(
+            f"ugc 中 @JACKET 指向 {declared!r}，但在 mgxc 同目录下未找到该文件。"
+        )
     jacket_name = f"CHU_UI_Jacket_{mid:04d}.dds"
-    convert_to_bc3_dds(tool_path=tool_path, input_image=jacket_src, output_dds=mdir / jacket_name)
+    jacket_dds = mdir / jacket_name
+    tmp_sq: Path | None = None
+    try:
+        tmp_sq = _prepare_square_jacket_png(jacket_raw, JACKET_BC3_EDGE, tool_path)
+        convert_to_bc3_dds(
+            tool_path=tool_path, input_image=tmp_sq, output_dds=jacket_dds
+        )
+    finally:
+        if tmp_sq is not None:
+            tmp_sq.unlink(missing_ok=True)
 
     title = (base_meta.title or source_path.stem or str(mid)).strip()
     artist = ((base_meta.artist or "").strip() or "pgko")
