@@ -33,6 +33,7 @@ from .swan_sheet_download_dialog import SwanSheetDownloadDialog
 from .save_patch_dialog import SavePatchDialog
 from .event_add_dialog import EventAddDialog
 from .quest_add_dialog import QuestAddDialog
+from .mapbonus_dialogs import MapBonusEditDialog
 from .fluent_dialogs import fly_critical, fly_message
 
 
@@ -97,6 +98,7 @@ class MainWindow(MSFluentWindow):
             ("nav_trophy", FluentIcon.CERTIFICATE, "称号", "Trophy", "称号"),
             ("nav_nameplate", FluentIcon.EMOJI_TAB_SYMBOLS, "名牌", "NamePlate", "名牌"),
             ("nav_reward", FluentIcon.SHOPPING_CART, "奖励", "Reward", "奖励"),
+            ("nav_mapbonus", FluentIcon.DOCUMENT, "加成", "MapBonus", "加成"),
         ]
         for route_key, icon, text, kind, title in self._nav_specs:
             self.navigationInterface.addItem(
@@ -207,6 +209,7 @@ class MainWindow(MSFluentWindow):
             "Trophy": "搜索称号…",
             "NamePlate": "搜索名牌…",
             "Reward": "搜索奖励…",
+            "MapBonus": "搜索 MapBonus…",
         }
         self._search.setPlaceholderText(placeholders.get(kind, "搜索当前列表…"))
         self._game_music_browser_btn.setVisible(kind == "Music")
@@ -251,7 +254,8 @@ class MainWindow(MSFluentWindow):
 
     def _on_add(self) -> None:
         idx = self._current_category_index
-        if idx == 7:
+        kind = self._nav_specs[idx][3] if 0 <= idx < len(self._nav_specs) else ""
+        if kind == "Reward":
             gi = self._resolve_game_index()
             music_r, chara_r, trophy_r, np_r, stage_r, default_id = reward_dialog_bundle(
                 self._acus_root, game_index=gi
@@ -270,7 +274,7 @@ class MainWindow(MSFluentWindow):
                 self._on_refresh()
             return
 
-        if idx == 4:
+        if kind == "Music":
             pick = MusicSheetChannelsDialog(parent=self)
             if pick.exec() != pick.DialogCode.Accepted:
                 return
@@ -303,7 +307,7 @@ class MainWindow(MSFluentWindow):
                 self._on_refresh()
             return
 
-        if idx == 3:
+        if kind == "Quest":
             dlg = QuestAddDialog(
                 acus_root=self._acus_root,
                 game_index=self._resolve_game_index(),
@@ -313,12 +317,18 @@ class MainWindow(MSFluentWindow):
                 self._on_refresh()
             return
 
-        if idx == 2:
+        if kind == "Event":
             dlg = EventAddDialog(
                 acus_root=self._acus_root,
                 tool_path=self._get_tool_path_or_none(),
                 parent=self,
             )
+            if dlg.exec() == dlg.DialogCode.Accepted:
+                self._on_refresh()
+            return
+
+        if kind == "MapBonus":
+            dlg = MapBonusEditDialog(acus_root=self._acus_root, game_index=self._resolve_game_index(), parent=self)
             if dlg.exec() == dlg.DialogCode.Accepted:
                 self._on_refresh()
             return
@@ -334,11 +344,11 @@ class MainWindow(MSFluentWindow):
             )
             return
 
-        if idx == 0:
+        if kind == "Chara":
             dlg = CharaAddDialog(acus_root=self._acus_root, tool_path=tool, parent=self)
             if dlg.exec() == dlg.DialogCode.Accepted:
                 self._on_refresh()
-        elif idx == 1:
+        elif kind == "Map":
             dlg = MapAddDialog(
                 acus_root=self._acus_root,
                 tool_path=tool,
@@ -347,11 +357,11 @@ class MainWindow(MSFluentWindow):
             )
             if dlg.exec() == dlg.DialogCode.Accepted:
                 self._on_refresh()
-        elif idx == 5:
+        elif kind == "Trophy":
             dlg = TrophyAddDialog(acus_root=self._acus_root, tool_path=tool, parent=self)
             if dlg.exec() == dlg.DialogCode.Accepted:
                 self._on_refresh()
-        elif idx == 6:
+        elif kind == "NamePlate":
             dlg = NamePlateAddDialog(acus_root=self._acus_root, tool_path=tool, parent=self)
             if dlg.exec() == dlg.DialogCode.Accepted:
                 self._on_refresh()

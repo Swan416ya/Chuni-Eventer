@@ -103,6 +103,14 @@ class RewardItem:
 
 
 @dataclass(frozen=True)
+class MapBonusItem:
+    xml_path: Path
+    name: IdStr
+    substance_count: int
+    type_summary: str
+
+
+@dataclass(frozen=True)
 class EventItem:
     xml_path: Path
     name: IdStr
@@ -288,6 +296,35 @@ def scan_maps(acus_root: Path) -> list[MapItem]:
                 continue
             mf = _get_idstr(r.find("mapFilterID"))
             items.append(MapItem(p, name, mf))
+        except Exception:
+            continue
+    return sorted(items, key=lambda x: x.name.id)
+
+
+def scan_map_bonuses(acus_root: Path) -> list[MapBonusItem]:
+    items: list[MapBonusItem] = []
+    for p in iter_xml_files(acus_root, "mapBonus/**/MapBonus.xml"):
+        try:
+            r = ET.parse(p).getroot()
+            name = _get_idstr(r.find("name"))
+            if not name:
+                continue
+            subs = r.findall("substances/list/MapBonusSubstanceData")
+            tvals: list[str] = []
+            for s in subs:
+                tv = (s.findtext("type") or "").strip()
+                if tv:
+                    tvals.append(tv)
+            uniq = sorted(set(tvals), key=lambda x: int(x) if x.isdigit() else 10**9)
+            type_summary = ",".join(uniq) if uniq else "—"
+            items.append(
+                MapBonusItem(
+                    xml_path=p,
+                    name=name,
+                    substance_count=len(subs),
+                    type_summary=type_summary,
+                )
+            )
         except Exception:
             continue
     return sorted(items, key=lambda x: x.name.id)

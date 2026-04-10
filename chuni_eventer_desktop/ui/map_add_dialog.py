@@ -49,6 +49,8 @@ from .dds_progress import run_bc3_jobs_with_progress
 from ..dds_quicktex import quicktex_available
 from ..dds_preview import dds_to_pixmap
 from ..xml_writer import write_ddsmap_xml
+from ..acus_scan import scan_map_bonuses
+from .mapbonus_dialogs import MapBonusEditDialog
 
 
 def _safe_int(text: str) -> int | None:
@@ -819,18 +821,44 @@ class CellEditDialog(QDialog):
 
 
 class AreaExtrasDialog(QDialog):
-    def __init__(self, *, extras: MapAreaExtras, parent=None) -> None:
+    def __init__(
+        self,
+        *,
+        acus_root: Path,
+        game_index: GameDataIndex | None,
+        extras: MapAreaExtras,
+        parent=None,
+    ) -> None:
         super().__init__(parent=parent)
         self.setWindowTitle("编辑区域参数(MapArea)")
         self.setModal(True)
+        self._acus_root = acus_root
+        self._game_index = game_index
         self._extras = extras
 
         self.bonus_id = QLineEdit(str(extras.bonus_id))
         self.bonus_str = QLineEdit(extras.bonus_str)
         self.counts = QLineEdit(",".join(str(x) for x in extras.shorten_counts[:8]))
         self.counts.setPlaceholderText("8个整数，用逗号分隔，例如 0,0,0,0,0,0,0,0")
+        self.bonus_pick = QComboBox()
+        self.bonus_pick.addItem("(手填 / 不使用 mapBonus)")
+        self._bonus_refs: list[tuple[int, str, Path]] = []
+        self._reload_mapbonus_refs(select_id=extras.bonus_id)
+        self.bonus_pick.currentIndexChanged.connect(self._on_pick_bonus)
+        self.new_bonus_btn = QPushButton("新建 mapBonus…")
+        self.edit_bonus_btn = QPushButton("编辑当前 mapBonus…")
+        self.new_bonus_btn.clicked.connect(self._on_new_bonus)
+        self.edit_bonus_btn.clicked.connect(self._on_edit_bonus)
+        pick_row = QHBoxLayout()
+        pick_row.setContentsMargins(0, 0, 0, 0)
+        pick_row.addWidget(self.bonus_pick, stretch=1)
+        pick_row.addWidget(self.new_bonus_btn)
+        pick_row.addWidget(self.edit_bonus_btn)
+        pick_box = QWidget()
+        pick_box.setLayout(pick_row)
 
         form = QFormLayout()
+        form.addRow("选择现有 mapBonus", pick_box)
         form.addRow("mapBonusName.id", self.bonus_id)
         form.addRow("mapBonusName.str", self.bonus_str)
         form.addRow("shorteningGridCountList", self.counts)
@@ -850,6 +878,57 @@ class AreaExtrasDialog(QDialog):
         glyph_warn.setStyleSheet("color:#B45309;")
         lay.addWidget(glyph_warn)
         lay.addLayout(btns)
+
+    def _reload_mapbonus_refs(self, *, select_id: int | None = None) -> None:
+        self.bonus_pick.blockSignals(True)
+        self.bonus_pick.clear()
+        self.bonus_pick.addItem("(手填 / 不使用 mapBonus)")
+        self._bonus_refs.clear()
+        for it in scan_map_bonuses(self._acus_root):
+            self._bonus_refs.append((it.name.id, it.name.str, it.xml_path))
+            self.bonus_pick.addItem(f"{it.name.id} | {it.name.str}")
+        self.bonus_pick.blockSignals(False)
+        if select_id is not None:
+            for i, (bid, _bs, _xp) in enumerate(self._bonus_refs, start=1):
+                if bid == select_id:
+                    self.bonus_pick.setCurrentIndex(i)
+                    break
+
+    def _on_pick_bonus(self, idx: int) -> None:
+        if idx <= 0 or idx - 1 >= len(self._bonus_refs):
+            return
+        bid, bstr, _ = self._bonus_refs[idx - 1]
+        self.bonus_id.setText(str(bid))
+        self.bonus_str.setText(bstr)
+
+    def _on_new_bonus(self) -> None:
+        dlg = MapBonusEditDialog(acus_root=self._acus_root, game_index=self._game_index, parent=self)
+        if dlg.exec() == dlg.DialogCode.Accepted and dlg.result_name is not None:
+            bid, bstr = dlg.result_name
+            self._reload_mapbonus_refs(select_id=bid)
+            self.bonus_id.setText(str(bid))
+            self.bonus_str.setText(bstr)
+
+    def _on_edit_bonus(self) -> None:
+        bid = _safe_int(self.bonus_id.text())
+        if bid is None:
+            QMessageBox.critical(self, "错误", "mapBonusName.id 必须是整数，才能编辑。")
+            return
+        xp = self._acus_root / "mapBonus" / f"mapBonus{bid:08d}" / "MapBonus.xml"
+        if not xp.is_file():
+            QMessageBox.information(self, "提示", f"未找到：{xp}\n可先点击“新建 mapBonus…”。")
+            return
+        dlg = MapBonusEditDialog(
+            acus_root=self._acus_root,
+            game_index=self._game_index,
+            xml_path=xp,
+            parent=self,
+        )
+        if dlg.exec() == dlg.DialogCode.Accepted and dlg.result_name is not None:
+            nbid, nbstr = dlg.result_name
+            self._reload_mapbonus_refs(select_id=nbid)
+            self.bonus_id.setText(str(nbid))
+            self.bonus_str.setText(nbstr)
 
     def _on_ok(self) -> None:
         bid = _safe_int(self.bonus_id.text())
@@ -2643,7 +2722,7 @@ class MapAddDialog(QDialog):
 
     def _edit_area_extras(self, area_idx: int) -> None:
         ex = self._area_extras[area_idx]
-        dlg = AreaExtrasDialog(extras=ex, parent=self)
+        dlg = AreaExtrasDialog(acus_root=self._acus_root, game_index=self._game_index, extras=ex, parent=self)
         if dlg.exec() == dlg.DialogCode.Accepted:
             self._refresh_area_page(area_idx)
 

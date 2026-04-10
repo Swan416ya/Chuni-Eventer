@@ -9,7 +9,8 @@ def xml_escape(s: str) -> str:
 
 
 def next_trophy_id(acus_root: Path) -> int:
-    m = 0
+    # 自制称号号段：50000+
+    m = 49_999
     for p in acus_root.glob("trophy/**/Trophy.xml"):
         try:
             raw = ET.parse(p).getroot().findtext("name/id")

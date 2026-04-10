@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+import shutil
 import xml.etree.ElementTree as ET
 
 from PyQt6.QtCore import QPoint, Qt, QModelIndex, QSortFilterProxyModel
@@ -51,6 +52,7 @@ from ..acus_scan import (
     EventItem,
     IdStr,
     MapItem,
+    MapBonusItem,
     MusicItem,
     NamePlateItem,
     QuestItem,
@@ -60,6 +62,7 @@ from ..acus_scan import (
     scan_dds_images,
     scan_events,
     scan_maps,
+    scan_map_bonuses,
     scan_music,
     scan_nameplates,
     scan_quests,
@@ -80,6 +83,7 @@ _KIND_DEFS: tuple[tuple[str, str], ...] = (
     ("称号", "Trophy"),
     ("名牌", "NamePlate"),
     ("奖励", "Reward"),
+    ("加成", "MapBonus"),
     ("DDS 贴图", "DDSImage"),
 )
 
@@ -437,6 +441,8 @@ class ManagerWidget(QWidget):
             self.model.setHorizontalHeaderLabels(["ID", "名称", "稀有度", "来源(XML)"])
         elif k == "Reward":
             self.model.setHorizontalHeaderLabels(["ID", "名称", "奖励类型", "关联目标", "来源(XML)"])
+        elif k == "MapBonus":
+            self.model.setHorizontalHeaderLabels(["ID", "名称", "条件数", "type摘要", "来源(XML)"])
         elif k == "Chara":
             self.model.setHorizontalHeaderLabels(["ID", "名称"])
         else:
@@ -496,6 +502,11 @@ class ManagerWidget(QWidget):
                     continue
                 self._append_reward_row(it)
                 self._items.append(it)
+        elif k == "MapBonus":
+            items = scan_map_bonuses(self._acus_root)
+            self._items = items
+            for it in items:
+                self._append_mapbonus_row(it)
         else:
             items = scan_dds_images(self._acus_root)
             self._items = items
@@ -647,6 +658,14 @@ class ManagerWidget(QWidget):
                 ("奖励类型", it.type_label),
                 ("关联摘要", it.target_summary),
                 ("课题/关联乐曲", mc),
+                ("XML", self._rel_acus_path(it.xml_path)),
+            ]
+        if isinstance(it, MapBonusItem):
+            return [
+                ("MapBonus 名称", it.name.str or "—"),
+                ("MapBonus ID", str(it.name.id)),
+                ("substances 条数", str(it.substance_count)),
+                ("type 摘要", it.type_summary or "—"),
                 ("XML", self._rel_acus_path(it.xml_path)),
             ]
         return [("类型", type(it).__name__), ("摘要", str(it))]
@@ -819,6 +838,22 @@ class ManagerWidget(QWidget):
             c.setEditable(False)
             self.model.setItem(row, i, c)
 
+    def _append_mapbonus_row(self, it: MapBonusItem) -> None:
+        row = self.model.rowCount()
+        self.model.insertRow(row)
+        src = str(it.xml_path.relative_to(self._acus_root))
+        cols = [
+            QStandardItem(str(it.name.id)),
+            QStandardItem(it.name.str),
+            QStandardItem(str(it.substance_count)),
+            QStandardItem(it.type_summary),
+            QStandardItem(src),
+        ]
+        cols[0].setData(it, Qt.ItemDataRole.UserRole)
+        for i, c in enumerate(cols):
+            c.setEditable(False)
+            self.model.setItem(row, i, c)
+
     def _append_chara_row(self, it: CharaItem) -> None:
         row = self.model.rowCount()
         self.model.insertRow(row)
@@ -947,7 +982,7 @@ class ManagerWidget(QWidget):
 
     def _on_table_context_menu(self, pos: QPoint) -> None:
         k = self._kind_key()
-        if k not in ("Chara", "Trophy"):
+        if k not in ("Chara", "Trophy", "Quest"):
             return
         idx = self.table.indexAt(pos)
         if not idx.isValid():
@@ -1000,6 +1035,15 @@ class ManagerWidget(QWidget):
                 )
                 menu.addAction(act_both)
             menu.exec(gpos, ani=True, aniType=MenuAnimationType.DROP_DOWN)
+            return
+
+        if k == "Quest":
+            if not isinstance(payload, QuestItem):
+                return
+            act_del_q = Action(FIF.DELETE, "删除任务…", self.table)
+            act_del_q.triggered.connect(lambda checked=False, p=payload: self._delete_quest_item(p))
+            menu.addAction(act_del_q)
+            menu.exec(gpos, ani=True, aniType=MenuAnimationType.DROP_DOWN)
 
     def _delete_trophy_item(self, it: TrophyItem, *, with_chara: bool) -> None:
         try:
@@ -1027,6 +1071,38 @@ class ManagerWidget(QWidget):
             QMessageBox.critical(self.window(), "删除失败", str(e))
             return
         fly_message(self.window(), "已删除", "已移除所选称号" + ("及关联角色资源。" if with_chara else "。"))
+        self.reload()
+
+    def _delete_quest_item(self, it: QuestItem) -> None:
+        qdir = it.xml_path.parent
+        if not qdir.is_dir():
+            QMessageBox.warning(
+                self.window(),
+                "无法删除",
+                f"未找到任务目录：\n{qdir}",
+            )
+            return
+        qname = (it.name.str or "").strip() or "—"
+        body = (
+            f"将永久删除任务 ID {it.name.id}（{qname}）目录：\n"
+            f"• {self._rel_acus_path(qdir)}\n\n"
+            "此操作不可撤销，确定删除？"
+        )
+        r = QMessageBox.question(
+            self.window(),
+            "删除任务",
+            body,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if r != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            shutil.rmtree(qdir)
+        except Exception as e:
+            QMessageBox.critical(self.window(), "删除失败", str(e))
+            return
+        fly_message(self.window(), "已删除", f"已移除任务 {it.name.id} 的目录。")
         self.reload()
 
     def _on_chara_edit_works_clicked(self) -> None:
@@ -1104,7 +1180,7 @@ class ManagerWidget(QWidget):
         if not proxy_index.isValid():
             return
         k = self._kind_key()
-        if k not in ("Map", "Music"):
+        if k not in ("Map", "Music", "MapBonus"):
             return
         src_idx = self.proxy.mapToSource(proxy_index)
         item = self.model.item(src_idx.row(), 0)
@@ -1134,6 +1210,20 @@ class ManagerWidget(QWidget):
             dlg = MusicTrophyDialog(
                 acus_root=self._acus_root,
                 preselect=payload,
+                parent=self.window(),
+            )
+            if dlg.exec() == QDialog.DialogCode.Accepted:
+                self.reload()
+            return
+        if k == "MapBonus":
+            if not isinstance(payload, MapBonusItem):
+                return
+            from .mapbonus_dialogs import MapBonusEditDialog
+
+            dlg = MapBonusEditDialog(
+                acus_root=self._acus_root,
+                game_index=self._get_game_index(),
+                xml_path=payload.xml_path,
                 parent=self.window(),
             )
             if dlg.exec() == QDialog.DialogCode.Accepted:
