@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..works_library import add_work_entry, load_works_library, remove_work_entry, WORKS_CUSTOM_ID_START
+from .name_glyph_preview import wrap_name_input_with_preview
 from ..xml_writer import (
     CHARA_DEFAULT_NET_OPEN_ID,
     CHARA_DEFAULT_NET_OPEN_STR,
@@ -95,7 +96,7 @@ class WorkCreateDialog(QDialog):
 
         form = QFormLayout()
         form.addRow("作品 ID", self._id_spin)
-        form.addRow("显示名", self._str_edit)
+        form.addRow("显示名", wrap_name_input_with_preview(self._str_edit, parent=self))
 
         ok = QPushButton("保存到作品库")
         ok.clicked.connect(self._on_ok)

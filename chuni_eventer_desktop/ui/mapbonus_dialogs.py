@@ -27,6 +27,7 @@ from ..mapbonus_xml import (
     suggest_next_mapbonus_id,
 )
 from ..game_data_index import GameDataIndex, merged_chara_pairs, merged_music_pairs
+from .name_glyph_preview import wrap_name_input_with_preview
 
 
 KIND_LABELS: dict[str, str] = {
@@ -95,7 +96,7 @@ class MapBonusEditDialog(QDialog):
 
         form = QFormLayout()
         form.addRow("mapBonusName.id", self.name_id)
-        form.addRow("mapBonusName.str", self.name_str)
+        form.addRow("mapBonusName.str", wrap_name_input_with_preview(self.name_str, parent=self))
 
         ok = QPushButton("保存")
         cancel = QPushButton("取消")

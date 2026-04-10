@@ -29,6 +29,7 @@ from ..xml_writer import (
     write_ddsimage_xml,
 )
 from .dds_progress import run_bc3_jobs_with_progress
+from .name_glyph_preview import wrap_name_input_with_preview
 from .works_dialogs import combo_works_id_str, make_works_picker_row, works_warning_label
 
 
@@ -127,7 +128,7 @@ class CharaAddDialog(QDialog):
         form.addRow("基ID", self.base)
         form.addRow("变体", self.variant)
         form.addRow("最终ID", self.cid_preview)
-        form.addRow("角色名", self.name)
+        form.addRow("角色名", wrap_name_input_with_preview(self.name, parent=self))
         form.addRow("绘师（可选）", self.illustrator)
         self._works_row, self._works_combo = make_works_picker_row(parent=self, acus_root=self._acus_root)
         form.addRow("作品（works）", self._works_row)

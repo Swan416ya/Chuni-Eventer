@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..dds_convert import DdsToolError, ingest_to_bc3_dds
+from .name_glyph_preview import wrap_name_input_with_preview
 
 
 def _safe_int(text: str) -> int | None:
@@ -46,8 +47,8 @@ class NamePlateAddDialog(QDialog):
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         form.addRow("NamePlate ID", self.id_edit)
-        form.addRow("显示名", self.name_edit)
-        form.addRow("排序名", self.sort_edit)
+        form.addRow("显示名", wrap_name_input_with_preview(self.name_edit, parent=self))
+        form.addRow("排序名", wrap_name_input_with_preview(self.sort_edit, parent=self))
         form.addRow(
             "图片",
             self._file_row(

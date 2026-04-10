@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..dds_convert import DdsToolError, ingest_to_bc3_dds
+from .name_glyph_preview import wrap_name_input_with_preview
 
 
 def _safe_int(text: str) -> int | None:
@@ -255,7 +256,7 @@ class TrophyAddDialog(QDialog):
         name_lay = QVBoxLayout(name_box)
         name_lay.setContentsMargins(0, 0, 0, 0)
         name_lay.setSpacing(4)
-        name_lay.addWidget(self.name_edit)
+        name_lay.addWidget(wrap_name_input_with_preview(self.name_edit, parent=self))
         name_lay.addWidget(name_hint)
 
         form = QFormLayout()

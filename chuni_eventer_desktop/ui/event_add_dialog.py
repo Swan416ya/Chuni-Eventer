@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..dds_convert import DdsToolError, ingest_to_bc3_dds
+from .name_glyph_preview import wrap_name_input_with_preview
 
 
 PROMO_WIDTH = 1152
@@ -139,7 +140,7 @@ class EventAddDialog(QDialog):
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         form.addRow("", hint)
         form.addRow("事件 ID", self.id_edit)
-        form.addRow("标题", self.name_edit)
+        form.addRow("标题", wrap_name_input_with_preview(self.name_edit, parent=self))
         form.addRow("宣传图", self._file_row(self.image_edit, "选择宣传图"))
 
         ok = QPushButton("生成并写入 ACUS")

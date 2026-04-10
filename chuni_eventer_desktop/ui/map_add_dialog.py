@@ -50,6 +50,7 @@ from ..dds_quicktex import quicktex_available
 from ..dds_preview import dds_to_pixmap
 from ..xml_writer import write_ddsmap_xml
 from ..acus_scan import scan_map_bonuses
+from .name_glyph_preview import wrap_name_input_with_preview
 from .mapbonus_dialogs import MapBonusEditDialog
 
 
@@ -542,7 +543,7 @@ class CellEditDialog(QDialog):
         form.addRow("奖励模式", self.reward_mode)
         form.addRow("ACUS奖励", self.reward_pick)
         form.addRow("奖励ID", self.reward_id)
-        form.addRow("奖励显示名", self.reward_name)
+        form.addRow("奖励显示名", wrap_name_input_with_preview(self.reward_name, parent=self))
         form.addRow("奖励类型", self.reward_kind)
         form.addRow(self._lbl_acus_pick, self.inner_pick)
         form.addRow(self._lbl_target_id, self.reward_inner_id)
@@ -1215,7 +1216,7 @@ class RewardCreateDialog(QDialog):
 
         form = QFormLayout()
         form.addRow("reward.id", self.reward_id)
-        form.addRow("reward.str", self.reward_name)
+        form.addRow("reward.str", wrap_name_input_with_preview(self.reward_name, parent=self))
         form.addRow("类型", self.reward_kind)
         form.addRow(self._lbl_acus_inner, self.inner_pick)
         form.addRow(self._lbl_target_inner, self.inner_id)
@@ -1588,7 +1589,7 @@ class DdsMapCreateDialog(QDialog):
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         form.addRow("", hint)
         form.addRow("ddsMap id", self.dds_id_show)
-        form.addRow("显示名", self.name)
+        form.addRow("显示名", wrap_name_input_with_preview(self.name, parent=self))
         form.addRow("源图片", row)
 
         ok = QPushButton("生成并写入 ACUS")
@@ -1896,7 +1897,7 @@ class MapAddDialog(QDialog):
         top = QFormLayout()
         top.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         top.addRow("Map ID", self.map_id)
-        top.addRow("Map 名称", self.map_name)
+        top.addRow("Map 名称", wrap_name_input_with_preview(self.map_name, parent=self))
         top.addRow("", self.create_unlock_event)
 
         ok = QPushButton("保存修改" if self._edit_mode else "生成 Map + MapArea + Reward (+解锁事件)")

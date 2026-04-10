@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
 from ..acus_scan import CharaItem
 from ..game_data_index import GameDataIndex, merged_chara_items
 from .map_add_dialog import RewardRef, load_chara_refs, load_nameplate_refs, load_trophy_refs
+from .name_glyph_preview import wrap_name_input_with_preview
 
 
 def _safe_int(text: str) -> int | None:
@@ -180,7 +181,7 @@ class QuestAddDialog(QDialog):
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         form.addRow("", hint)
         form.addRow("任务 ID", self._id_edit)
-        form.addRow("显示名", self._name_edit)
+        form.addRow("显示名", wrap_name_input_with_preview(self._name_edit, parent=self))
         form.addRow("", self._hide_info)
 
         chara_wrap = QGroupBox("参与合计等级的角色（多选）")
