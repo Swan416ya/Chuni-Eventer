@@ -43,12 +43,12 @@ from .fluent_dialogs import fly_critical, fly_message, fly_question, fly_warning
 from ..dds_convert import DdsToolError, ingest_to_bc3_dds
 from ..game_data_index import (
     GameDataIndex,
-    merged_chara_pairs,
+    acus_chara_pairs,
+    acus_nameplate_pairs,
+    acus_trophy_pairs,
     merged_dds_map_pairs,
     merged_music_pairs,
-    merged_nameplate_pairs,
     merged_stage_pairs,
-    merged_trophy_pairs,
 )
 
 from .dds_progress import run_bc3_jobs_with_progress
@@ -1517,27 +1517,30 @@ def load_music_refs(acus_root: Path) -> list[MusicRef]:
 def load_chara_refs(
     acus_root: Path, idx: GameDataIndex | None = None
 ) -> list[RewardRef]:
+    _ = idx
     return [
         RewardRef(i, n, "")
-        for i, n in merged_chara_pairs(acus_root, idx)
+        for i, n in acus_chara_pairs(acus_root)
     ]
 
 
 def load_nameplate_refs(
     acus_root: Path, idx: GameDataIndex | None = None
 ) -> list[RewardRef]:
+    _ = idx
     return [
         RewardRef(i, n, "")
-        for i, n in merged_nameplate_pairs(acus_root, idx)
+        for i, n in acus_nameplate_pairs(acus_root)
     ]
 
 
 def load_trophy_refs(
     acus_root: Path, idx: GameDataIndex | None = None
 ) -> list[RewardRef]:
+    _ = idx
     return [
         RewardRef(i, n, "")
-        for i, n in merged_trophy_pairs(acus_root, idx)
+        for i, n in acus_trophy_pairs(acus_root)
     ]
 
 
@@ -2898,6 +2901,7 @@ class MapAddDialog(FluentCaptionDialog):
                 w = it.widget()
                 if w is not None:
                     w.deleteLater()
+            preview_jobs: list[tuple[int, QLabel]] = []
 
             add_card = PushButton("+\n新增")
             add_card.setFixedSize(130, 108)
@@ -2925,24 +2929,12 @@ class MapAddDialog(FluentCaptionDialog):
                 col.setContentsMargins(6, 6, 6, 6)
                 col.setSpacing(4)
                 pv = QLabel(card)
-                pv.setText("无预览")
+                pv.setText("加载中…")
                 pv.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 pv.setFixedHeight(66)
                 pv.setStyleSheet(
                     f"color:{'#9CA3AF' if isDarkTheme() else '#6B7280'};background:transparent;"
                 )
-                pm = _dds_preview_for(ref.id)
-                if pm is not None and not pm.isNull():
-                    pv.setText("")
-                    pv.setStyleSheet("background:transparent;")
-                    pv.setPixmap(
-                        pm.scaled(
-                            138,
-                            64,
-                            Qt.AspectRatioMode.KeepAspectRatio,
-                            Qt.TransformationMode.SmoothTransformation,
-                        )
-                    )
                 cap = BodyLabel(card)
                 cap.setText(f"{ref.id} | {ref.name}")
                 cap.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -2952,7 +2944,36 @@ class MapAddDialog(FluentCaptionDialog):
                 col.addWidget(cap)
                 card.clicked.connect(lambda _=False, rid=ref.id, rn=ref.name: _select_dds(rid, rn))
                 dds_row.addWidget(card)
+                preview_jobs.append((ref.id, pv))
             dds_row.addStretch(1)
+
+            def _load_preview_batch(start: int = 0, batch_size: int = 8) -> None:
+                if not dlg.isVisible():
+                    return
+                end = min(start + batch_size, len(preview_jobs))
+                for i in range(start, end):
+                    ref_id, lbl = preview_jobs[i]
+                    pm = _dds_preview_for(ref_id)
+                    try:
+                        if pm is not None and not pm.isNull():
+                            lbl.setText("")
+                            lbl.setStyleSheet("background:transparent;")
+                            lbl.setPixmap(
+                                pm.scaled(
+                                    138,
+                                    64,
+                                    Qt.AspectRatioMode.KeepAspectRatio,
+                                    Qt.TransformationMode.SmoothTransformation,
+                                )
+                            )
+                        else:
+                            lbl.setText("无预览")
+                    except RuntimeError:
+                        return
+                if end < len(preview_jobs):
+                    QTimer.singleShot(0, lambda: _load_preview_batch(end, batch_size))
+
+            QTimer.singleShot(0, _load_preview_batch)
 
         _render_dds_cards()
         dds_form.addRow("", dds_scroll)

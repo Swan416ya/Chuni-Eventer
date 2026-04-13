@@ -611,16 +611,31 @@ def merged_chara_pairs(acus_root: Path, idx: GameDataIndex | None) -> list[tuple
     return _merge_pairs(game, acus)
 
 
+def acus_chara_pairs(acus_root: Path) -> list[tuple[int, str]]:
+    """仅返回工作区 ACUS 下的角色对（不合并游戏本体索引）。"""
+    return _pairs_acus_chara(acus_root)
+
+
 def merged_nameplate_pairs(acus_root: Path, idx: GameDataIndex | None) -> list[tuple[int, str]]:
     acus = _pairs_acus_nameplate(acus_root)
     game = idx.nameplate if idx else None
     return _merge_pairs(game, acus)
 
 
+def acus_nameplate_pairs(acus_root: Path) -> list[tuple[int, str]]:
+    """仅返回工作区 ACUS 下的姓名牌对（不合并游戏本体索引）。"""
+    return _pairs_acus_nameplate(acus_root)
+
+
 def merged_trophy_pairs(acus_root: Path, idx: GameDataIndex | None) -> list[tuple[int, str]]:
     acus = _pairs_acus_trophy(acus_root)
     game = idx.trophy if idx else None
     return _merge_pairs(game, acus)
+
+
+def acus_trophy_pairs(acus_root: Path) -> list[tuple[int, str]]:
+    """仅返回工作区 ACUS 下的称号对（不合并游戏本体索引）。"""
+    return _pairs_acus_trophy(acus_root)
 
 
 def merged_chara_items(acus_root: Path, idx: GameDataIndex | None) -> list[CharaItem]:

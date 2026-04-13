@@ -5,6 +5,7 @@ import xml.etree.ElementTree as ET
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QComboBox,
     QDialog,
     QFormLayout,
     QGridLayout,
@@ -34,7 +35,7 @@ from ..mapbonus_xml import (
     save_mapbonus_xml,
     suggest_next_mapbonus_id,
 )
-from ..game_data_index import GameDataIndex, merged_chara_pairs, merged_music_pairs
+from ..game_data_index import GameDataIndex, acus_chara_pairs, merged_music_pairs
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical
 from .name_glyph_preview import wrap_name_input_with_preview
@@ -157,10 +158,12 @@ class _MapBonusRuleEditDialog(FluentCaptionDialog):
         keep_str = None
         if keep:
             w = self._target_widget
-            if isinstance(w, FluentComboBox):
+            if isinstance(w, QComboBox):
                 d = w.currentData()
-                if isinstance(d, tuple) and len(d) == 2:
-                    keep_id, keep_str = int(d[0]), str(d[1])
+                if isinstance(d, int):
+                    keep_id = int(d)
+                    txt = w.currentText()
+                    keep_str = txt.split("|", 1)[1].strip() if "|" in txt else txt.strip()
             elif isinstance(w, LineEdit):
                 try:
                     keep_id = int((w.text() or "").strip())
@@ -188,7 +191,7 @@ class _MapBonusRuleEditDialog(FluentCaptionDialog):
             self._target_widget = le
             return
 
-        cb = FluentComboBox(self._target_host)
+        cb = QComboBox(self._target_host)
         pairs: list[tuple[int, str]]
         if kind == "music":
             pairs = self._music_pairs
@@ -201,25 +204,23 @@ class _MapBonusRuleEditDialog(FluentCaptionDialog):
         else:
             pairs = [(-1, "Invalid")]
 
-        cb.addItem("(请选择)", None, None)
+        cb.addItem("(请选择)", None)
         for i, s in pairs:
-            cb.addItem(f"{i} | {s}", None, (i, s))
+            cb.addItem(f"{i} | {s}", i)
         cb.setMinimumWidth(400)
-        try:
-            cb.view().setMinimumWidth(560)
-        except Exception:
-            pass
+        cb.setMaxVisibleItems(24)
         pick = -1
         if sid is not None:
             for i in range(1, cb.count()):
                 d = cb.itemData(i)
-                if isinstance(d, tuple) and len(d) == 2 and d[0] == sid:
+                if isinstance(d, int) and d == sid:
                     pick = i
                     break
         if pick < 0 and sstr:
             for i in range(1, cb.count()):
-                d = cb.itemData(i)
-                if isinstance(d, tuple) and len(d) == 2 and str(d[1]) == str(sstr):
+                txt = cb.itemText(i)
+                name = txt.split("|", 1)[1].strip() if "|" in txt else txt.strip()
+                if name == str(sstr):
                     pick = i
                     break
         if pick >= 0:
@@ -262,14 +263,16 @@ class _MapBonusRuleEditDialog(FluentCaptionDialog):
             tid = -1
             tstr = "Invalid"
         else:
-            if not isinstance(tw, FluentComboBox):
+            if not isinstance(tw, QComboBox):
                 fly_critical(self, "错误", "目标下拉异常")
                 return
             d = tw.currentData()
-            if not (isinstance(d, tuple) and len(d) == 2):
+            if not isinstance(d, int):
                 fly_critical(self, "错误", "请从下拉框选择目标")
                 return
-            tid, tstr = int(d[0]), str(d[1])
+            tid = int(d)
+            txt = tw.currentText()
+            tstr = txt.split("|", 1)[1].strip() if "|" in txt else txt.strip()
         ex = (self._explain.text() or "").strip()
         self.saved_rule = MapBonusRule(
             kind=kind,
@@ -330,7 +333,7 @@ class MapBonusEditDialog(FluentCaptionDialog):
         self.result_name: tuple[int, str] | None = None
         self.result_xml: Path | None = None
         self._music_pairs = merged_music_pairs(self._acus_root, self._game_index)
-        self._chara_pairs = merged_chara_pairs(self._acus_root, self._game_index)
+        self._chara_pairs = acus_chara_pairs(self._acus_root)
         self._genre_pairs, self._release_tag_pairs = self._collect_genre_and_release_tags()
 
         data = None
