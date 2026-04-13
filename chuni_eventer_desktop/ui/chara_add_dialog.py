@@ -36,6 +36,7 @@ from .works_dialogs import (
     WorkCreateDialog,
     WorksLibraryManagerDialog,
     combo_works_id_str,
+    fill_works_fluent_combo,
     load_works_library,
 )
 
@@ -133,15 +134,6 @@ def remove_chara_variant_slot(*, xml_path: Path, variant: int) -> None:
     tree.write(xml_path, encoding="utf-8", xml_declaration=True)
 
 
-def _fill_works_fluent_combo(cb: FluentComboBox, *, include_invalid: bool = True) -> None:
-    cb.clear()
-    if include_invalid:
-        cb.addItem("（不填）Invalid — 检索可能受限", None, (-1, "Invalid"))
-    entries, _ = load_works_library()
-    for e in entries:
-        cb.addItem(f"{e.id} · {e.str}", None, (e.id, e.str))
-
-
 def _hint_style() -> str:
     c = "#9CA3AF" if isDarkTheme() else "#6B7280"
     return f"color:{c}; font-size:11px;"
@@ -189,7 +181,7 @@ class CharaAddDialog(FluentCaptionDialog):
         id_lay.addWidget(self._row("绘师（可选）", self.illustrator))
 
         self._works_combo = FluentComboBox(self)
-        _fill_works_fluent_combo(self._works_combo)
+        fill_works_fluent_combo(self._works_combo)
         works_row = QWidget(self)
         wh = QHBoxLayout(works_row)
         wh.setContentsMargins(0, 0, 0, 0)
@@ -203,7 +195,7 @@ class CharaAddDialog(FluentCaptionDialog):
             dlg = WorkCreateDialog(suggest_id=nid, acus_root=self._acus_root, parent=self)
             if dlg.exec() == QDialog.DialogCode.Accepted and dlg.created:
                 i, s = dlg.created
-                _fill_works_fluent_combo(self._works_combo)
+                fill_works_fluent_combo(self._works_combo)
                 for j in range(self._works_combo.count()):
                     d = self._works_combo.itemData(j)
                     if d is not None and len(d) == 2 and int(d[0]) == i:
@@ -213,7 +205,7 @@ class CharaAddDialog(FluentCaptionDialog):
         def _mgr_works() -> None:
             WorksLibraryManagerDialog(acus_root=self._acus_root, parent=self).exec()
             cur = combo_works_id_str(self._works_combo)
-            _fill_works_fluent_combo(self._works_combo)
+            fill_works_fluent_combo(self._works_combo)
             for j in range(self._works_combo.count()):
                 d = self._works_combo.itemData(j)
                 if d is not None and len(d) == 2 and int(d[0]) == cur[0] and d[1] == cur[1]:

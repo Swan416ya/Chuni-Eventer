@@ -4,24 +4,24 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (
-    QComboBox,
-    QDialog,
-    QFormLayout,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QListWidget,
-    QListWidgetItem,
-    QMessageBox,
-    QPushButton,
-    QSpinBox,
-    QVBoxLayout,
-    QWidget,
+from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QListWidgetItem, QVBoxLayout, QWidget
+
+from qfluentwidgets import (
+    BodyLabel,
+    CardWidget,
+    ComboBox as FluentComboBox,
+    LineEdit,
+    ListWidget,
+    PrimaryPushButton,
+    PushButton,
+    SpinBox,
+    SubtitleLabel,
+    isDarkTheme,
 )
 
 from ..works_library import add_work_entry, load_works_library, remove_work_entry, WORKS_CUSTOM_ID_START
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
+from .fluent_dialogs import fly_critical, fly_question, fly_warning
 from .name_glyph_preview import wrap_name_input_with_preview
 from ..xml_writer import (
     CHARA_DEFAULT_NET_OPEN_ID,
@@ -38,10 +38,15 @@ WORKS_WARNING_TEXT = (
 )
 
 
-def works_warning_label() -> QLabel:
-    lb = QLabel(WORKS_WARNING_TEXT)
+def _meta_hint_style() -> str:
+    c = "#9CA3AF" if isDarkTheme() else "#6B7280"
+    return f"color:{c}; font-size:12px;"
+
+
+def works_warning_label(*, parent: QWidget | None = None) -> BodyLabel:
+    lb = BodyLabel(WORKS_WARNING_TEXT, parent)
     lb.setWordWrap(True)
-    lb.setStyleSheet("color:#B45309; font-size: 12px;")
+    lb.setStyleSheet("color:#B45309; font-size:12px;")
     return lb
 
 
@@ -54,12 +59,32 @@ def fill_works_combo(cb: QComboBox, *, include_invalid: bool = True) -> None:
         cb.addItem(f"{e.id} · {e.str}", (e.id, e.str))
 
 
-def ensure_combo_select_works(cb: QComboBox, wid: int, wstr: str) -> None:
+def fill_works_fluent_combo(cb: FluentComboBox, *, include_invalid: bool = True) -> None:
+    cb.clear()
+    if include_invalid:
+        cb.addItem("（不填）Invalid — 检索可能受限", None, (-1, "Invalid"))
+    entries, _ = load_works_library()
+    for e in entries:
+        cb.addItem(f"{e.id} · {e.str}", None, (e.id, e.str))
+
+
+def ensure_combo_select_works(cb: QComboBox | FluentComboBox, wid: int, wstr: str) -> None:
     """下拉刷新后选中与 XML 一致的项；若库中无记录则插入「当前 XML」占位项。"""
+    if isinstance(cb, FluentComboBox):
+        fill_works_fluent_combo(cb)
+        for j in range(cb.count()):
+            d = cb.itemData(j)
+            if d is not None and isinstance(d, tuple) and len(d) == 2 and int(d[0]) == wid:
+                cb.setCurrentIndex(j)
+                return
+        label = f"{wid} · {wstr}（当前 XML，未在作品库）"
+        cb.insertItem(1, label, None, (wid, wstr))
+        cb.setCurrentIndex(1)
+        return
     fill_works_combo(cb)
     for j in range(cb.count()):
         d = cb.itemData(j)
-        if d is not None and len(d) == 2 and int(d[0]) == wid:
+        if d is not None and isinstance(d, tuple) and len(d) == 2 and int(d[0]) == wid:
             cb.setCurrentIndex(j)
             return
     label = f"{wid} · {wstr}（当前 XML，未在作品库）"
@@ -67,7 +92,7 @@ def ensure_combo_select_works(cb: QComboBox, wid: int, wstr: str) -> None:
     cb.setCurrentIndex(1)
 
 
-def combo_works_id_str(cb: QComboBox) -> tuple[int, str]:
+def combo_works_id_str(cb: QComboBox | FluentComboBox) -> tuple[int, str]:
     data = cb.currentData()
     if data is not None and isinstance(data, tuple) and len(data) == 2:
         i, s = data
@@ -78,6 +103,18 @@ def combo_works_id_str(cb: QComboBox) -> tuple[int, str]:
     return -1, "Invalid"
 
 
+def _form_row(label: str, field: QWidget, *, parent: QWidget) -> QWidget:
+    w = QWidget(parent)
+    h = QHBoxLayout(w)
+    h.setContentsMargins(0, 0, 0, 0)
+    h.setSpacing(12)
+    lb = BodyLabel(label, parent)
+    lb.setMinimumWidth(88)
+    h.addWidget(lb, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+    h.addWidget(field, 1)
+    return w
+
+
 class WorkCreateDialog(FluentCaptionDialog):
     """新建一条作品并写入缓存（可指定 id）。"""
 
@@ -85,23 +122,28 @@ class WorkCreateDialog(FluentCaptionDialog):
         super().__init__(parent=parent)
         self.setWindowTitle("新建作品（works）")
         self.setModal(True)
+        self.resize(440, 360)
         self._acus_root = acus_root
         self._work_id: int | None = None
         self._work_str: str | None = None
 
-        self._id_spin = QSpinBox()
+        self._id_spin = SpinBox(self)
         self._id_spin.setRange(-1, 99_999_999)
         self._id_spin.setValue(max(suggest_id, WORKS_CUSTOM_ID_START))
-        self._str_edit = QLineEdit()
+        self._str_edit = LineEdit(self)
         self._str_edit.setPlaceholderText("作品显示名（写入 Chara.xml works/str）")
 
-        form = QFormLayout()
-        form.addRow("作品 ID", self._id_spin)
-        form.addRow("显示名", wrap_name_input_with_preview(self._str_edit, parent=self))
+        card = CardWidget(self)
+        cly = QVBoxLayout(card)
+        cly.setContentsMargins(16, 16, 16, 16)
+        cly.setSpacing(10)
+        cly.addWidget(SubtitleLabel("作品信息", self))
+        cly.addWidget(_form_row("作品 ID", self._id_spin, parent=self))
+        cly.addWidget(_form_row("显示名", wrap_name_input_with_preview(self._str_edit, parent=self), parent=self))
 
-        ok = QPushButton("保存到作品库")
+        ok = PrimaryPushButton("保存到作品库", self)
         ok.clicked.connect(self._on_ok)
-        cancel = QPushButton("取消")
+        cancel = PushButton("取消", self)
         cancel.clicked.connect(self.reject)
         btns = QHBoxLayout()
         btns.addStretch(1)
@@ -110,23 +152,22 @@ class WorkCreateDialog(FluentCaptionDialog):
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(*fluent_caption_content_margins())
-        lay.addLayout(form)
-        lay.addWidget(works_warning_label())
+        lay.setSpacing(12)
+        lay.addWidget(card)
+        lay.addWidget(works_warning_label(parent=self))
         lay.addLayout(btns)
 
     def _on_ok(self) -> None:
         s = self._str_edit.text().strip()
         if not s:
-            QMessageBox.critical(self, "错误", "请填写作品显示名。")
+            fly_critical(self, "错误", "请填写作品显示名。")
             return
         wid = int(self._id_spin.value())
         try:
             add_work_entry(work_id=wid, work_str=s)
         except ValueError as e:
-            QMessageBox.critical(self, "错误", str(e))
+            fly_critical(self, "错误", str(e))
             return
-        # CharaWorks 的 releaseTagName / netOpenName 必须与具体 Chara 一致，无角色上下文时不写磁盘，
-        # 避免把 PJSK 等角色误写成 -1/Invalid；请用「编辑作品」或脚本 scripts/sync_acus_chara_works.py 同步。
         self._work_id = wid
         self._work_str = s
         self.accept()
@@ -146,35 +187,52 @@ class WorksLibraryManagerDialog(FluentCaptionDialog):
         self.setWindowTitle("作品库（缓存）")
         self.setModal(True)
         self._acus_root = acus_root
-        self.resize(420, 320)
+        self.resize(460, 420)
 
-        self._list = QListWidget()
+        self._list = ListWidget(self)
+        self._list.setAlternatingRowColors(True)
         self._reload_list()
 
-        add_btn = QPushButton("新建…")
+        add_btn = PrimaryPushButton("新建…", self)
         add_btn.clicked.connect(self._on_add)
-        del_btn = QPushButton("删除所选")
+        del_btn = PushButton("删除所选", self)
         del_btn.clicked.connect(self._on_delete)
         row = QHBoxLayout()
+        row.setSpacing(8)
         row.addWidget(add_btn)
         row.addWidget(del_btn)
         row.addStretch(1)
 
-        close = QPushButton("关闭")
+        close = PushButton("关闭", self)
         close.clicked.connect(self.accept)
+        foot = QHBoxLayout()
+        foot.addStretch(1)
+        foot.addWidget(close)
 
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(*fluent_caption_content_margins())
-        _hint = (
+        hint_text = (
             "保存在应用 .cache/works_library.json。"
             "CharaWorks 须与角色 Chara.xml 的 releaseTag/netOpen 一致，请用「编辑作品」或运行 "
             "scripts/sync_acus_chara_works.py 从 chara 目录同步到 charaWorks/。"
         )
-        lay.addWidget(QLabel(_hint))
-        lay.addWidget(self._list, stretch=1)
+        hint = BodyLabel(hint_text, self)
+        hint.setWordWrap(True)
+        hint.setStyleSheet(_meta_hint_style())
+
+        list_card = CardWidget(self)
+        lly = QVBoxLayout(list_card)
+        lly.setContentsMargins(12, 12, 12, 12)
+        lly.setSpacing(8)
+        lly.addWidget(BodyLabel("已缓存的作品", self))
+        lly.addWidget(self._list, stretch=1)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(*fluent_caption_content_margins())
+        lay.setSpacing(12)
+        lay.addWidget(hint)
+        lay.addWidget(list_card, stretch=1)
         lay.addLayout(row)
-        lay.addWidget(works_warning_label())
-        lay.addWidget(close, alignment=Qt.AlignmentFlag.AlignRight)
+        lay.addWidget(works_warning_label(parent=self))
+        lay.addLayout(foot)
 
     def _reload_list(self) -> None:
         self._list.clear()
@@ -197,51 +255,51 @@ class WorksLibraryManagerDialog(FluentCaptionDialog):
         wid = it.data(Qt.ItemDataRole.UserRole)
         if wid is None:
             return
-        r = QMessageBox.question(
+        if not fly_question(
             self,
             "删除作品",
             f"确定从作品库删除 id={wid}？\n（已写入 Chara.xml 的引用不会自动改掉。）",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if r != QMessageBox.StandardButton.Yes:
+            yes_text="删除",
+            no_text="取消",
+        ):
             return
         remove_work_entry(int(wid))
         self._reload_list()
 
 
-def make_works_picker_row(*, parent=None, acus_root: Path | None = None) -> tuple[QWidget, QComboBox]:
+def make_works_picker_row(*, parent=None, acus_root: Path | None = None) -> tuple[QWidget, FluentComboBox]:
     """
     横向：下拉 + 「新建」+ 「管理库」。
     返回 (container, combo)。
     """
-    w = QWidget()
+    w = QWidget(parent)
     h = QHBoxLayout(w)
     h.setContentsMargins(0, 0, 0, 0)
-    cb = QComboBox()
-    fill_works_combo(cb)
-    new_btn = QPushButton("新建…")
-    mgr_btn = QPushButton("管理库…")
+    h.setSpacing(8)
+    cb = FluentComboBox(w)
+    fill_works_fluent_combo(cb)
+    new_btn = PushButton("新建…", w)
+    mgr_btn = PushButton("管理库…", w)
 
     def _new() -> None:
         _, nid = load_works_library()
         dlg = WorkCreateDialog(suggest_id=nid, acus_root=acus_root, parent=parent or w)
         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.created:
             i, s = dlg.created
-            fill_works_combo(cb)
+            fill_works_fluent_combo(cb)
             for j in range(cb.count()):
                 d = cb.itemData(j)
-                if d is not None and d[0] == i:
+                if d is not None and isinstance(d, tuple) and len(d) == 2 and int(d[0]) == i:
                     cb.setCurrentIndex(j)
                     break
 
     def _mgr() -> None:
         WorksLibraryManagerDialog(acus_root=acus_root, parent=parent or w).exec()
         cur = combo_works_id_str(cb)
-        fill_works_combo(cb)
+        fill_works_fluent_combo(cb)
         for j in range(cb.count()):
             d = cb.itemData(j)
-            if d is not None and d[0] == cur[0] and d[1] == cur[1]:
+            if d is not None and isinstance(d, tuple) and len(d) == 2 and int(d[0]) == cur[0] and d[1] == cur[1]:
                 cb.setCurrentIndex(j)
                 return
         cb.setCurrentIndex(0)
@@ -327,15 +385,25 @@ class CharaEditWorksDialog(FluentCaptionDialog):
         self._acus_root = xml_path.parent.parent.parent
         self.setWindowTitle("编辑作品（works）")
         self.setModal(True)
-        self.resize(520, 220)
+        self.resize(520, 340)
 
         cur_id, cur_str = parse_chara_xml_works(xml_path)
         row, self._cb = make_works_picker_row(parent=self, acus_root=self._acus_root)
         ensure_combo_select_works(self._cb, cur_id, cur_str)
 
-        ok = QPushButton("写入 Chara.xml")
+        path_lbl = BodyLabel(str(xml_path.name), self)
+        path_lbl.setStyleSheet(_meta_hint_style())
+
+        pick_card = CardWidget(self)
+        ply = QVBoxLayout(pick_card)
+        ply.setContentsMargins(16, 16, 16, 16)
+        ply.setSpacing(10)
+        ply.addWidget(SubtitleLabel("选择作品", self))
+        ply.addWidget(row)
+
+        ok = PrimaryPushButton("写入 Chara.xml", self)
         ok.clicked.connect(self._on_ok)
-        cancel = QPushButton("取消")
+        cancel = PushButton("取消", self)
         cancel.clicked.connect(self.reject)
         btns = QHBoxLayout()
         btns.addStretch(1)
@@ -344,9 +412,10 @@ class CharaEditWorksDialog(FluentCaptionDialog):
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(*fluent_caption_content_margins())
-        lay.addWidget(QLabel(str(xml_path.name)))
-        lay.addWidget(row)
-        lay.addWidget(works_warning_label())
+        lay.setSpacing(12)
+        lay.addWidget(path_lbl)
+        lay.addWidget(pick_card)
+        lay.addWidget(works_warning_label(parent=self))
         lay.addLayout(btns)
 
     def _on_ok(self) -> None:
@@ -354,7 +423,7 @@ class CharaEditWorksDialog(FluentCaptionDialog):
         try:
             patch_chara_xml_works(self._xml_path, works_id=wid, works_str=wstr)
         except Exception as e:
-            QMessageBox.critical(self, "写入失败", str(e))
+            fly_critical(self, "写入失败", str(e))
             return
         rt_id, rt_str = parse_chara_xml_release_tag(self._xml_path)
         no_id, no_str = parse_chara_xml_net_open(self._xml_path)
@@ -369,7 +438,7 @@ class CharaEditWorksDialog(FluentCaptionDialog):
                 net_open_str=no_str,
             )
         except Exception as e:
-            QMessageBox.warning(
+            fly_warning(
                 self,
                 "CharaWorks 写入失败",
                 f"Chara.xml 已更新，但未能写入 charaWorks：\n{e}",

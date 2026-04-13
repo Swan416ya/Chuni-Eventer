@@ -385,7 +385,8 @@ class ManagerWidget(QWidget):
         layout.addWidget(self._main_stack, stretch=1)
 
         self._items: list[object] = []
-        self.reload()
+        # 不在此调用 reload()：默认分类为「事件」，而主窗口随后会切到实际分类（如歌曲），
+        # 否则会先全量扫事件再扫目标分类，冷启动白白多一轮磁盘与表格构建。
 
     def set_kind(self, kind: str) -> None:
         """

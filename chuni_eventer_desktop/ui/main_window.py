@@ -141,7 +141,8 @@ class MainWindow(MSFluentWindow):
         self.switchTo(self._workspace)
         self._current_category_index = 4
         self.navigationInterface.setCurrentItem("nav_music")
-        self._apply_category("Music", "歌曲")
+        # 延后到事件循环下一轮再扫 ACUS / 建歌曲卡片，让窗口先完成 show()，体感启动更快
+        QTimer.singleShot(0, lambda: self._apply_category("Music", "歌曲"))
 
         QTimer.singleShot(0, self._ensure_game_root_first_run)
 
