@@ -78,15 +78,15 @@
 | `save_patch_dialog.py` | `QDialog` | `TabWidget`、`SearchLineEdit`、`EditableComboBox`、`SpinBox`、`BodyLabel`、`CaptionLabel`、`CardWidget`、按钮、`isDarkTheme` | 各 Tab 内 `QWidget`、`QFormLayout`、`QLabel`（预览） |
 | `music_add_actions_dialog.py` | 无边框 `QDialog` | `CardWidget`、`SubtitleLabel`、`PushButton` | `QToolButton`、`QGraphicsDropShadowEffect`、硬编码浅色窗口背景 |
 | `game_music_browser_dialog.py` | `QDialog` | 顶部 `BodyLabel` | `QComboBox`、`QLineEdit`、`QTableWidget`、`QPushButton`、`QMessageBox` |
-| `chara_add_dialog.py` | `QDialog` | 无 | `QFormLayout`、`QLabel`、`QLineEdit`、`QPushButton`、`QFileDialog`、`QMessageBox` |
+| `chara_add_dialog.py` | `FluentCaptionDialog` | `LineEdit`、`FluentComboBox`、`PushButton`、`PrimaryPushButton`、`CardWidget`、`BodyLabel`；`isDarkTheme`；`fluent_caption_content_margins`；`fly_message` / `fly_critical` | `QFileDialog`；布局 `QVBoxLayout` / `QHBoxLayout` |
 | `event_add_dialog.py` | `QDialog` | 无 | 同上 |
 | `trophy_add_dialog.py` | `QDialog` | 无 | 同上 + 表单内多种 Qt 控件 |
 | `nameplate_add_dialog.py` | `QDialog` | 无 | 同上 |
 | `quest_add_dialog.py` | `QDialog` | 无 | `QCheckBox`、`QGroupBox`、`QListWidget`、`QSpinBox` 等 |
-| `map_add_dialog.py` | `QDialog`（大表单） | 部分 `FluentLineEdit`（如地图 ID/名称） | `QTabWidget`、`QComboBox`、`QCheckBox`、`QGroupBox`、`QScrollArea`、`QTextEdit`、`QPushButton`、`QMessageBox`、`QProgressDialog`、`QFileDialog` 等；内含 `RewardCreateDialog` 等子流程，以 Qt 控件为主 |
+| `map_add_dialog.py` | `FluentCaptionDialog`（主窗 + 多个子对话框） | `TabWidget`（含 `tabAddRequested` 新建页签）、`CardWidget`、`SubtitleLabel`、`LineEdit`、`FluentComboBox`、`CheckBox`、`ScrollArea`、`TextEdit`、`PushButton` / `PrimaryPushButton`；`fly_message` / `fly_critical` / `fly_warning` / `fly_question`；`fluent_caption_content_margins` | `QFormLayout`、`QGridLayout`、`QLabel`（说明/警告色文案）、`QProgressDialog`、`QFileDialog`；`MapBonusEditDialog` 等仍来自其它模块 |
 | `mapbonus_dialogs.py` | `QDialog` | 无 | `QLineEdit`、`QComboBox`、`QTableWidget`、`QPushButton`、`QMessageBox` |
 | `music_trophy_dialog.py` | `QDialog` | 无 | `QComboBox`、`QLabel`、`QPushButton`、`QMessageBox` |
-| `works_dialogs.py` | `QDialog` | 无 | `QComboBox`、`QListWidget`、`QLineEdit`、`QSpinBox`、`QMessageBox` |
+| `works_dialogs.py` | `FluentCaptionDialog`（作品库 / 创建 / 绑定） | `LineEdit`、`FluentComboBox`、`PushButton`、`PrimaryPushButton`；`fluent_caption_content_margins` | `QListWidget`（列表）；工具函数仍接受 `QComboBox \| FluentComboBox` 以兼容旧调用 |
 | `swan_sheet_download_dialog.py` | `QDialog` + Card | `BodyLabel`、`CardWidget`、Fluent 按钮 | `QProgressDialog`；表格使用 `fluent_table.apply_fluent_sheet_table`（底层 `QTableWidget`） |
 | `pgko_sheet_download_dialog.py` | 类似 | 同上 | `QMessageBox.question`；Fluent 表样式封装 |
 | `pjsk_hub_dialog.py` | 混合 | `BodyLabel`、`CardWidget`、Fluent 按钮 | 大量 Qt 控件、`QMessageBox`；表格 `apply_fluent_sheet_table` |
@@ -102,7 +102,7 @@
 
 | 文件 | 作用 | 主要组件 |
 |------|------|----------|
-| `name_glyph_preview.py` | 名称输入 + 预览按钮 | `QLineEdit`、`QToolButton` |
+| `name_glyph_preview.py` | 名称行：绑定在 `QLineEdit` 子类（含 Fluent `LineEdit`）旁的预览按钮 | `CardWidget`、`BodyLabel`、`TransparentToolButton`（`FluentIcon`）；弹层为 `QWidget` 顶层窗口 + `QGraphicsDropShadowEffect` |
 | `fluent_table.py` | 自制谱等表格选中行对比度 | `QTableWidget` + `FluentStyleSheet.TABLE_VIEW` + `setCustomStyleSheet` |
 
 ---
@@ -114,6 +114,7 @@
 3. **系统对话框**：`QFileDialog`、`QInputDialog`、`QProgressDialog`、部分 `QMessageBox` —— 若也要 Fluent 化，需改用库内同类能力或自研，并权衡跨平台外观。
 4. **消息与确认**：业务中仍大量 `QMessageBox`，与 `fluent_dialogs` 的 `MessageBox` 封装并存，视觉不统一。
 5. **已有自研/半自研**：`FlipMusicCard`、`MusicSheetChannelsDialog` 的硬编码窗口色、`fluent_table` 等 —— 宜纳入统一主题（如 `isDarkTheme`、Fluent 色板）。
+6. **已推进模块**：地图新增/编辑（`map_add_dialog.py`）、角色新增（`chara_add_dialog.py`）、作品库相关（`works_dialogs.py`）已采用 `FluentCaptionDialog` 与 Fluent 表单控件，业务提示以 `fly_*` 为主；名称输入旁字库预览（`name_glyph_preview.py`）已用 Fluent 卡片与 `TransparentToolButton`。
 
 ---
 

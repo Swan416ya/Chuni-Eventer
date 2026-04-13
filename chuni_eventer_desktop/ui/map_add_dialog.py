@@ -11,28 +11,34 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
-    QCheckBox,
-    QComboBox,
     QDialog,
     QFileDialog,
     QFormLayout,
     QGridLayout,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
-    QMessageBox,
     QProgressDialog,
-    QPushButton,
-    QGroupBox,
-    QScrollArea,
-    QTabWidget,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
-from PyQt6.QtWidgets import QTabBar
 
-from qfluentwidgets import LineEdit as FluentLineEdit
+from qfluentwidgets import (
+    BodyLabel,
+    CardWidget,
+    CheckBox,
+    ComboBox as FluentComboBox,
+    LineEdit,
+    PrimaryPushButton,
+    PushButton,
+    ScrollArea,
+    SubtitleLabel,
+    TabWidget,
+    TextEdit,
+    isDarkTheme,
+)
+
+from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
+from .fluent_dialogs import fly_critical, fly_message, fly_question, fly_warning
 
 from ..dds_convert import DdsToolError, ingest_to_bc3_dds
 from ..game_data_index import (
@@ -150,6 +156,21 @@ def infer_map_terminator_index(idxs: list[int | None], cells: list[CellData]) ->
     return best if best > 0 else 1
 
 
+def _map_area_edit_dds_tile_qss(*, prominent: bool = False) -> str:
+    """MapArea 编辑页里 dds 缩略卡按钮：随明暗主题切换底色与描边。"""
+    dark = isDarkTheme()
+    bg = "#2D2D2D" if dark else "#FFFFFF"
+    bd = "#4B5563" if dark else "#E5E7EB"
+    bg_h = "#3F3F46" if dark else "#F3F4F6"
+    bd_h = "#6B7280" if dark else "#D1D5DB"
+    fg = "#E4E4E7" if dark else "#374151"
+    extra = "font-size:15px;font-weight:700;text-align:center;" if prominent else ""
+    return (
+        f"QPushButton{{background:{bg};border:1px solid {bd};border-radius:8px;color:{fg};{extra}}}"
+        f"QPushButton:hover{{background:{bg_h};border:1px solid {bd_h};}}"
+    )
+
+
 def _maparea_points_to_slots(pairs: list[tuple[int, CellData]]) -> tuple[list[CellData], list[int | None]]:
     pairs = sorted(pairs, key=lambda x: x[0])
     if len(pairs) > 9:
@@ -173,7 +194,7 @@ def _kind_label(kind: str) -> str:
     }.get(kind, kind)
 
 
-def _combo_pick_id(combo: QComboBox) -> int | None:
+def _combo_pick_id(combo: FluentComboBox) -> int | None:
     d = combo.currentData()
     if d is None:
         return None
@@ -461,7 +482,7 @@ def parse_maparea_file(
     return cells, extras, grid_indices, truncated
 
 
-class CellEditDialog(QDialog):
+class CellEditDialog(FluentCaptionDialog):
     def __init__(
         self,
         *,
@@ -490,7 +511,7 @@ class CellEditDialog(QDialog):
         self._data = data
         self._pending_inner_match_id: int | None = None
 
-        self.reward_mode = QComboBox()
+        self.reward_mode = FluentComboBox()
         self.reward_mode.addItems(
             [
                 "留空",
@@ -504,34 +525,34 @@ class CellEditDialog(QDialog):
         )
         self.reward_mode.currentTextChanged.connect(self._sync_state)
 
-        self.reward_pick = QComboBox()
-        self.reward_pick.addItem("(请选择)")
+        self.reward_pick = FluentComboBox()
+        self.reward_pick.addItem("(请选择)", None, None)
         for r in reward_refs:
             label = r.display_name or r.name
-            self.reward_pick.addItem(f"{r.id} | {label}")
+            self.reward_pick.addItem(f"{r.id} | {label}", None, None)
 
-        self.reward_id = QLineEdit()
+        self.reward_id = LineEdit()
         self.reward_id.setPlaceholderText("例如 70099001")
-        self.reward_name = QLineEdit()
+        self.reward_name = LineEdit()
         self.reward_name.setPlaceholderText("显示名（可不填）")
 
-        self.reward_kind = QComboBox()
+        self.reward_kind = FluentComboBox()
         self.reward_kind.addItems(["外部奖励ID", "角色", "称号(Trophy)", "姓名牌装饰(NamePlate)"])
         self.reward_kind.currentTextChanged.connect(self._sync_state)
-        self.reward_inner_id = QLineEdit()
+        self.reward_inner_id = LineEdit()
         self.reward_inner_id.setPlaceholderText("目标ID")
-        self.inner_pick = QComboBox()
+        self.inner_pick = FluentComboBox()
         self.inner_pick.activated.connect(self._on_acus_pick_activated)
         self._lbl_target_id = QLabel("目标ID")
         self._lbl_acus_pick = QLabel("从列表选择")
 
-        self.music_mode = QComboBox()
+        self.music_mode = FluentComboBox()
         self.music_mode.addItems(["不配置乐曲", "选择乐曲"])
         self.music_mode.currentTextChanged.connect(self._sync_state)
-        self.music_pick = QComboBox()
-        self.music_pick.addItem("(请选择)")
+        self.music_pick = FluentComboBox()
+        self.music_pick.addItem("(请选择)", None, None)
         for m in music_refs:
-            self.music_pick.addItem(f"{m.id} | {m.name}", m.id)
+            self.music_pick.addItem(f"{m.id} | {m.name}", None, m.id)
 
         self.warn_reward = QLabel("")
         self.warn_reward.setStyleSheet("color:#DC2626;")
@@ -553,9 +574,9 @@ class CellEditDialog(QDialog):
         form.addRow("乐曲", self.music_pick)
         form.addRow("", self.warn_music)
 
-        ok = QPushButton("确定")
+        ok = PrimaryPushButton("确定")
         ok.clicked.connect(self._on_ok)
-        cancel = QPushButton("取消")
+        cancel = PushButton("取消")
         cancel.clicked.connect(self.reject)
 
         btns = QHBoxLayout()
@@ -564,6 +585,8 @@ class CellEditDialog(QDialog):
         btns.addWidget(ok)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(*fluent_caption_content_margins())
+        layout.setSpacing(12)
         layout.addLayout(form)
         glyph_warn = QLabel("提示：所有名称字段请尽量使用日语字库内字符；超出字库的汉字在游戏内可能无法显示。")
         glyph_warn.setStyleSheet("color:#B45309;")
@@ -616,6 +639,7 @@ class CellEditDialog(QDialog):
             else:
                 self.music_pick.addItem(
                     f"{d.music_id} | {d.music_name or f'Music{d.music_id}'}",
+                    None,
                     d.music_id,
                 )
                 self.music_pick.setCurrentIndex(self.music_pick.count() - 1)
@@ -678,10 +702,10 @@ class CellEditDialog(QDialog):
 
         self.inner_pick.blockSignals(True)
         self.inner_pick.clear()
-        self.inner_pick.addItem("(请选择)")
+        self.inner_pick.addItem("(请选择)", None, None)
         refs = self._refs_for_reward_mode(rm)
         for x in refs:
-            self.inner_pick.addItem(f"{x.id} | {x.name}")
+            self.inner_pick.addItem(f"{x.id} | {x.name}", None, None)
         self.inner_pick.blockSignals(False)
         if typed:
             tid = self._pending_inner_match_id
@@ -723,7 +747,7 @@ class CellEditDialog(QDialog):
         elif rm == "选择 ACUS 奖励":
             idx = self.reward_pick.currentIndex()
             if idx <= 0:
-                QMessageBox.critical(self, "错误", "请选择 ACUS 奖励")
+                fly_critical(self, "错误", "请选择 ACUS 奖励")
                 return
             ref = self._reward_refs[idx - 1]
             out.reward_id = ref.id
@@ -733,7 +757,7 @@ class CellEditDialog(QDialog):
         elif rm == "手填奖励ID":
             rid = _safe_int(self.reward_id.text())
             if rid is None:
-                QMessageBox.critical(self, "错误", "奖励ID 必须是整数")
+                fly_critical(self, "错误", "奖励ID 必须是整数")
                 return
             out.reward_id = rid
             out.reward_name = self.reward_name.text().strip() or f"Reward{rid}"
@@ -742,21 +766,21 @@ class CellEditDialog(QDialog):
                 inner = _safe_int(self.reward_inner_id.text())
                 if inner is None:
                     cap = _target_id_field_label(reward_mode="手填奖励ID", reward_kind=out.reward_kind)
-                    QMessageBox.critical(self, "错误", f"该奖励类型需要填写「{cap}」")
+                    fly_critical(self, "错误", f"该奖励类型需要填写「{cap}」")
                     return
                 out.reward_inner_id = inner
         elif rm == "场景(Stage)":
             out.reward_kind = "场景(Stage)"
             out.reward_inner_id = self._resolve_inner_typed_only(self._stage_refs)
             if out.reward_inner_id is None:
-                QMessageBox.critical(self, "错误", "请从列表选择场景")
+                fly_critical(self, "错误", "请从列表选择场景")
                 return
             ref = next(
                 (x for x in self._stage_refs if x.id == out.reward_inner_id),
                 None,
             )
             if ref is None:
-                QMessageBox.critical(self, "错误", "场景列表异常，请重试")
+                fly_critical(self, "错误", "场景列表异常，请重试")
                 return
             out.reward_name = self.reward_name.text().strip() or ref.name
             if self._data.reward_kind == "场景(Stage)" and prev_rid is not None:
@@ -776,7 +800,7 @@ class CellEditDialog(QDialog):
 
             if out.reward_inner_id is None:
                 cap = _target_id_field_label(reward_mode=rm, reward_kind="")
-                QMessageBox.critical(self, "错误", f"请从列表选择有效的「{cap}」")
+                fly_critical(self, "错误", f"请从列表选择有效的「{cap}」")
                 return
             out.reward_name = self.reward_name.text().strip() or f"Reward{out.reward_inner_id}"
             out.reward_id = self._default_reward_id(out.reward_kind, out.reward_inner_id)
@@ -787,7 +811,7 @@ class CellEditDialog(QDialog):
         else:
             mid = _combo_pick_id(self.music_pick)
             if mid is None:
-                QMessageBox.critical(self, "错误", "请选择乐曲")
+                fly_critical(self, "错误", "请选择乐曲")
                 return
             out.music_id = mid
             txt = self.music_pick.currentText()
@@ -821,7 +845,7 @@ class CellEditDialog(QDialog):
         return inner_id
 
 
-class AreaExtrasDialog(QDialog):
+class AreaExtrasDialog(FluentCaptionDialog):
     def __init__(
         self,
         *,
@@ -837,17 +861,20 @@ class AreaExtrasDialog(QDialog):
         self._game_index = game_index
         self._extras = extras
 
-        self.bonus_id = QLineEdit(str(extras.bonus_id))
-        self.bonus_str = QLineEdit(extras.bonus_str)
-        self.counts = QLineEdit(",".join(str(x) for x in extras.shorten_counts[:8]))
+        self.bonus_id = LineEdit(self)
+        self.bonus_id.setText(str(extras.bonus_id))
+        self.bonus_str = LineEdit(self)
+        self.bonus_str.setText(extras.bonus_str)
+        self.counts = LineEdit(self)
+        self.counts.setText(",".join(str(x) for x in extras.shorten_counts[:8]))
         self.counts.setPlaceholderText("8个整数，用逗号分隔，例如 0,0,0,0,0,0,0,0")
-        self.bonus_pick = QComboBox()
-        self.bonus_pick.addItem("(手填 / 不使用 mapBonus)")
+        self.bonus_pick = FluentComboBox()
+        self.bonus_pick.addItem("(手填 / 不使用 mapBonus)", None, None)
         self._bonus_refs: list[tuple[int, str, Path]] = []
         self._reload_mapbonus_refs(select_id=extras.bonus_id)
         self.bonus_pick.currentIndexChanged.connect(self._on_pick_bonus)
-        self.new_bonus_btn = QPushButton("新建 mapBonus…")
-        self.edit_bonus_btn = QPushButton("编辑当前 mapBonus…")
+        self.new_bonus_btn = PrimaryPushButton("新建 mapBonus…")
+        self.edit_bonus_btn = PushButton("编辑当前 mapBonus…")
         self.new_bonus_btn.clicked.connect(self._on_new_bonus)
         self.edit_bonus_btn.clicked.connect(self._on_edit_bonus)
         pick_row = QHBoxLayout()
@@ -864,9 +891,9 @@ class AreaExtrasDialog(QDialog):
         form.addRow("mapBonusName.str", self.bonus_str)
         form.addRow("shorteningGridCountList", self.counts)
 
-        ok = QPushButton("确定")
+        ok = PrimaryPushButton("确定")
         ok.clicked.connect(self._on_ok)
-        cancel = QPushButton("取消")
+        cancel = PushButton("取消")
         cancel.clicked.connect(self.reject)
         btns = QHBoxLayout()
         btns.addStretch(1)
@@ -874,6 +901,8 @@ class AreaExtrasDialog(QDialog):
         btns.addWidget(ok)
 
         lay = QVBoxLayout(self)
+        lay.setContentsMargins(*fluent_caption_content_margins())
+        lay.setSpacing(12)
         lay.addLayout(form)
         glyph_warn = QLabel("提示：reward 名称/乐曲名称请尽量使用日语字库内字符；超出字库的汉字在游戏内可能无法显示。")
         glyph_warn.setStyleSheet("color:#B45309;")
@@ -883,11 +912,11 @@ class AreaExtrasDialog(QDialog):
     def _reload_mapbonus_refs(self, *, select_id: int | None = None) -> None:
         self.bonus_pick.blockSignals(True)
         self.bonus_pick.clear()
-        self.bonus_pick.addItem("(手填 / 不使用 mapBonus)")
+        self.bonus_pick.addItem("(手填 / 不使用 mapBonus)", None, None)
         self._bonus_refs.clear()
         for it in scan_map_bonuses(self._acus_root):
             self._bonus_refs.append((it.name.id, it.name.str, it.xml_path))
-            self.bonus_pick.addItem(f"{it.name.id} | {it.name.str}")
+            self.bonus_pick.addItem(f"{it.name.id} | {it.name.str}", None, None)
         self.bonus_pick.blockSignals(False)
         if select_id is not None:
             for i, (bid, _bs, _xp) in enumerate(self._bonus_refs, start=1):
@@ -904,7 +933,7 @@ class AreaExtrasDialog(QDialog):
 
     def _on_new_bonus(self) -> None:
         dlg = MapBonusEditDialog(acus_root=self._acus_root, game_index=self._game_index, parent=self)
-        if dlg.exec() == dlg.DialogCode.Accepted and dlg.result_name is not None:
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.result_name is not None:
             bid, bstr = dlg.result_name
             self._reload_mapbonus_refs(select_id=bid)
             self.bonus_id.setText(str(bid))
@@ -913,11 +942,11 @@ class AreaExtrasDialog(QDialog):
     def _on_edit_bonus(self) -> None:
         bid = _safe_int(self.bonus_id.text())
         if bid is None:
-            QMessageBox.critical(self, "错误", "mapBonusName.id 必须是整数，才能编辑。")
+            fly_critical(self, "错误", "mapBonusName.id 必须是整数，才能编辑。")
             return
         xp = self._acus_root / "mapBonus" / f"mapBonus{bid:08d}" / "MapBonus.xml"
         if not xp.is_file():
-            QMessageBox.information(self, "提示", f"未找到：{xp}\n可先点击“新建 mapBonus…”。")
+            fly_message(self, "提示", f"未找到：{xp}\n可先点击“新建 mapBonus…”。")
             return
         dlg = MapBonusEditDialog(
             acus_root=self._acus_root,
@@ -925,7 +954,7 @@ class AreaExtrasDialog(QDialog):
             xml_path=xp,
             parent=self,
         )
-        if dlg.exec() == dlg.DialogCode.Accepted and dlg.result_name is not None:
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.result_name is not None:
             nbid, nbstr = dlg.result_name
             self._reload_mapbonus_refs(select_id=nbid)
             self.bonus_id.setText(str(nbid))
@@ -934,19 +963,19 @@ class AreaExtrasDialog(QDialog):
     def _on_ok(self) -> None:
         bid = _safe_int(self.bonus_id.text())
         if bid is None:
-            QMessageBox.critical(self, "错误", "mapBonusName.id 必须是整数")
+            fly_critical(self, "错误", "mapBonusName.id 必须是整数")
             return
         bstr = self.bonus_str.text().strip() or "Invalid"
         raw = self.counts.text().strip()
         parts = [x.strip() for x in raw.split(",") if x.strip() != ""]
         if len(parts) != 8:
-            QMessageBox.critical(self, "错误", "shorteningGridCountList 需要恰好8个整数")
+            fly_critical(self, "错误", "shorteningGridCountList 需要恰好8个整数")
             return
         vals: list[int] = []
         for p in parts:
             v = _safe_int(p)
             if v is None:
-                QMessageBox.critical(self, "错误", f"shortening 里存在非整数：{p}")
+                fly_critical(self, "错误", f"shortening 里存在非整数：{p}")
                 return
             vals.append(v)
         self._extras.bonus_id = bid
@@ -955,7 +984,7 @@ class AreaExtrasDialog(QDialog):
         self.accept()
 
 
-class AreaPageMetaDialog(QDialog):
+class AreaPageMetaDialog(FluentCaptionDialog):
     def __init__(
         self,
         *,
@@ -980,21 +1009,28 @@ class AreaPageMetaDialog(QDialog):
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#374151; font-size: 12px;")
 
-        self.page_index = QLineEdit(str(meta.page_index))
-        self.index_in_page = QLineEdit(str(meta.index_in_page))
-        self.required = QLineEdit(str(meta.required_achievement_count))
-        self.gauge_id = QLineEdit(str(meta.gauge_id))
-        self.gauge_str = QLineEdit(meta.gauge_str)
-        self.dds_id = QLineEdit(str(meta.dds_id))
+        self.page_index = LineEdit(self)
+        self.page_index.setText(str(meta.page_index))
+        self.index_in_page = LineEdit(self)
+        self.index_in_page.setText(str(meta.index_in_page))
+        self.required = LineEdit(self)
+        self.required.setText(str(meta.required_achievement_count))
+        self.gauge_id = LineEdit(self)
+        self.gauge_id.setText(str(meta.gauge_id))
+        self.gauge_str = LineEdit(self)
+        self.gauge_str.setText(meta.gauge_str)
+        self.dds_id = LineEdit(self)
+        self.dds_id.setText(str(meta.dds_id))
         self.dds_id.setReadOnly(True)
-        self.dds_str = QLineEdit(meta.dds_str)
+        self.dds_str = LineEdit(self)
+        self.dds_str.setText(meta.dds_str)
         self.dds_str.setReadOnly(True)
-        self.dds_pick = QComboBox()
-        self.dds_pick.addItem("(请选择 ddsMap)")
+        self.dds_pick = FluentComboBox()
+        self.dds_pick.addItem("(请选择 ddsMap)", None, None)
         for ref in dds_refs:
-            self.dds_pick.addItem(f"{ref.id} | {ref.name}")
+            self.dds_pick.addItem(f"{ref.id} | {ref.name}", None, None)
         self.dds_pick.activated.connect(self._on_dds_pick_activated)
-        self.is_hard = QCheckBox("isHard = true")
+        self.is_hard = CheckBox("isHard = true")
         self.is_hard.setChecked(meta.is_hard)
 
         form = QFormLayout()
@@ -1010,9 +1046,9 @@ class AreaPageMetaDialog(QDialog):
             form.addRow("ddsMapName.str", self.dds_str)
         form.addRow("", self.is_hard)
 
-        ok = QPushButton("确定")
+        ok = PrimaryPushButton("确定")
         ok.clicked.connect(self._on_ok)
-        cancel = QPushButton("取消")
+        cancel = PushButton("取消")
         cancel.clicked.connect(self.reject)
         btns = QHBoxLayout()
         btns.addStretch(1)
@@ -1020,6 +1056,8 @@ class AreaPageMetaDialog(QDialog):
         btns.addWidget(ok)
 
         lay = QVBoxLayout(self)
+        lay.setContentsMargins(*fluent_caption_content_margins())
+        lay.setSpacing(12)
         lay.addLayout(form)
         lay.addLayout(btns)
 
@@ -1036,16 +1074,16 @@ class AreaPageMetaDialog(QDialog):
         required = _safe_int(self.required.text())
         gauge_id = _safe_int(self.gauge_id.text())
         if page_index is None or page_index < 0:
-            QMessageBox.critical(self, "错误", "pageIndex 必须为非负整数")
+            fly_critical(self, "错误", "pageIndex 必须为非负整数")
             return
         if slot is None or not (0 <= slot <= 8):
-            QMessageBox.critical(self, "错误", "indexInPage 必须在 0~8")
+            fly_critical(self, "错误", "indexInPage 必须在 0~8")
             return
         if required is None or required < 0:
-            QMessageBox.critical(self, "错误", "requiredAchievementCount 必须为非负整数")
+            fly_critical(self, "错误", "requiredAchievementCount 必须为非负整数")
             return
         if gauge_id is None:
-            QMessageBox.critical(self, "错误", "gaugeName.id 必须是整数")
+            fly_critical(self, "错误", "gaugeName.id 必须是整数")
             return
         self._meta.page_index = page_index
         self._meta.index_in_page = slot
@@ -1055,7 +1093,7 @@ class AreaPageMetaDialog(QDialog):
         if self._show_dds:
             dds_id = _safe_int(self.dds_id.text())
             if dds_id is None:
-                QMessageBox.critical(self, "错误", "ddsMapName.id 必须是整数")
+                fly_critical(self, "错误", "ddsMapName.id 必须是整数")
                 return
             self._meta.dds_id = dds_id
             self._meta.dds_str = self.dds_str.text().strip() or "共通0001_CHUNITHM"
@@ -1063,7 +1101,7 @@ class AreaPageMetaDialog(QDialog):
         self.accept()
 
 
-class MapAreaProgressDialog(QDialog):
+class MapAreaProgressDialog(FluentCaptionDialog):
     def __init__(self, *, area_id: int, cells: list[CellData], grid_indices: list[int | None], parent=None) -> None:
         super().__init__(parent=parent)
         self.setWindowTitle(f"编辑 MapArea 进度（{area_id}）")
@@ -1079,8 +1117,9 @@ class MapAreaProgressDialog(QDialog):
             if c.reward_id is not None and c.reward_id >= 0:
                 lines.append(f"{step},{c.reward_id},{c.reward_name or f'Reward{c.reward_id}'}")
 
-        self.total_steps = QLineEdit(str(max_step))
-        self.reward_lines = QTextEdit()
+        self.total_steps = LineEdit(self)
+        self.total_steps.setText(str(max_step))
+        self.reward_lines = TextEdit()
         self.reward_lines.setPlaceholderText("每行一个奖励：步数,reward_id,reward_name")
         self.reward_lines.setPlainText("\n".join(lines))
 
@@ -1088,9 +1127,9 @@ class MapAreaProgressDialog(QDialog):
         form.addRow("总步数(最大 index)", self.total_steps)
         form.addRow("奖励列表", self.reward_lines)
 
-        ok = QPushButton("确定")
+        ok = PrimaryPushButton("确定")
         ok.clicked.connect(self._on_ok)
-        cancel = QPushButton("取消")
+        cancel = PushButton("取消")
         cancel.clicked.connect(self.reject)
         btns = QHBoxLayout()
         btns.addStretch(1)
@@ -1098,13 +1137,15 @@ class MapAreaProgressDialog(QDialog):
         btns.addWidget(ok)
 
         lay = QVBoxLayout(self)
+        lay.setContentsMargins(*fluent_caption_content_margins())
+        lay.setSpacing(12)
         lay.addLayout(form)
         lay.addLayout(btns)
 
     def _on_ok(self) -> None:
         t = _safe_int(self.total_steps.text())
         if t is None or t < 0:
-            QMessageBox.critical(self, "错误", "总步数必须为非负整数")
+            fly_critical(self, "错误", "总步数必须为非负整数")
             return
         reward_by_step: dict[int, tuple[int, str]] = {}
         raw = self.reward_lines.toPlainText().strip()
@@ -1115,12 +1156,12 @@ class MapAreaProgressDialog(QDialog):
                     continue
                 parts = [x.strip() for x in s.split(",")]
                 if len(parts) < 2:
-                    QMessageBox.critical(self, "错误", f"格式错误：{ln}")
+                    fly_critical(self, "错误", f"格式错误：{ln}")
                     return
                 step = _safe_int(parts[0])
                 rid = _safe_int(parts[1])
                 if step is None or rid is None or step < 0:
-                    QMessageBox.critical(self, "错误", f"步数/奖励ID 非法：{ln}")
+                    fly_critical(self, "错误", f"步数/奖励ID 非法：{ln}")
                     return
                 name = parts[2] if len(parts) >= 3 and parts[2] else f"Reward{rid}"
                 reward_by_step[step] = (rid, name)
@@ -1145,7 +1186,7 @@ class MapAreaProgressDialog(QDialog):
         self.accept()
 
 
-class RewardCreateDialog(QDialog):
+class RewardCreateDialog(FluentCaptionDialog):
     _PICK_KINDS = frozenset(
         {
             "角色",
@@ -1179,11 +1220,12 @@ class RewardCreateDialog(QDialog):
         self._auto_name_enabled = True
         self._last_auto_name = ""
 
-        self.reward_id = QLineEdit(str(default_id))
-        self.reward_name = QLineEdit()
+        self.reward_id = LineEdit(self)
+        self.reward_id.setText(str(default_id))
+        self.reward_name = LineEdit()
         self.reward_name.setPlaceholderText("可自动命名；手动修改后不再自动覆盖")
         self.reward_name.textEdited.connect(self._on_reward_name_edited)
-        self.reward_kind = QComboBox()
+        self.reward_kind = FluentComboBox()
         self.reward_kind.addItems(
             [
                 "功能票(Ticket)",
@@ -1196,20 +1238,20 @@ class RewardCreateDialog(QDialog):
             ]
         )
         self.reward_kind.currentTextChanged.connect(self._sync)
-        self.inner_id = QLineEdit()
-        self.inner_pick = QComboBox()
+        self.inner_id = LineEdit()
+        self.inner_pick = FluentComboBox()
         self.inner_pick.activated.connect(self._on_inner_pick_activated)
         self.inner_id.textChanged.connect(self._on_inner_id_changed)
         self._lbl_acus_inner = QLabel("")
         self._lbl_target_inner = QLabel("目标ID")
 
-        self.has_music = QCheckBox("有课题曲")
-        self.music_mode = QComboBox()
+        self.has_music = CheckBox("有课题曲")
+        self.music_mode = FluentComboBox()
         self.music_mode.addItems(["不配置乐曲", "选择乐曲"])
-        self.music_pick = QComboBox()
-        self.music_pick.addItem("(请选择)")
+        self.music_pick = FluentComboBox()
+        self.music_pick.addItem("(请选择)", None, None)
         for m in music_refs:
-            self.music_pick.addItem(f"{m.id} | {m.name}", m.id)
+            self.music_pick.addItem(f"{m.id} | {m.name}", None, m.id)
         self.has_music.toggled.connect(self._sync)
         self.music_mode.currentTextChanged.connect(self._sync)
         self.music_pick.activated.connect(self._on_music_pick_activated)
@@ -1224,15 +1266,17 @@ class RewardCreateDialog(QDialog):
         form.addRow("课题曲", self.music_mode)
         form.addRow("乐曲", self.music_pick)
 
-        ok = QPushButton("创建")
+        ok = PrimaryPushButton("创建")
         ok.clicked.connect(self._on_ok)
-        cancel = QPushButton("取消")
+        cancel = PushButton("取消")
         cancel.clicked.connect(self.reject)
         btns = QHBoxLayout()
         btns.addStretch(1)
         btns.addWidget(cancel)
         btns.addWidget(ok)
         lay = QVBoxLayout(self)
+        lay.setContentsMargins(*fluent_caption_content_margins())
+        lay.setSpacing(12)
         lay.addLayout(form)
         lay.addLayout(btns)
         self._sync()
@@ -1340,9 +1384,9 @@ class RewardCreateDialog(QDialog):
         self.inner_pick.setVisible(show_pick)
         self.inner_pick.blockSignals(True)
         self.inner_pick.clear()
-        self.inner_pick.addItem("(请选择)")
+        self.inner_pick.addItem("(请选择)", None, None)
         for x in refs:
-            self.inner_pick.addItem(f"{x.id} | {x.name}")
+            self.inner_pick.addItem(f"{x.id} | {x.name}", None, None)
         self.inner_pick.blockSignals(False)
         if show_pick:
             self._match_inner_pick(refs)
@@ -1370,7 +1414,7 @@ class RewardCreateDialog(QDialog):
     def _on_ok(self) -> None:
         rid = _safe_int(self.reward_id.text())
         if rid is None or rid < 0 or str(rid)[0] != "7":
-            QMessageBox.critical(self, "错误", "reward.id 必须是非负整数，且首位为 7")
+            fly_critical(self, "错误", "reward.id 必须是非负整数，且首位为 7")
             return
         name = self.reward_name.text().strip() or f"Reward{rid}"
         kind = self.reward_kind.currentText()
@@ -1380,14 +1424,14 @@ class RewardCreateDialog(QDialog):
         elif kind == "功能票(Ticket)":
             inner = _safe_int(self.inner_id.text())
             if inner is None:
-                QMessageBox.critical(self, "错误", "请填写有效的功能票 ID")
+                fly_critical(self, "错误", "请填写有效的功能票 ID")
                 return
         else:
             refs = self._inner_refs_for_kind(kind)
             pick = self.inner_pick.currentIndex()
             if pick <= 0 or pick - 1 >= len(refs):
                 cap = _reward_create_kind_target_label(kind)
-                QMessageBox.critical(self, "错误", f"请从列表选择「{cap}」")
+                fly_critical(self, "错误", f"请从列表选择「{cap}」")
                 return
             inner = refs[pick - 1].id
         c = CellData(reward_id=rid, reward_name=name, reward_kind=kind, reward_inner_id=inner)
@@ -1397,7 +1441,7 @@ class RewardCreateDialog(QDialog):
             else:
                 mid = _combo_pick_id(self.music_pick)
                 if mid is None:
-                    QMessageBox.critical(self, "错误", "请选择乐曲")
+                    fly_critical(self, "错误", "请选择乐曲")
                     return
                 c.music_id = mid
                 txt = self.music_pick.currentText()
@@ -1550,7 +1594,7 @@ def prepare_map_background_rgba(*, source_image: Path) -> Image.Image:
     return ImageOps.fit(rgba, (MAP_DDS_WIDTH, MAP_DDS_HEIGHT), method=Image.Resampling.LANCZOS)
 
 
-class DdsMapCreateDialog(QDialog):
+class DdsMapCreateDialog(FluentCaptionDialog):
     """从位图生成 ddsMap 目录（BC3 DDS + DDSMap.xml），供 Map.xml ddsMapName 引用。"""
 
     def __init__(self, *, acus_root: Path, tool_path: Path | None, parent=None) -> None:
@@ -1562,13 +1606,14 @@ class DdsMapCreateDialog(QDialog):
         self.created_id = -1
 
         self._alloc_id = next_custom_dds_map_id(acus_root)
-        self.dds_id_show = QLineEdit(str(self._alloc_id))
+        self.dds_id_show = LineEdit(self)
+        self.dds_id_show.setText(str(self._alloc_id))
         self.dds_id_show.setReadOnly(True)
-        self.name = QLineEdit()
+        self.name = LineEdit()
         self.name.setPlaceholderText("显示名（写入 DDSMap name.str）")
-        self.image_path = QLineEdit()
+        self.image_path = LineEdit()
         self.image_path.setPlaceholderText("选择图片或 DDS（DDS 将直接导入，需为 BC3）…")
-        br = QPushButton("浏览…")
+        br = PushButton("浏览…")
         br.clicked.connect(self._pick_image)
 
         row = QWidget()
@@ -1592,9 +1637,9 @@ class DdsMapCreateDialog(QDialog):
         form.addRow("显示名", wrap_name_input_with_preview(self.name, parent=self))
         form.addRow("源图片", row)
 
-        ok = QPushButton("生成并写入 ACUS")
+        ok = PrimaryPushButton("生成并写入 ACUS")
         ok.clicked.connect(self._run)
-        cancel = QPushButton("取消")
+        cancel = PushButton("取消")
         cancel.clicked.connect(self.reject)
         btns = QHBoxLayout()
         btns.addStretch(1)
@@ -1602,6 +1647,8 @@ class DdsMapCreateDialog(QDialog):
         btns.addWidget(ok)
 
         lay = QVBoxLayout(self)
+        lay.setContentsMargins(*fluent_caption_content_margins())
+        lay.setSpacing(12)
         lay.addLayout(form)
         lay.addLayout(btns)
 
@@ -1619,7 +1666,7 @@ class DdsMapCreateDialog(QDialog):
         mid = self._alloc_id
         src = Path(self.image_path.text().strip()).expanduser()
         if not src.is_file():
-            QMessageBox.critical(self, "错误", "请选择有效的输入文件")
+            fly_critical(self, "错误", "请选择有效的输入文件")
             return
         disp = self.name.text().strip() or f"MapTex{mid}"
         dds_basename = f"CHU_MAP_{mid:08d}.dds"
@@ -1633,10 +1680,10 @@ class DdsMapCreateDialog(QDialog):
                 try:
                     img = prepare_map_background_rgba(source_image=src)
                 except UnidentifiedImageError as e:
-                    QMessageBox.critical(self, "错误", f"无法识别图片：{e}")
+                    fly_critical(self, "错误", f"无法识别图片：{e}")
                     return
                 except OSError as e:
-                    QMessageBox.critical(self, "错误", f"无法读取图片：{e}")
+                    fly_critical(self, "错误", f"无法读取图片：{e}")
                     return
                 with tempfile.TemporaryDirectory() as td:
                     tp = Path(td) / "map_bg.png"
@@ -1656,13 +1703,13 @@ class DdsMapCreateDialog(QDialog):
                 dds_basename=dds_basename,
             )
         except DdsToolError as e:
-            QMessageBox.critical(self, "DDS 转换失败", str(e))
+            fly_critical(self, "DDS 转换失败", str(e))
             return
         except Exception as e:
-            QMessageBox.critical(self, "错误", str(e))
+            fly_critical(self, "错误", str(e))
             return
         self.created_id = mid
-        QMessageBox.information(
+        fly_message(
             self,
             "完成",
             f"已写入 {ddir.name}/（id={mid}）\n可在编辑地图格子弹窗顶部的「ddsMap 背景贴图」中选择该 ddsMap。",
@@ -1822,7 +1869,7 @@ def ensure_points_reward_xml(
     (rdir / "Reward.xml").write_text(xml, encoding="utf-8")
 
 
-class MapAddDialog(QDialog):
+class MapAddDialog(FluentCaptionDialog):
     def __init__(
         self,
         *,
@@ -1877,32 +1924,38 @@ class MapAddDialog(QDialog):
         self._area_grid_indices: list[list[int | None]] = []
         self._current_map_id = 0
 
-        self.map_id = FluentLineEdit(self)
+        self.map_id = LineEdit(self)
         self.map_id.setPlaceholderText("例如 99000001（8位推荐）")
-        self.map_name = FluentLineEdit(self)
+        self.map_name = LineEdit(self)
         self.map_name.setPlaceholderText("可不填，默认 Map{id}")
 
-        self.create_unlock_event = QCheckBox("同时生成地图解锁事件（event/ + EventSort.xml）")
+        self.create_unlock_event = CheckBox("同时生成地图解锁事件（event/ + EventSort.xml）")
         self.create_unlock_event.setChecked(True)
         if self._edit_mode:
             self.create_unlock_event.setVisible(False)
 
-        self.tabs = QTabWidget()
+        self.tabs = TabWidget(self)
         self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self._on_page_tab_close_requested)
-        self.tabs.currentChanged.connect(self._on_page_tab_current_changed)
-        self._page_tab_plus_index = -1
+        self.tabs.tabBar.setAddButtonVisible(True)
+        self.tabs.tabAddRequested.connect(self._add_page)
         self._page_tab_suppress = False
 
+        header_card = CardWidget(self)
+        header_lay = QVBoxLayout(header_card)
+        header_lay.setContentsMargins(16, 14, 16, 14)
+        header_lay.setSpacing(10)
+        header_lay.addWidget(SubtitleLabel("地图标识", self))
         top = QFormLayout()
         top.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         top.addRow("Map ID", self.map_id)
         top.addRow("Map 名称", wrap_name_input_with_preview(self.map_name, parent=self))
         top.addRow("", self.create_unlock_event)
+        header_lay.addLayout(top)
 
-        ok = QPushButton("保存修改" if self._edit_mode else "生成 Map + MapArea + Reward (+解锁事件)")
+        ok = PrimaryPushButton("保存修改" if self._edit_mode else "生成 Map + MapArea + Reward (+解锁事件)")
         ok.clicked.connect(self._generate)
-        cancel = QPushButton("取消")
+        cancel = PushButton("取消")
         cancel.clicked.connect(self.reject)
         btns = QHBoxLayout()
         btns.addStretch(1)
@@ -1910,7 +1963,9 @@ class MapAddDialog(QDialog):
         btns.addWidget(ok)
 
         layout = QVBoxLayout(self)
-        layout.addLayout(top)
+        layout.setContentsMargins(*fluent_caption_content_margins())
+        layout.setSpacing(12)
+        layout.addWidget(header_card)
         layout.addWidget(self.tabs, stretch=1)
         layout.addLayout(btns)
 
@@ -1918,7 +1973,7 @@ class MapAddDialog(QDialog):
             self.map_id.setReadOnly(True)
             err = self._load_existing(edit_map_xml)
             if err:
-                QMessageBox.critical(self, "无法加载地图", err)
+                fly_critical(self, "无法加载地图", err)
                 QTimer.singleShot(0, self.reject)
         else:
             self._add_page()
@@ -1927,7 +1982,7 @@ class MapAddDialog(QDialog):
     def _create_ddsmap_and_refresh(self) -> int:
         """打开新建 ddsMap 对话框；成功后刷新 ddsMap 引用并返回 created_id。"""
         if self._tool is None and not quicktex_available():
-            QMessageBox.critical(
+            fly_critical(
                 self,
                 "无法生成 DDS",
                 "生成地图贴图需要 quicktex 或 compressonatorcli：\n"
@@ -1943,16 +1998,8 @@ class MapAddDialog(QDialog):
             return dlg.created_id
         return -1
 
-    def _on_page_tab_current_changed(self, idx: int) -> None:
-        if self._page_tab_suppress:
-            return
-        if idx == self._page_tab_plus_index:
-            self._add_page()
-
     def _on_page_tab_close_requested(self, idx: int) -> None:
         if self._page_tab_suppress:
-            return
-        if idx == self._page_tab_plus_index:
             return
         if idx < 0:
             return
@@ -2298,7 +2345,7 @@ class MapAddDialog(QDialog):
         if truncated_areas:
             QTimer.singleShot(
                 0,
-                lambda: QMessageBox.warning(
+                lambda: fly_warning(
                     self,
                     "MapArea 格子过多",
                     "以下 MapArea 中格子超过 9 个，已按 index 排序后只保留前 9 个，其余未载入：\n"
@@ -2336,7 +2383,7 @@ class MapAddDialog(QDialog):
             return
         # 至少保留一个 page
         if len(self._page_area_slots) <= 1:
-            QMessageBox.information(self, "提示", "至少保留一个 MapPage")
+            fly_message(self, "提示", "至少保留一个 MapPage")
             return
         keep: list[int] = []
         for i, m in enumerate(self._area_info_meta):
@@ -2357,10 +2404,7 @@ class MapAddDialog(QDialog):
             if m.page_index > cur_page:
                 m.page_index -= 1
         self._rebuild_page_tabs()
-        # tabs 最右侧是 '+'，所以不能用 tabs.count()-1 直接当 pageIndex
-        self.tabs.setCurrentIndex(
-            max(0, min(cur_page, len(self._page_area_slots) - 1))
-        )
+        self.tabs.setCurrentIndex(max(0, min(cur_page, len(self._page_area_slots) - 1)))
 
     def _rebuild_page_slots(self) -> None:
         """根据 Area 的 pageIndex/indexInPage 铺到九宫格；保留仅有空格的 MapPage 行数。"""
@@ -2375,7 +2419,6 @@ class MapAddDialog(QDialog):
 
     def _rebuild_page_tabs(self) -> None:
         self._rebuild_page_slots()
-        # Preserve current page index (ignore '+' tab).
         old_idx = self.tabs.currentIndex()
         old_page_idx = old_idx if 0 <= old_idx < len(self._page_area_slots) else 0
 
@@ -2386,26 +2429,8 @@ class MapAddDialog(QDialog):
             page = self._build_page_tab(pidx, slots)
             self.tabs.addTab(page, f"Page {pidx + 1}")
 
-        plus_widget = QWidget()
-        plus_lay = QVBoxLayout(plus_widget)
-        plus_lay.setContentsMargins(10, 10, 10, 10)
-        plus_lay.setSpacing(0)
-        plus_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        plus_lbl = QLabel("+")
-        plus_lbl.setStyleSheet("font-size: 28px; font-weight: 600; color:#374151;")
-        plus_lay.addWidget(plus_lbl)
-        self.tabs.addTab(plus_widget, "+")
-        self._page_tab_plus_index = self.tabs.count() - 1
-        # '+' tab 不需要关闭按钮
-        bar = self.tabs.tabBar()
-        if bar is not None:
-            bar.setTabButton(self._page_tab_plus_index, QTabBar.ButtonPosition.RightSide, None)
-            bar.setTabButton(self._page_tab_plus_index, QTabBar.ButtonPosition.LeftSide, None)
-
-        if self._page_tab_plus_index > 0:
-            self.tabs.setCurrentIndex(
-                max(0, min(old_page_idx, self._page_tab_plus_index - 1))
-            )
+        if self.tabs.count() > 0:
+            self.tabs.setCurrentIndex(max(0, min(old_page_idx, self.tabs.count() - 1)))
         self._page_tab_suppress = False
 
     def _build_page_tab(self, page_idx: int, slots: list[int | None]) -> QWidget:
@@ -2421,7 +2446,7 @@ class MapAddDialog(QDialog):
             course_size = 64  # 两倍+，更醒目
             head_size = 84
 
-            btn = QPushButton("")
+            btn = PushButton("")
             btn.setFixedSize(tile_size, tile_size)
             btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             btn.setStyleSheet(
@@ -2701,7 +2726,7 @@ class MapAddDialog(QDialog):
             game_index=self._game_index,
             parent=self,
         )
-        if dlg.exec() == dlg.DialogCode.Accepted:
+        if dlg.exec() == QDialog.DialogCode.Accepted:
             self._refresh_area_page(area_idx)
 
     def _edit_area_info(self, area_idx: int) -> None:
@@ -2718,19 +2743,19 @@ class MapAddDialog(QDialog):
             game_index=self._game_index,
             parent=self,
         )
-        if dlg.exec() == dlg.DialogCode.Accepted:
+        if dlg.exec() == QDialog.DialogCode.Accepted:
             self._refresh_area_page(area_idx)
 
     def _edit_area_extras(self, area_idx: int) -> None:
         ex = self._area_extras[area_idx]
         dlg = AreaExtrasDialog(acus_root=self._acus_root, game_index=self._game_index, extras=ex, parent=self)
-        if dlg.exec() == dlg.DialogCode.Accepted:
+        if dlg.exec() == QDialog.DialogCode.Accepted:
             self._refresh_area_page(area_idx)
 
     def _edit_area_meta(self, area_idx: int) -> None:
         meta = self._area_info_meta[area_idx]
         dlg = AreaPageMetaDialog(meta=meta, dds_refs=self._dds_map_refs, parent=self)
-        if dlg.exec() == dlg.DialogCode.Accepted:
+        if dlg.exec() == QDialog.DialogCode.Accepted:
             self._refresh_area_page(area_idx)
 
     def _edit_page_slot(self, page_idx: int, slot_idx: int) -> None:
@@ -2738,14 +2763,13 @@ class MapAddDialog(QDialog):
             return
         area_idx = self._page_area_slots[page_idx][slot_idx]
         if area_idx is None:
-            ans = QMessageBox.question(
+            if not fly_question(
                 self,
                 "空格子",
                 "此格尚未绑定 MapArea。\n\n要在本格创建跑图区域并配置最终奖励吗？\n（与 A001 一致：无内容的格子可不写 MapArea。）",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.Yes,
-            )
-            if ans != QMessageBox.StandardButton.Yes:
+                yes_text="是",
+                no_text="否",
+            ):
                 return
             area_idx = self._append_new_area_with_meta(page_index=page_idx, index_in_page=slot_idx)
             self._rebuild_page_tabs()
@@ -2771,7 +2795,7 @@ class MapAddDialog(QDialog):
             return False
 
     def _edit_page_slot_single_dialog(self, area_idx: int) -> None:
-        dlg = QDialog(self)
+        dlg = FluentCaptionDialog(parent=self)
         dlg.setWindowTitle("编辑页面格子")
         dlg.setModal(True)
         dlg.setMinimumWidth(720)
@@ -2782,30 +2806,44 @@ class MapAddDialog(QDialog):
             dlg.resize(min(920, g.width() - 48), int(g.height() * 0.88))
 
         lay = QVBoxLayout(dlg)
-        scroll = QScrollArea(dlg)
+        lay.setContentsMargins(*fluent_caption_content_margins())
+        lay.setSpacing(12)
+        scroll = ScrollArea(dlg)
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setFrameShape(ScrollArea.Shape.NoFrame)
         content = QWidget()
         content_lay = QVBoxLayout(content)
         content_lay.setContentsMargins(0, 0, 0, 0)
         content_lay.setSpacing(12)
 
-        dds_box = QGroupBox("ddsMap 背景贴图 (Map.xml)")
-        dds_form = QFormLayout(dds_box)
+        dds_box = CardWidget(dlg)
+        dds_box_l = QVBoxLayout(dds_box)
+        dds_box_l.setContentsMargins(16, 14, 16, 14)
+        dds_box_l.setSpacing(10)
+        dds_box_l.addWidget(SubtitleLabel("ddsMap 背景贴图 (Map.xml)", dds_box))
+        dds_hint = BodyLabel(
+            "选择下方缩略图以绑定本页的 ddsMap；「+ 新增」可从图片生成新贴图。",
+            dds_box,
+        )
+        dds_hint.setWordWrap(True)
+        dds_box_l.addWidget(dds_hint)
+        dds_form = QFormLayout()
+        dds_box_l.addLayout(dds_form)
         meta_dds = self._area_info_meta[area_idx]
         dds_selected_id = meta_dds.dds_id
         dds_selected_str = meta_dds.dds_str
-        selected_lbl = QLabel(f"当前：{dds_selected_id} | {dds_selected_str}")
-        selected_lbl.setStyleSheet("color:#374151;")
-        dds_form.addRow("", selected_lbl)
+        selected_lbl = BodyLabel(dds_box)
+        selected_lbl.setWordWrap(True)
+        selected_lbl.setText(f"当前：{dds_selected_id} | {dds_selected_str}")
+        dds_form.addRow("已选", selected_lbl)
 
-        dds_scroll = QScrollArea(dlg)
+        dds_scroll = ScrollArea(dlg)
         dds_scroll.setWidgetResizable(True)
         dds_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         dds_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        dds_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        dds_scroll.setFrameShape(ScrollArea.Shape.NoFrame)
         dds_scroll.setMinimumHeight(134)
         dds_row_host = QWidget()
         dds_row = QHBoxLayout(dds_row_host)
@@ -2857,13 +2895,9 @@ class MapAddDialog(QDialog):
                 if w is not None:
                     w.deleteLater()
 
-            add_card = QPushButton("+\n新增")
+            add_card = PushButton("+\n新增")
             add_card.setFixedSize(130, 108)
-            add_card.setStyleSheet(
-                "QPushButton{background:#FFFFFF;border:1px solid #E5E7EB;border-radius:8px;"
-                "text-align:center;font-size:16px;font-weight:700;color:#374151;}"
-                "QPushButton:hover{border:1px solid #D1D5DB;}"
-            )
+            add_card.setStyleSheet(_map_area_edit_dds_tile_qss(prominent=True))
 
             def _on_add_dds() -> None:
                 created_id = self._create_ddsmap_and_refresh()
@@ -2880,21 +2914,23 @@ class MapAddDialog(QDialog):
 
             refs = sorted(self._dds_map_refs, key=lambda x: x.id, reverse=True)
             for ref in refs:
-                card = QPushButton("")
+                card = PushButton("")
                 card.setFixedSize(150, 108)
-                card.setStyleSheet(
-                    "QPushButton{background:#FFFFFF;border:1px solid #E5E7EB;border-radius:8px;}"
-                    "QPushButton:hover{border:1px solid #D1D5DB;}"
-                )
+                card.setStyleSheet(_map_area_edit_dds_tile_qss())
                 col = QVBoxLayout(card)
                 col.setContentsMargins(6, 6, 6, 6)
                 col.setSpacing(4)
-                pv = QLabel("无预览")
+                pv = QLabel(card)
+                pv.setText("无预览")
                 pv.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 pv.setFixedHeight(66)
+                pv.setStyleSheet(
+                    f"color:{'#9CA3AF' if isDarkTheme() else '#6B7280'};background:transparent;"
+                )
                 pm = _dds_preview_for(ref.id)
                 if pm is not None and not pm.isNull():
                     pv.setText("")
+                    pv.setStyleSheet("background:transparent;")
                     pv.setPixmap(
                         pm.scaled(
                             138,
@@ -2903,10 +2939,11 @@ class MapAddDialog(QDialog):
                             Qt.TransformationMode.SmoothTransformation,
                         )
                     )
-                cap = QLabel(f"{ref.id} | {ref.name}")
+                cap = BodyLabel(card)
+                cap.setText(f"{ref.id} | {ref.name}")
                 cap.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 cap.setWordWrap(True)
-                cap.setStyleSheet("font-size:11px;color:#374151;")
+                cap.setTextColor("#374151", "#D1D5DB")
                 col.addWidget(pv)
                 col.addWidget(cap)
                 card.clicked.connect(lambda _=False, rid=ref.id, rn=ref.name: _select_dds(rid, rn))
@@ -2918,9 +2955,21 @@ class MapAddDialog(QDialog):
         content_lay.addWidget(dds_box)
 
         # MapArea：仅编辑地图格数 + 过程奖励
-        mid = QGroupBox("MapArea")
-        mid_form = QFormLayout(mid)
-        total_steps_edit = QLineEdit(
+        mid = CardWidget(dlg)
+        mid_box_l = QVBoxLayout(mid)
+        mid_box_l.setContentsMargins(16, 14, 16, 14)
+        mid_box_l.setSpacing(10)
+        mid_box_l.addWidget(SubtitleLabel("MapArea（跑图路线）", mid))
+        mid_hint = BodyLabel(
+            "地图格数为终点 index；过程奖励不可占用「格数−1」（该步固定为 3000 Points）。",
+            mid,
+        )
+        mid_hint.setWordWrap(True)
+        mid_box_l.addWidget(mid_hint)
+        mid_form = QFormLayout()
+        mid_box_l.addLayout(mid_form)
+        total_steps_edit = LineEdit(mid)
+        total_steps_edit.setText(
             str(
                 infer_map_terminator_index(
                     self._area_grid_indices[area_idx], self._area_cells[area_idx]
@@ -2930,17 +2979,16 @@ class MapAddDialog(QDialog):
         total_steps_edit.setPlaceholderText("地图格数（终点 index，>=1）")
         mid_form.addRow("地图格数", total_steps_edit)
 
-        add_step = QLineEdit()
-        add_reward = QComboBox()
-        add_reward.addItem("(仅功能票/Points)")
+        add_step = LineEdit(mid)
+        add_reward = FluentComboBox()
+        add_reward.addItem("(仅功能票/Points)", None, None)
         for r in self._reward_refs:
             if self._is_intermediate_reward_allowed(r.id):
-                add_reward.addItem(f"{r.id} | {r.display_name or r.name}", r.id)
-        extra_lines = QTextEdit()
+                add_reward.addItem(f"{r.id} | {r.display_name or r.name}", None, r.id)
+        extra_lines = TextEdit()
         extra_lines.setMinimumHeight(86)
         extra_lines.setPlaceholderText("每行：步数,reward_id,reward_name（步数 < 地图格数，且不可等于 地图格数−1）")
-        add_btn = QPushButton("新增过程奖励")
-        add_btn.setStyleSheet("QPushButton{text-align:center;}")
+        add_btn = PushButton("新增过程奖励")
 
         def _on_add_line() -> None:
             step = _safe_int(add_step.text())
@@ -2963,24 +3011,34 @@ class MapAddDialog(QDialog):
         content_lay.addWidget(mid)
 
         # 最终奖励（Map.xml）
-        top = QGroupBox("最终奖励（Map.xml）")
-        top_form = QFormLayout(top)
-        reward_pick = QComboBox()
-        reward_pick.addItem("(请选择)")
+        top = CardWidget(dlg)
+        top_box_l = QVBoxLayout(top)
+        top_box_l.setContentsMargins(16, 14, 16, 14)
+        top_box_l.setSpacing(10)
+        top_box_l.addWidget(SubtitleLabel("最终奖励（Map.xml）", top))
+        top_hint = BodyLabel(
+            "此处配置九宫格信息层展示的最终奖励与课题曲（与跑图 MapArea 过程奖励不同）。",
+            top,
+        )
+        top_hint.setWordWrap(True)
+        top_box_l.addWidget(top_hint)
+        top_form = QFormLayout()
+        top_box_l.addLayout(top_form)
+        reward_pick = FluentComboBox()
+        reward_pick.addItem("(请选择)", None, None)
         cur = self._area_info_cells[area_idx].reward_id
         cur_idx = 0
         for i, r in enumerate(self._reward_refs, start=1):
-            reward_pick.addItem(f"{r.id} | {r.display_name or r.name}", r.id)
+            reward_pick.addItem(f"{r.id} | {r.display_name or r.name}", None, r.id)
             if cur is not None and r.id == cur:
                 cur_idx = i
         reward_pick.setCurrentIndex(cur_idx)
-        new_reward_btn = QPushButton("新增 Reward")
-        new_reward_btn.setStyleSheet("QPushButton{text-align:center;}")
-        music_on = QCheckBox("有课题曲")
-        music_pick = QComboBox()
-        music_pick.addItem("(请选择)")
+        new_reward_btn = PrimaryPushButton("新增 Reward")
+        music_on = CheckBox("有课题曲")
+        music_pick = FluentComboBox()
+        music_pick.addItem("(请选择)", None, None)
         for m in self._music_refs:
-            music_pick.addItem(f"{m.id} | {m.name}", m.id)
+            music_pick.addItem(f"{m.id} | {m.name}", None, m.id)
         cinfo = self._area_info_cells[area_idx]
         if cinfo.music_id is not None:
             music_on.setChecked(True)
@@ -2990,6 +3048,7 @@ class MapAddDialog(QDialog):
             else:
                 music_pick.addItem(
                     f"{cinfo.music_id} | {cinfo.music_name or f'Music{cinfo.music_id}'}",
+                    None,
                     cinfo.music_id,
                 )
                 music_pick.setCurrentIndex(music_pick.count() - 1)
@@ -3019,10 +3078,8 @@ class MapAddDialog(QDialog):
         lay.addWidget(scroll, 1)
 
         btns = QHBoxLayout()
-        ok = QPushButton("保存")
-        ok.setStyleSheet("QPushButton{text-align:center;}")
-        cancel = QPushButton("取消")
-        cancel.setStyleSheet("QPushButton{text-align:center;}")
+        ok = PrimaryPushButton("保存")
+        cancel = PushButton("取消")
         cancel.clicked.connect(dlg.reject)
         btns.addStretch(1)
         btns.addWidget(cancel)
@@ -3039,13 +3096,13 @@ class MapAddDialog(QDialog):
                 stage_refs=self._stage_refs,
                 parent=dlg,
             )
-            if rd.exec() == rd.DialogCode.Accepted and rd.result_cell is not None:
+            if rd.exec() == QDialog.DialogCode.Accepted and rd.result_cell is not None:
                 ensure_reward_xml(self._acus_root, rd.result_cell, self._game_index)
                 self._reward_refs = load_reward_refs(self._acus_root, self._game_index)
                 reward_pick.clear()
-                reward_pick.addItem("(请选择)")
+                reward_pick.addItem("(请选择)", None, None)
                 for rr in self._reward_refs:
-                    reward_pick.addItem(f"{rr.id} | {rr.display_name or rr.name}", rr.id)
+                    reward_pick.addItem(f"{rr.id} | {rr.display_name or rr.name}", None, rr.id)
                 idx_new = next((i for i in range(1, reward_pick.count()) if reward_pick.itemData(i) == rd.result_cell.reward_id), 0)
                 reward_pick.setCurrentIndex(idx_new)
 
@@ -3054,14 +3111,14 @@ class MapAddDialog(QDialog):
         def _save() -> None:
             total = _safe_int(total_steps_edit.text())
             if total is None or total < 1:
-                QMessageBox.critical(
+                fly_critical(
                     dlg, "错误", "地图格数输入不合法（须 >= 1）"
                 )
                 return
             # final reward
             rp = reward_pick.currentIndex()
             if rp <= 0:
-                QMessageBox.critical(dlg, "错误", "请先选择最终奖励")
+                fly_critical(dlg, "错误", "请先选择最终奖励")
                 return
             rid = reward_pick.currentData()
             cell = self._area_info_cells[area_idx]
@@ -3078,7 +3135,7 @@ class MapAddDialog(QDialog):
             if music_on.isChecked():
                 mi = _combo_pick_id(music_pick)
                 if mi is None:
-                    QMessageBox.critical(dlg, "错误", "请选择课题曲对应的乐曲")
+                    fly_critical(dlg, "错误", "请选择课题曲对应的乐曲")
                     return
                 cell.music_id = mi
                 txt = music_pick.currentText()
@@ -3122,14 +3179,14 @@ class MapAddDialog(QDialog):
                 if st is None or rrid is None:
                     continue
                 if st >= total:
-                    QMessageBox.critical(
+                    fly_critical(
                         dlg,
                         "错误",
                         f"过程奖励步数须小于地图格数（终点 index）{total}",
                     )
                     return
                 if st == total - 1:
-                    QMessageBox.critical(
+                    fly_critical(
                         dlg,
                         "错误",
                         "过程奖励不可占用地图格数-1（该步固定为 3000 Points）。",
@@ -3152,14 +3209,14 @@ class MapAddDialog(QDialog):
             try:
                 cells, idxs = _maparea_points_to_slots(list(by_step.items()))
             except ValueError as e:
-                QMessageBox.critical(dlg, "错误", str(e))
+                fly_critical(dlg, "错误", str(e))
                 return
             self._area_cells[area_idx] = cells[:9]
             self._area_grid_indices[area_idx] = idxs[:9]
             dlg.accept()
 
         ok.clicked.connect(_save)
-        if dlg.exec() == dlg.DialogCode.Accepted:
+        if dlg.exec() == QDialog.DialogCode.Accepted:
             self._refresh_area_page(area_idx)
 
     def _generate(self) -> None:
@@ -3168,10 +3225,10 @@ class MapAddDialog(QDialog):
         else:
             map_id = _safe_int(self.map_id.text())
             if map_id is None:
-                QMessageBox.critical(self, "错误", "Map ID 必须是整数")
+                fly_critical(self, "错误", "Map ID 必须是整数")
                 return
             if map_id < 0:
-                QMessageBox.critical(self, "错误", "Map ID 必须为非负整数")
+                fly_critical(self, "错误", "Map ID 必须为非负整数")
                 return
 
         map_name = self.map_name.text().strip() or f"Map{map_id}"
@@ -3179,12 +3236,12 @@ class MapAddDialog(QDialog):
         map_dir.mkdir(parents=True, exist_ok=True)
 
         if not self._area_cells:
-            QMessageBox.critical(self, "错误", "请至少在九宫格中创建并保存一个 MapArea（点击空格并选择「是」创建区域）。")
+            fly_critical(self, "错误", "请至少在九宫格中创建并保存一个 MapArea（点击空格并选择「是」创建区域）。")
             return
 
         for aix, gix in enumerate(self._area_grid_indices):
             if not any(x is not None for x in gix):
-                QMessageBox.critical(
+                fly_critical(
                     self,
                     "错误",
                     f"区域 {aix + 1} 尚未保存 MapArea 路线（请点开对应格子 → 保存「编辑页面格子」）。\n"
@@ -3274,16 +3331,16 @@ class MapAddDialog(QDialog):
         if not self._edit_mode and self.create_unlock_event.isChecked():
             event_id = self._next_available_unlock_event_id()
             if event_id < 0:
-                QMessageBox.critical(self, "错误", "无法自动分配解锁事件 ID")
+                fly_critical(self, "错误", "无法自动分配解锁事件 ID")
                 return
             try:
                 self._write_map_unlock_event(map_id=map_id, map_name=map_name, event_id=event_id)
                 self._append_event_sort(event_id)
                 msg += f"\n已生成地图解锁事件：event{event_id:08d}"
             except Exception as e:
-                QMessageBox.warning(self, "事件未完整写入", f"地图已生成，但 Event/EventSort 写入失败：\n{e}")
+                fly_warning(self, "事件未完整写入", f"地图已生成，但 Event/EventSort 写入失败：\n{e}")
 
-        QMessageBox.information(self, "完成", msg)
+        fly_message(self, "完成", msg)
         self.accept()
 
     def _write_maparea(
