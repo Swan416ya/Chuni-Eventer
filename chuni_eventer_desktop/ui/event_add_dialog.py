@@ -8,19 +8,19 @@ from PIL import Image, UnidentifiedImageError
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QDialog,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
-    QLabel,
     QLineEdit,
-    QMessageBox,
-    QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
+from qfluentwidgets import BodyLabel, CardWidget, LineEdit, PrimaryPushButton, PushButton
+
 from ..dds_convert import DdsToolError, ingest_to_bc3_dds
+from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
+from .fluent_dialogs import fly_critical, fly_message
 from .name_glyph_preview import wrap_name_input_with_preview
 
 
@@ -112,40 +112,49 @@ def append_event_sort(acus_root: Path, event_id: int) -> None:
     ET.ElementTree(root).write(sort_path, encoding="utf-8", xml_declaration=True)
 
 
-class EventAddDialog(QDialog):
+class EventAddDialog(FluentCaptionDialog):
     def __init__(self, *, acus_root: Path, tool_path: Path | None, parent=None) -> None:
         super().__init__(parent=parent)
         self.setWindowTitle("新建宣传事件")
         self.setModal(True)
+        self.resize(560, 520)
         self._acus_root = acus_root
         self._tool = tool_path
 
         alloc = next_custom_event_id(acus_root)
-        self.id_edit = QLineEdit(str(alloc))
+        self.id_edit = LineEdit(self)
+        self.id_edit.setText(str(alloc))
         self.id_edit.setPlaceholderText("留空自动分配 70000+")
-        self.name_edit = QLineEdit()
+        self.name_edit = LineEdit(self)
         self.name_edit.setPlaceholderText("活动标题（写入 name/str）")
-        self.image_edit = QLineEdit()
+        self.image_edit = LineEdit(self)
         self.image_edit.setPlaceholderText("选择宣传图（1152x648；支持图片或 DDS）")
 
-        hint = QLabel(
+        main_card = CardWidget(self)
+        main_lay = QVBoxLayout(main_card)
+        main_lay.setContentsMargins(16, 14, 16, 14)
+        main_lay.setSpacing(10)
+        main_lay.addWidget(BodyLabel("宣传事件", self))
+        hint = BodyLabel(self)
+        hint.setWordWrap(True)
+        hint.setText(
             "宣传图要求：1152 × 648 像素。\n"
             "可上传图片（将转 BC3 DDS）或直接上传 DDS（必须 BC3/DXT5）。\n"
             "事件结构与官方「Collaboration 告知」一致：substances/type=1，informationDispType=3。"
         )
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color:#374151; font-size: 12px;")
+        hint.setTextColor("#6B7280", "#9CA3AF")
+        main_lay.addWidget(hint)
 
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        form.addRow("", hint)
         form.addRow("事件 ID", self.id_edit)
         form.addRow("标题", wrap_name_input_with_preview(self.name_edit, parent=self))
         form.addRow("宣传图", self._file_row(self.image_edit, "选择宣传图"))
+        main_lay.addLayout(form)
 
-        ok = QPushButton("生成并写入 ACUS")
+        ok = PrimaryPushButton("生成并写入 ACUS", self)
         ok.clicked.connect(self._run)
-        cancel = QPushButton("取消")
+        cancel = PushButton("取消", self)
         cancel.clicked.connect(self.reject)
         btns = QHBoxLayout()
         btns.addStretch(1)
@@ -153,15 +162,19 @@ class EventAddDialog(QDialog):
         btns.addWidget(ok)
 
         layout = QVBoxLayout(self)
-        layout.addLayout(form)
+        layout.setContentsMargins(*fluent_caption_content_margins())
+        layout.setSpacing(12)
+        layout.addWidget(main_card)
+        layout.addStretch(1)
         layout.addLayout(btns)
 
     def _file_row(self, edit: QLineEdit, title: str) -> QWidget:
-        w = QWidget()
+        w = QWidget(self)
         h = QHBoxLayout(w)
         h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(8)
         h.addWidget(edit, stretch=1)
-        b = QPushButton("浏览…")
+        b = PushButton("浏览…", self)
         b.clicked.connect(lambda: self._pick_into(edit, title))
         h.addWidget(b)
         return w
@@ -211,8 +224,6 @@ class EventAddDialog(QDialog):
 
             edir = self._acus_root / "event" / f"event{eid:08d}"
             edir.mkdir(parents=True, exist_ok=True)
-            # 与 A001 event00018076 / 18086 / 18089 一致：宣传图型为 substances/type=1，
-            # informationType=1、informationDispType=3，mapFilterID=Collaboration（非 type=6 + Invalid）
             dds_name = f"CHU_info_event_custom{eid:08d}.dds"
             ingest_to_bc3_dds(tool_path=self._tool, input_path=src, output_dds=edir / dds_name)
 
@@ -386,10 +397,9 @@ class EventAddDialog(QDialog):
 """
             (edir / "Event.xml").write_text(xml, encoding="utf-8", newline="\n")
             append_event_sort(self._acus_root, eid)
-            QMessageBox.information(self, "完成", f"已生成 event{eid:08d}")
+            fly_message(self, "完成", f"已生成 event{eid:08d}")
             self.accept()
         except DdsToolError as e:
-            QMessageBox.critical(self, "DDS 转换失败", str(e))
+            fly_critical(self, "DDS 转换失败", str(e))
         except Exception as e:
-            QMessageBox.critical(self, "错误", str(e))
-
+            fly_critical(self, "错误", str(e))

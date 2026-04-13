@@ -12,17 +12,21 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QHeaderView,
-    QCheckBox,
-    QComboBox,
     QLabel,
-    QLineEdit,
-    QMessageBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
-from qfluentwidgets import BodyLabel, CardWidget, PrimaryPushButton, PushButton
+from qfluentwidgets import (
+    BodyLabel,
+    CardWidget,
+    CheckBox,
+    ComboBox as FluentComboBox,
+    LineEdit,
+    PrimaryPushButton,
+    PushButton,
+)
 
 from ..acus_workspace import AcusConfig, acus_root_dir, app_cache_dir, resolve_compressonatorcli_path
 from ..game_data_index import load_cached_game_index, merged_stage_pairs
@@ -45,7 +49,8 @@ from ..pgko_to_c2s import (
     PgkoInstallOptions,
 )
 from ..pgko_cs_bridge import explain_penguin_bridge_lookup, resolve_penguin_bridge
-from .fluent_dialogs import fly_critical, fly_message, fly_warning
+from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
+from .fluent_dialogs import fly_critical, fly_message, fly_question, fly_warning
 from .fluent_table import apply_fluent_sheet_table
 
 
@@ -203,7 +208,7 @@ class _MargreteScreenshotHover(QWidget):
         super().leaveEvent(event)
 
 
-class _PgkoUgcGuideDialog(QDialog):
+class _PgkoUgcGuideDialog(FluentCaptionDialog):
     """
     UGC 无法直转时的引导：Margrete 手工转 mgxc + 浏览本地 pgko_downloads 缓存中的 mgxc 包。
     """
@@ -217,7 +222,7 @@ class _PgkoUgcGuideDialog(QDialog):
         super().__init__(parent=parent)
         self.setWindowTitle("UGC → mgxc 与本地缓存谱面")
         self.setModal(True)
-        self.resize(780, 640)
+        self.resize(800, 660)
         self._on_open_bundle = on_open_bundle
 
         help_panel = QWidget(self)
@@ -292,7 +297,7 @@ class _PgkoUgcGuideDialog(QDialog):
         row.addWidget(close)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 16, 16, 16)
+        root.setContentsMargins(*fluent_caption_content_margins())
         root.setSpacing(10)
         root.addWidget(help_panel)
         root.addWidget(hint_below)
@@ -347,12 +352,12 @@ class _PgkoUgcGuideDialog(QDialog):
         self._on_open_bundle(folder)
 
 
-class PgkoSheetDownloadDialog(QDialog):
+class PgkoSheetDownloadDialog(FluentCaptionDialog):
     def __init__(self, *, parent=None) -> None:
         super().__init__(parent=parent)
         self.setWindowTitle("从 pgko.dev 下载谱面")
         self.setModal(True)
-        self.resize(760, 540)
+        self.resize(780, 560)
 
         self._entries: list[PgkoSheetEntry] = []
         self._fetch_thread: _FetchPgkoThread | None = None
@@ -421,7 +426,7 @@ class PgkoSheetDownloadDialog(QDialog):
         btns.addWidget(close)
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(16, 16, 16, 16)
+        lay.setContentsMargins(*fluent_caption_content_margins())
         lay.setSpacing(12)
         lay.addWidget(credit)
         lay.addWidget(card, stretch=1)
@@ -558,14 +563,13 @@ class PgkoSheetDownloadDialog(QDialog):
             target_tip = f"已解压到目录：\n{output_path}"
         else:
             target_tip = f"返回体非 zip，已按原始文件保存：\n{output_path}"
-        ans = QMessageBox.question(
+        if fly_question(
             self,
             "下载完成",
             f"{target_tip}\n\n是否尝试转码为中二 c2s？",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if ans == QMessageBox.StandardButton.Yes:
+            yes_text="是",
+            no_text="否",
+        ):
             self._try_convert_pgko_to_c2s(Path(output_path))
         else:
             fly_message(self, "已下载", target_tip)
@@ -690,7 +694,7 @@ class PgkoSheetDownloadDialog(QDialog):
             return
 
 
-class _PgkoInstallConfigDialog(QDialog):
+class _PgkoInstallConfigDialog(FluentCaptionDialog):
     def __init__(
         self,
         *,
@@ -703,7 +707,7 @@ class _PgkoInstallConfigDialog(QDialog):
         super().__init__(parent=parent)
         self.setWindowTitle("导入 pgko 到 ACUS")
         self.setModal(True)
-        self.resize(560, 420)
+        self.resize(580, 460)
         self._pick = pick
         self._meta = meta
         self._acus_root = acus_root
@@ -711,20 +715,20 @@ class _PgkoInstallConfigDialog(QDialog):
         self._thread: _InstallPgkoThread | None = None
 
         suggest_id = suggest_next_pgko_music_id(acus_root, start=6000)
-        self._id_edit = QLineEdit(self)
+        self._id_edit = LineEdit(self)
         self._id_edit.setPlaceholderText(f"留空自动分配（建议 {suggest_id}）")
 
-        self._stage = QComboBox(self)
+        self._stage = FluentComboBox(self)
         idx = load_cached_game_index(expected_game_root=AcusConfig.load().game_root)
         pairs = merged_stage_pairs(acus_root, idx)
         if not pairs:
             pairs = [(-1, "Invalid")]
         for sid, sname in pairs:
-            self._stage.addItem(f"{sid} | {sname}", (int(sid), str(sname)))
+            self._stage.addItem(f"{sid} | {sname}", None, (int(sid), str(sname)))
 
         diff = int(meta.get("difficulty") or 3)
         need_ev = diff in (4, 5)
-        self._ev = QCheckBox("自动生成解禁事件（ULT/WE）", self)
+        self._ev = CheckBox("自动生成解禁事件（ULT/WE）", self)
         self._ev.setChecked(need_ev)
         self._ev.setVisible(need_ev)
 
@@ -752,12 +756,15 @@ class _PgkoInstallConfigDialog(QDialog):
         row.addWidget(ok)
 
         root = QVBoxLayout(self)
+        root.setContentsMargins(*fluent_caption_content_margins())
+        root.setSpacing(12)
         root.addWidget(hint)
         root.addLayout(form)
         self._status = BodyLabel("", self)
         self._status.setWordWrap(True)
         self._status.hide()
         root.addWidget(self._status)
+        root.addStretch(1)
         root.addLayout(row)
 
     def _run_install(self) -> None:

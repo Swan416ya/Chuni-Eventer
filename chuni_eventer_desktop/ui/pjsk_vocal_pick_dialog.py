@@ -5,20 +5,15 @@ PJSK 同一乐曲多个人声版本时，由用户选择要下载的 long 音频
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (
-    QDialog,
-    QHBoxLayout,
-    QListWidget,
-    QListWidgetItem,
-    QVBoxLayout,
-)
+from PyQt6.QtWidgets import QHBoxLayout, QListWidget, QListWidgetItem, QVBoxLayout
 
 from qfluentwidgets import BodyLabel, PrimaryPushButton, PushButton
 
 from ..pjsk_sheet_client import PjskVocalRow
+from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 
 
-class PjskVocalPickDialog(QDialog):
+class PjskVocalPickDialog(FluentCaptionDialog):
     """
     返回码：
     - Accepted + skip_audio=True → 不下载音频，其余照常
@@ -30,7 +25,7 @@ class PjskVocalPickDialog(QDialog):
         super().__init__(parent=parent)
         self.setModal(True)
         self.setWindowTitle("选择人声 / 伴奏版本")
-        self.resize(520, 360)
+        self.resize(540, 400)
         self.skip_audio = False
         self.selected: PjskVocalRow | None = None
 
@@ -38,7 +33,8 @@ class PjskVocalPickDialog(QDialog):
             "该曲目在 PJSK 中有多个音频版本（不同演唱组合、セカイ版、虚拟歌手版等）。"
             "列表中会尽量显示角色名与官方 caption（来自 musicVocals）；"
             "鼠标悬停一行可查看资源包名 assetbundleName。"
-            "请选择要下载的一条完整音频，或「不下载音频」仅拉取封面与谱面。"
+            "请选择要下载的一条完整音频，或「不下载音频」仅拉取封面与谱面。",
+            self,
         )
         tip.setWordWrap(True)
 
@@ -59,13 +55,14 @@ class PjskVocalPickDialog(QDialog):
         cancel_btn.clicked.connect(self.reject)
 
         row = QHBoxLayout()
+        row.setSpacing(8)
         row.addWidget(ok_btn)
         row.addWidget(skip_btn)
         row.addStretch(1)
         row.addWidget(cancel_btn)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 16, 16, 16)
+        root.setContentsMargins(*fluent_caption_content_margins())
         root.setSpacing(12)
         root.addWidget(tip)
         root.addWidget(self._list, stretch=1)

@@ -5,11 +5,9 @@ import tempfile
 from pathlib import Path
 
 from PyQt6.QtCore import QThread, QTimer, pyqtSignal, Qt
-from PyQt6.QtGui import QPalette
 from PyQt6.QtWidgets import (
     QApplication,
     QAbstractItemView,
-    QDialog,
     QHBoxLayout,
     QHeaderView,
     QProgressDialog,
@@ -29,6 +27,7 @@ from ..swan_sheet_client import (
     download_sheet_archive,
     list_downloadable_sheets,
 )
+from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
 
 
@@ -84,17 +83,12 @@ class _InstallSheetThread(QThread):
             self.fail.emit(str(e))
 
 
-class SwanSheetDownloadDialog(QDialog):
+class SwanSheetDownloadDialog(FluentCaptionDialog):
     def __init__(self, *, acus_root: Path, parent=None) -> None:
         super().__init__(parent=parent)
         self.setWindowTitle("从 Swan 站下载铺面")
         self.setModal(True)
         self.resize(720, 520)
-        self.setObjectName("swanSheetDownloadDialog")
-        win_bg = QApplication.palette().color(QPalette.ColorRole.Window).name()
-        self.setStyleSheet(
-            f"#swanSheetDownloadDialog {{ background-color: {win_bg}; }}"
-        )
         self._acus_root = acus_root
         self._base_url = SWAN_SHEET_API_BASE_URL
         self._entries: list[SheetListEntry] = []
@@ -147,7 +141,7 @@ class SwanSheetDownloadDialog(QDialog):
         btns.addWidget(close)
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(16, 16, 16, 16)
+        lay.setContentsMargins(*fluent_caption_content_margins())
         lay.setSpacing(12)
         lay.addWidget(card, stretch=1)
         lay.addLayout(btns)

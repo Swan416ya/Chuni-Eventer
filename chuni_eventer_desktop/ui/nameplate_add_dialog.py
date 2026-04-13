@@ -4,19 +4,19 @@ from pathlib import Path
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QDialog,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
-    QLabel,
     QLineEdit,
-    QMessageBox,
-    QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
+from qfluentwidgets import BodyLabel, CardWidget, LineEdit, PrimaryPushButton, PushButton
+
 from ..dds_convert import DdsToolError, ingest_to_bc3_dds
+from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
+from .fluent_dialogs import fly_critical, fly_message
 from .name_glyph_preview import wrap_name_input_with_preview
 
 
@@ -27,22 +27,29 @@ def _safe_int(text: str) -> int | None:
         return None
 
 
-class NamePlateAddDialog(QDialog):
+class NamePlateAddDialog(FluentCaptionDialog):
     def __init__(self, *, acus_root: Path, tool_path: Path | None, parent=None) -> None:
         super().__init__(parent=parent)
         self.setWindowTitle("新增名牌")
         self.setModal(True)
+        self.resize(520, 480)
         self._acus_root = acus_root
         self._tool = tool_path
 
-        self.id_edit = QLineEdit()
+        self.id_edit = LineEdit(self)
         self.id_edit.setPlaceholderText("例如 26017")
-        self.name_edit = QLineEdit()
+        self.name_edit = LineEdit(self)
         self.name_edit.setPlaceholderText("例如 淀川 沙音瑠")
-        self.sort_edit = QLineEdit()
+        self.sort_edit = LineEdit(self)
         self.sort_edit.setPlaceholderText("可不填，默认取名字第1字")
-        self.image_edit = QLineEdit()
+        self.image_edit = LineEdit(self)
         self.image_edit.setPlaceholderText("选择名牌图片或 DDS（DDS 需为 BC3）")
+
+        main_card = CardWidget(self)
+        main_lay = QVBoxLayout(main_card)
+        main_lay.setContentsMargins(16, 14, 16, 14)
+        main_lay.setSpacing(10)
+        main_lay.addWidget(BodyLabel("名牌信息", self))
 
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
@@ -60,10 +67,11 @@ class NamePlateAddDialog(QDialog):
                 ),
             ),
         )
+        main_lay.addLayout(form)
 
-        ok = QPushButton("生成并写入 ACUS")
+        ok = PrimaryPushButton("生成并写入 ACUS", self)
         ok.clicked.connect(self._run)
-        cancel = QPushButton("取消")
+        cancel = PushButton("取消", self)
         cancel.clicked.connect(self.reject)
         btns = QHBoxLayout()
         btns.addStretch(1)
@@ -71,29 +79,38 @@ class NamePlateAddDialog(QDialog):
         btns.addWidget(ok)
 
         layout = QVBoxLayout(self)
-        layout.addLayout(form)
-        warn = QLabel("提示：名称/排序名请尽量使用日语字库内可显示字符；超出字库的汉字在游戏内可能显示为方块。")
-        warn.setStyleSheet("color:#B45309;")
+        layout.setContentsMargins(*fluent_caption_content_margins())
+        layout.setSpacing(12)
+        layout.addWidget(main_card)
+        warn = BodyLabel(self)
+        warn.setWordWrap(True)
+        warn.setText(
+            "提示：名称/排序名请尽量使用日语字库内可显示字符；超出字库的汉字在游戏内可能显示为方块。"
+        )
+        warn.setStyleSheet("color:#B45309; font-size:12px;")
         layout.addWidget(warn)
+        layout.addStretch(1)
         layout.addLayout(btns)
 
     def _file_row(self, edit: QLineEdit, title: str, *, dim_hint: str | None = None) -> QWidget:
-        w = QWidget()
+        w = QWidget(self)
         v = QVBoxLayout(w)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(4)
-        row = QWidget()
+        row = QWidget(self)
         h = QHBoxLayout(row)
         h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(8)
         h.addWidget(edit, stretch=1)
-        b = QPushButton("浏览…")
+        b = PushButton("浏览…", self)
         b.clicked.connect(lambda: self._pick_into(edit, title))
         h.addWidget(b)
         v.addWidget(row)
         if dim_hint:
-            hint = QLabel(dim_hint)
-            hint.setStyleSheet("color:#6B7280; font-size: 11px;")
+            hint = BodyLabel(self)
+            hint.setText(dim_hint)
             hint.setWordWrap(True)
+            hint.setTextColor("#6B7280", "#9CA3AF")
             v.addWidget(hint)
         return w
 
@@ -135,10 +152,9 @@ class NamePlateAddDialog(QDialog):
 """
             (plate_dir / "NamePlate.xml").write_text(xml, encoding="utf-8")
 
-            QMessageBox.information(self, "完成", f"已生成 namePlate{nid:08d}")
+            fly_message(self, "完成", f"已生成 namePlate{nid:08d}")
             self.accept()
         except DdsToolError as e:
-            QMessageBox.critical(self, "DDS 转换失败", str(e))
+            fly_critical(self, "DDS 转换失败", str(e))
         except Exception as e:
-            QMessageBox.critical(self, "错误", str(e))
-
+            fly_critical(self, "错误", str(e))

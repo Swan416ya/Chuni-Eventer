@@ -6,25 +6,29 @@ from pathlib import Path
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
-    QDialog,
     QFormLayout,
-    QGroupBox,
     QHBoxLayout,
-    QLabel,
-    QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QMessageBox,
-    QPushButton,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
+from qfluentwidgets import (
+    BodyLabel,
+    CardWidget,
+    CheckBox,
+    ComboBox as FluentComboBox,
+    LineEdit,
+    PrimaryPushButton,
+    PushButton,
+    SpinBox,
+)
+
 from ..acus_scan import CharaItem
 from ..game_data_index import GameDataIndex, merged_chara_items
+from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
+from .fluent_dialogs import fly_critical
 from .map_add_dialog import RewardRef, load_chara_refs, load_nameplate_refs, load_trophy_refs
 from .name_glyph_preview import wrap_name_input_with_preview
 
@@ -99,9 +103,9 @@ def append_quest_sort(acus_root: Path, quest_id: int) -> None:
 
 @dataclass
 class _TierRow:
-    sum_rank: QSpinBox
-    kind: QComboBox
-    pick: QComboBox
+    sum_rank: SpinBox
+    kind: FluentComboBox
+    pick: FluentComboBox
 
 
 def _reward_string_id(kind: str, inner_id: int) -> int:
@@ -115,14 +119,14 @@ def _reward_string_id(kind: str, inner_id: int) -> int:
     raise ValueError(kind)
 
 
-def _fill_ref_combo(cb: QComboBox, refs: list[RewardRef]) -> None:
+def _fill_ref_combo(cb: FluentComboBox, refs: list[RewardRef]) -> None:
     cb.clear()
     for r in refs:
         label = r.display_name or r.name
-        cb.addItem(f"{r.id} · {label}", (r.id, r.name))
+        cb.addItem(f"{r.id} · {label}", None, (r.id, r.name))
 
 
-class QuestAddDialog(QDialog):
+class QuestAddDialog(FluentCaptionDialog):
     """新建任务（Quest.xml）：多角色合计等级（sumRank）达成后发放称号/名牌/角色形象。"""
 
     def __init__(
@@ -135,18 +139,19 @@ class QuestAddDialog(QDialog):
         super().__init__(parent=parent)
         self.setWindowTitle("新建任务")
         self.setModal(True)
+        self.resize(720, 780)
         self._acus_root = acus_root
 
         qid = next_custom_quest_id(acus_root)
-        self._id_edit = QLineEdit(str(qid))
-        self._name_edit = QLineEdit()
+        self._id_edit = LineEdit(self)
+        self._id_edit.setText(str(qid))
+        self._name_edit = LineEdit(self)
         self._name_edit.setPlaceholderText("任务显示名（写入 name/str）")
-        self._hide_info = QCheckBox("隐藏详情（hideInfo，与部分官方任务一致）")
+        self._hide_info = CheckBox("隐藏详情（hideInfo，与部分官方任务一致）", self)
 
-        self._chara_list = QListWidget()
+        self._chara_list = QListWidget(self)
         self._chara_list.setMinimumHeight(180)
         charas = merged_chara_items(acus_root, game_index)
-        self._chara_items: list[CharaItem] = charas
         for c in charas:
             it = QListWidgetItem(f"{c.name.id} · {c.name.str}")
             it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
@@ -159,43 +164,57 @@ class QuestAddDialog(QDialog):
         self._chara_refs = load_chara_refs(acus_root, game_index)
 
         self._tier_box = QVBoxLayout()
+        self._tier_box.setSpacing(8)
         self._tier_rows: list[_TierRow] = []
-        add_tier_btn = QPushButton("添加奖励阶段")
+        add_tier_btn = PushButton("添加奖励阶段", self)
         add_tier_btn.clicked.connect(self._add_tier_row)
-        rem_tier_btn = QPushButton("移除最后一阶段")
+        rem_tier_btn = PushButton("移除最后一阶段", self)
         rem_tier_btn.clicked.connect(self._remove_last_tier)
         tb = QHBoxLayout()
+        tb.setSpacing(8)
         tb.addWidget(add_tier_btn)
         tb.addWidget(rem_tier_btn)
         tb.addStretch(1)
 
-        hint = QLabel(
+        info_card = CardWidget(self)
+        info_lay = QVBoxLayout(info_card)
+        info_lay.setContentsMargins(16, 14, 16, 14)
+        info_lay.setSpacing(10)
+        info_lay.addWidget(BodyLabel("任务信息", self))
+        hint = BodyLabel(self)
+        hint.setWordWrap(True)
+        hint.setText(
             "统计角色勾选「Chara.xml」中的 name/id；与官方任务里一长串剧情用 ID 不同，"
             "若你使用的数据包要求其它 ID，生成后可手改 Quest.xml。\n"
             "奖励 ID：称号 70000000+称号ID；名牌 30000000+名牌ID；角色 50000000+角色/形象ID。"
         )
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color:#374151; font-size: 12px;")
-
+        hint.setTextColor("#6B7280", "#9CA3AF")
+        info_lay.addWidget(hint)
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        form.addRow("", hint)
         form.addRow("任务 ID", self._id_edit)
         form.addRow("显示名", wrap_name_input_with_preview(self._name_edit, parent=self))
         form.addRow("", self._hide_info)
+        info_lay.addLayout(form)
 
-        chara_wrap = QGroupBox("参与合计等级的角色（多选）")
-        cv = QVBoxLayout(chara_wrap)
-        cv.addWidget(self._chara_list)
+        chara_card = CardWidget(self)
+        chara_lay = QVBoxLayout(chara_card)
+        chara_lay.setContentsMargins(16, 14, 16, 14)
+        chara_lay.setSpacing(8)
+        chara_lay.addWidget(BodyLabel("参与合计等级的角色（多选）", self))
+        chara_lay.addWidget(self._chara_list)
 
-        tier_group = QGroupBox("奖励阶段（每行：合计等级阈值 + 奖励类型）")
-        tv = QVBoxLayout(tier_group)
-        tv.addLayout(self._tier_box)
-        tv.addLayout(tb)
+        tier_card = CardWidget(self)
+        tier_lay = QVBoxLayout(tier_card)
+        tier_lay.setContentsMargins(16, 14, 16, 14)
+        tier_lay.setSpacing(10)
+        tier_lay.addWidget(BodyLabel("奖励阶段（每行：合计等级阈值 + 奖励类型）", self))
+        tier_lay.addLayout(self._tier_box)
+        tier_lay.addLayout(tb)
 
-        ok = QPushButton("生成并写入 ACUS")
+        ok = PrimaryPushButton("生成并写入 ACUS", self)
         ok.clicked.connect(self._run)
-        cancel = QPushButton("取消")
+        cancel = PushButton("取消", self)
         cancel.clicked.connect(self.reject)
         btns = QHBoxLayout()
         btns.addStretch(1)
@@ -203,23 +222,26 @@ class QuestAddDialog(QDialog):
         btns.addWidget(ok)
 
         root_lay = QVBoxLayout(self)
-        root_lay.addLayout(form)
-        root_lay.addWidget(chara_wrap)
-        root_lay.addWidget(tier_group)
+        root_lay.setContentsMargins(*fluent_caption_content_margins())
+        root_lay.setSpacing(12)
+        root_lay.addWidget(info_card)
+        root_lay.addWidget(chara_card)
+        root_lay.addWidget(tier_card, stretch=1)
         root_lay.addLayout(btns)
 
         self._add_tier_row()
 
     def _add_tier_row(self) -> None:
         row = QHBoxLayout()
-        sp = QSpinBox()
+        row.setSpacing(8)
+        sp = SpinBox(self)
         sp.setRange(1, 99999)
         sp.setValue(100 if not self._tier_rows else 50 * (len(self._tier_rows) + 1))
-        k = QComboBox()
-        k.addItem("称号", "trophy")
-        k.addItem("名牌", "nameplate")
-        k.addItem("角色形象", "chara")
-        pick = QComboBox()
+        k = FluentComboBox(self)
+        k.addItem("称号", None, "trophy")
+        k.addItem("名牌", None, "nameplate")
+        k.addItem("角色形象", None, "chara")
+        pick = FluentComboBox(self)
         pick.setMinimumWidth(280)
         tr = _TierRow(sum_rank=sp, kind=k, pick=pick)
 
@@ -235,11 +257,11 @@ class QuestAddDialog(QDialog):
         k.currentIndexChanged.connect(lambda _i: refill())
         refill()
 
-        row.addWidget(QLabel("合计等级 ≥"))
+        row.addWidget(BodyLabel("合计等级 ≥", self))
         row.addWidget(sp)
         row.addWidget(k)
         row.addWidget(pick, stretch=1)
-        w = QWidget()
+        w = QWidget(self)
         w.setLayout(row)
         self._tier_box.addWidget(w)
         self._tier_rows.append(tr)
@@ -247,8 +269,7 @@ class QuestAddDialog(QDialog):
     def _remove_last_tier(self) -> None:
         if len(self._tier_rows) <= 1:
             return
-        tr = self._tier_rows.pop()
-        # remove widget containing tr's layout
+        self._tier_rows.pop()
         idx = self._tier_box.count() - 1
         item = self._tier_box.takeAt(idx)
         if item.widget() is not None:
@@ -405,6 +426,6 @@ class QuestAddDialog(QDialog):
             out.write_text(xml, encoding="utf-8")
             append_quest_sort(self._acus_root, qid)
         except Exception as e:
-            QMessageBox.critical(self, "生成失败", str(e))
+            fly_critical(self, "生成失败", str(e))
             return
         self.accept()

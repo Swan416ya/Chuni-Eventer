@@ -8,25 +8,22 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QPalette
 from PyQt6.QtWidgets import (
-    QApplication,
     QFileDialog,
     QHBoxLayout,
-    QLineEdit,
     QPlainTextEdit,
     QVBoxLayout,
-    QWidget,
 )
 
-from qfluentwidgets import BodyLabel, CardWidget, PrimaryPushButton, PushButton
+from qfluentwidgets import BodyLabel, CardWidget, LineEdit, PrimaryPushButton, PushButton
 
 from .. import sus_to_c2s as s2c
 from ..pjsk_sheet_client import pjsk_song_cache_dir
+from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
 
 
-class SusC2sDebugDialog(QWidget):
+class SusC2sDebugDialog(FluentCaptionDialog):
     """SUS→c2s 测试窗口（隐藏入口：PJSK 曲目表 ID 列右键打开；非模态）。"""
 
     def __init__(
@@ -36,24 +33,23 @@ class SusC2sDebugDialog(QWidget):
         selected_music_id_fn: Callable[[], int | None],
         parent=None,
     ) -> None:
-        super().__init__(parent=parent, flags=Qt.WindowType.Window)
+        super().__init__(parent=parent)
         self.setWindowTitle("SUS → c2s 调试（隐藏入口）")
-        self.resize(900, 640)
-        self.setObjectName("susC2sDebugDialog")
-        win_bg = QApplication.palette().color(QPalette.ColorRole.Window).name()
-        self.setStyleSheet(f"#susC2sDebugDialog {{ background-color: {win_bg}; }}")
+        self.resize(920, 660)
+        self.setWindowModality(Qt.WindowModality.NonModal)
 
         self._acus_root = Path(acus_root).resolve()
         self._selected_music_id_fn = selected_music_id_fn
 
         hint = BodyLabel(
             "从文件或下方文本框读取 SUS，点击「转换」生成 c2s（UTF-8）。"
-            "「从缓存加载」使用当前表格选中曲目的 pjsk_cache/…/sus/ 下 expert.sus（若存在）。"
+            "「从缓存加载」使用当前表格选中曲目的 pjsk_cache/…/sus/ 下 expert.sus（若存在）。",
+            self,
         )
         hint.setWordWrap(True)
 
         path_row = QHBoxLayout()
-        self._path_edit = QLineEdit(self)
+        self._path_edit = LineEdit(self)
         self._path_edit.setPlaceholderText("可选：.sus 文件路径…")
         browse = PushButton("浏览…", self)
         browse.clicked.connect(self._browse_sus)
@@ -95,7 +91,8 @@ class SusC2sDebugDialog(QWidget):
         cly.addWidget(self._sus_out, stretch=1)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 16, 16, 16)
+        root.setContentsMargins(*fluent_caption_content_margins())
+        root.setSpacing(12)
         root.addWidget(card)
 
     def _browse_sus(self) -> None:

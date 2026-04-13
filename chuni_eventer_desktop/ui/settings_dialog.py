@@ -5,19 +5,20 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
-from PyQt6.QtWidgets import QDialog, QFileDialog, QHBoxLayout, QInputDialog, QVBoxLayout
+from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QInputDialog, QVBoxLayout
 
 from qfluentwidgets import BodyLabel, CardWidget, LineEdit, PrimaryPushButton, PushButton
 
 from ..acus_workspace import AcusConfig
 from ..dds_convert import DdsToolError, is_bc3_dds, run_cmd, validate_compressonator_tool
 from ..dds_quicktex import encode_image_to_bc3_dds_quicktex, quicktex_available
+from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
 from .index_progress import run_rebuild_game_index_with_progress
 from .pjsk_hub_dialog import PjskHubDialog
 
 
-class SettingsDialog(QDialog):
+class SettingsDialog(FluentCaptionDialog):
     def __init__(
         self,
         *,
@@ -97,6 +98,7 @@ class SettingsDialog(QDialog):
         card_layout.setContentsMargins(16, 16, 16, 16)
         card_layout.setSpacing(12)
         card_layout.addWidget(BodyLabel("compressonator CLI", self))
+        card_layout.addWidget(hint)
         card_layout.addLayout(row)
 
         pjsk_card = CardWidget(self)
@@ -126,9 +128,8 @@ class SettingsDialog(QDialog):
         btns.addWidget(ok)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(*fluent_caption_content_margins())
         layout.setSpacing(16)
-        layout.addWidget(hint)
         layout.addWidget(game_card)
         layout.addWidget(card)
         layout.addWidget(pjsk_card)

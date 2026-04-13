@@ -6,20 +6,28 @@ from pathlib import Path
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
-    QComboBox,
-    QDialog,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMessageBox,
-    QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
+from qfluentwidgets import (
+    BodyLabel,
+    CardWidget,
+    ComboBox as FluentComboBox,
+    LineEdit,
+    PrimaryPushButton,
+    PushButton,
+    isDarkTheme,
+)
+
 from ..dds_convert import DdsToolError, ingest_to_bc3_dds
+from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
+from .fluent_dialogs import fly_critical, fly_message
 from .name_glyph_preview import wrap_name_input_with_preview
 
 
@@ -213,60 +221,71 @@ def next_trophy_rare_type_with_image(acus_root: Path) -> int:
     return 20
 
 
-class TrophyAddDialog(QDialog):
+class TrophyAddDialog(FluentCaptionDialog):
     def __init__(self, *, acus_root: Path, tool_path: Path | None, parent=None) -> None:
         super().__init__(parent=parent)
         self.setWindowTitle("新增称号 (Trophy)")
         self.setModal(True)
+        self.resize(620, 920)
         self._acus_root = acus_root
         self._tool = tool_path
 
-        self.id_edit = QLineEdit()
+        self.id_edit = LineEdit(self)
         self.id_edit.setPlaceholderText("例如 9760")
-        self.name_edit = QLineEdit()
+        self.name_edit = LineEdit(self)
         self.name_edit.setPlaceholderText("例如 曲名（请仅用日语字库内字符）")
         self.name_edit.setToolTip(
             "称号显示名请仅使用游戏日语字库内已有的字符；"
             "生僻汉字或部分符号在游戏内可能显示为□（豆腐块）。"
         )
-        self.explain_edit = QLineEdit()
+        self.explain_edit = LineEdit(self)
         self.explain_edit.setPlaceholderText("可不填，默认 -")
-        self.rare_combo = QComboBox()
+        self.rare_combo = FluentComboBox(self)
         for val, label in TROPHY_PRESET_RARE:
-            self.rare_combo.addItem(f"{val} — {label}", val)
-        self.rare_auto_label = QLabel()
+            self.rare_combo.addItem(f"{val} — {label}", None, val)
+        self.rare_auto_label = BodyLabel(self)
         self.rare_auto_label.setWordWrap(True)
-        self.rare_auto_label.setStyleSheet("color:#374151; font-size: 12px;")
+        self.rare_auto_label.setTextColor("#6B7280", "#9CA3AF")
         self.rare_auto_label.hide()
-        rare_box = QWidget()
+        rare_box = QWidget(self)
         rare_lay = QVBoxLayout(rare_box)
         rare_lay.setContentsMargins(0, 0, 0, 0)
         rare_lay.setSpacing(4)
         rare_lay.addWidget(self.rare_combo)
         rare_lay.addWidget(self.rare_auto_label)
-        self.image_edit = QLineEdit()
+        self.image_edit = LineEdit(self)
         self.image_edit.setPlaceholderText("可选：选择称号图片或 DDS（DDS 需为 BC3）")
 
-        name_hint = QLabel(
-            "称号名：请仅输入日语字库内可显示的字符，否则机台界面可能出现□。"
-        )
+        name_hint = BodyLabel(self)
         name_hint.setWordWrap(True)
-        name_hint.setStyleSheet("color:#6B7280; font-size:11px;")
-        name_box = QWidget()
+        name_hint.setText("称号名：请仅输入日语字库内可显示的字符，否则机台界面可能出现□。")
+        name_hint.setTextColor("#6B7280", "#9CA3AF")
+        name_box = QWidget(self)
         name_lay = QVBoxLayout(name_box)
         name_lay.setContentsMargins(0, 0, 0, 0)
         name_lay.setSpacing(4)
         name_lay.addWidget(wrap_name_input_with_preview(self.name_edit, parent=self))
         name_lay.addWidget(name_hint)
 
+        base_card = CardWidget(self)
+        base_lay = QVBoxLayout(base_card)
+        base_lay.setContentsMargins(16, 14, 16, 14)
+        base_lay.setSpacing(10)
+        base_lay.addWidget(BodyLabel("基本信息", self))
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         form.addRow("Trophy ID", self.id_edit)
         form.addRow("显示名", name_box)
         form.addRow("说明", self.explain_edit)
         form.addRow("稀有度", rare_box)
-        form.addRow(
-            "图片",
+        base_lay.addLayout(form)
+
+        img_card = CardWidget(self)
+        img_lay = QVBoxLayout(img_card)
+        img_lay.setContentsMargins(16, 14, 16, 14)
+        img_lay.setSpacing(8)
+        img_lay.addWidget(BodyLabel("图片（可选）", self))
+        img_lay.addWidget(
             self._file_row(
                 self.image_edit,
                 "选择称号图片",
@@ -275,13 +294,19 @@ class TrophyAddDialog(QDialog):
                     "下方可留空，内容物请靠在整张图最上方排版。"
                     " 也可直接上传 DDS（必须 BC3/DXT5）。"
                 ),
-            ),
+            )
         )
-        form.addRow("格式示例", self._example_row())
 
-        ok = QPushButton("生成并写入 ACUS")
+        ex_card = CardWidget(self)
+        ex_lay = QVBoxLayout(ex_card)
+        ex_lay.setContentsMargins(16, 14, 16, 14)
+        ex_lay.setSpacing(8)
+        ex_lay.addWidget(BodyLabel("格式示例", self))
+        ex_lay.addWidget(self._example_row())
+
+        ok = PrimaryPushButton("生成并写入 ACUS", self)
         ok.clicked.connect(self._run)
-        cancel = QPushButton("取消")
+        cancel = PushButton("取消", self)
         cancel.clicked.connect(self.reject)
         btns = QHBoxLayout()
         btns.addStretch(1)
@@ -289,9 +314,15 @@ class TrophyAddDialog(QDialog):
         btns.addWidget(ok)
 
         layout = QVBoxLayout(self)
-        layout.addLayout(form)
-        warn = QLabel("提示：说明文字同样建议使用日语字库内可显示字符。")
-        warn.setStyleSheet("color:#B45309;")
+        layout.setContentsMargins(*fluent_caption_content_margins())
+        layout.setSpacing(12)
+        layout.addWidget(base_card)
+        layout.addWidget(img_card)
+        layout.addWidget(ex_card)
+        warn = BodyLabel(self)
+        warn.setWordWrap(True)
+        warn.setText("提示：说明文字同样建议使用日语字库内可显示字符。")
+        warn.setStyleSheet("color:#B45309; font-size:12px;")
         layout.addWidget(warn)
         layout.addLayout(btns)
 
@@ -311,33 +342,37 @@ class TrophyAddDialog(QDialog):
             self.rare_auto_label.hide()
 
     def _file_row(self, edit: QLineEdit, title: str, *, dim_hint: str | None = None) -> QWidget:
-        w = QWidget()
+        w = QWidget(self)
         v = QVBoxLayout(w)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(4)
-        row = QWidget()
+        row = QWidget(self)
         h = QHBoxLayout(row)
         h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(8)
         h.addWidget(edit, stretch=1)
-        b = QPushButton("浏览…")
+        b = PushButton("浏览…", self)
         b.clicked.connect(lambda: self._pick_into(edit, title))
         h.addWidget(b)
         v.addWidget(row)
         if dim_hint:
-            hint = QLabel(dim_hint)
-            hint.setStyleSheet("color:#6B7280; font-size: 11px;")
+            hint = BodyLabel(self)
+            hint.setText(dim_hint)
             hint.setWordWrap(True)
+            hint.setTextColor("#6B7280", "#9CA3AF")
             v.addWidget(hint)
         return w
 
     def _example_row(self) -> QWidget:
-        w = QWidget()
+        w = QWidget(self)
         v = QVBoxLayout(w)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(4)
-        img = QLabel("示例图")
+        img = QLabel(self)
+        img.setText("示例图")
         img.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        img.setStyleSheet("border: 1px solid #444;")
+        bcol = "#525252" if isDarkTheme() else "#D1D5DB"
+        img.setStyleSheet(f"border: 1px solid {bcol};")
         sample = Path(__file__).resolve().parents[1] / "static" / "trophy" / "Custom_Example.png"
         if sample.exists():
             pm = QPixmap(str(sample))
@@ -345,12 +380,13 @@ class TrophyAddDialog(QDialog):
                 img.setPixmap(pm.scaledToWidth(560, Qt.TransformationMode.SmoothTransformation))
                 img.setText("")
         v.addWidget(img)
-        tip = QLabel(
+        tip = BodyLabel(self)
+        tip.setWordWrap(True)
+        tip.setText(
             "示例说明：上半部分是实际显示内容；下半部分黑白区域用于游戏内闪光遮罩。"
             "如果不需要闪光效果，下半部分可直接填纯黑。"
         )
-        tip.setWordWrap(True)
-        tip.setStyleSheet("color:#6B7280; font-size: 11px;")
+        tip.setTextColor("#6B7280", "#9CA3AF")
         v.addWidget(tip)
         return w
 
@@ -386,7 +422,6 @@ class TrophyAddDialog(QDialog):
                 ingest_to_bc3_dds(tool_path=self._tool, input_path=src, output_dds=dds_path)
                 image_path_xml = dds_name
 
-            # 与 A001 一致：有图时为同目录下 CHU_UI_Trophy_XXXXXX.dds；无图时 <path /> 空元素
             if image_path_xml:
                 image_xml = f"<image><path>{image_path_xml}</path></image>"
             else:
@@ -410,12 +445,9 @@ class TrophyAddDialog(QDialog):
 """
             (tdir / "Trophy.xml").write_text(xml, encoding="utf-8")
 
-            QMessageBox.information(
-                self, "完成", f"已生成 trophy{tid:06d}（rareType={rare}）"
-            )
+            fly_message(self, "完成", f"已生成 trophy{tid:06d}（rareType={rare}）")
             self.accept()
         except DdsToolError as e:
-            QMessageBox.critical(self, "DDS 转换失败", str(e))
+            fly_critical(self, "DDS 转换失败", str(e))
         except Exception as e:
-            QMessageBox.critical(self, "错误", str(e))
-
+            fly_critical(self, "错误", str(e))

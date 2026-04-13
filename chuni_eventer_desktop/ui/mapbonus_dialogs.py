@@ -3,18 +3,26 @@ from __future__ import annotations
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QComboBox,
     QDialog,
     QFormLayout,
+    QGridLayout,
     QHBoxLayout,
-    QLabel,
     QLineEdit,
-    QMessageBox,
-    QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
+    QSizePolicy,
     QVBoxLayout,
+    QWidget,
+)
+
+from qfluentwidgets import (
+    BodyLabel,
+    CardWidget,
+    ComboBox as FluentComboBox,
+    LineEdit,
+    PrimaryPushButton,
+    PushButton,
+    isDarkTheme,
 )
 
 from ..mapbonus_xml import (
@@ -27,6 +35,8 @@ from ..mapbonus_xml import (
     suggest_next_mapbonus_id,
 )
 from ..game_data_index import GameDataIndex, merged_chara_pairs, merged_music_pairs
+from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
+from .fluent_dialogs import fly_critical
 from .name_glyph_preview import wrap_name_input_with_preview
 
 
@@ -39,7 +49,270 @@ KIND_LABELS: dict[str, str] = {
 }
 
 
-class MapBonusEditDialog(QDialog):
+class _MapBonusRuleEditDialog(FluentCaptionDialog):
+    """单条 MapBonus 条件的编辑子窗。"""
+
+    def __init__(
+        self,
+        *,
+        parent: QWidget,
+        initial: MapBonusRule | None,
+        music_pairs: list[tuple[int, str]],
+        chara_pairs: list[tuple[int, str]],
+        genre_pairs: list[tuple[int, str]],
+        release_tag_pairs: list[tuple[int, str]],
+    ) -> None:
+        super().__init__(parent=parent)
+        self.setWindowTitle("编辑条件")
+        self.setModal(True)
+        self.resize(560, 420)
+        self.saved_rule: MapBonusRule | None = None
+        self.removed = False
+
+        self._music_pairs = music_pairs
+        self._chara_pairs = chara_pairs
+        self._genre_pairs = genre_pairs
+        self._release_tag_pairs = release_tag_pairs
+
+        if initial is None:
+            seed = MapBonusRule(
+                kind="releaseTag",
+                point=1,
+                target_id=-1,
+                target_str="Invalid",
+                chara_rank=1,
+                explain_text="",
+            )
+        else:
+            seed = initial
+
+        self._kind = FluentComboBox(self)
+        for x in ALLOWED_KINDS:
+            self._kind.addItem(KIND_LABELS.get(x, x), None, x)
+        self._kind.blockSignals(True)
+        idx = self._kind.findData(seed.kind)
+        fb = self._kind.findData("releaseTag")
+        self._kind.setCurrentIndex(idx if idx >= 0 else (fb if fb >= 0 else 0))
+        self._kind.blockSignals(False)
+
+        self._point = LineEdit(self)
+        self._point.setText(str(seed.point))
+
+        self._explain = LineEdit(self)
+        self._explain.setText(seed.explain_text)
+        self._explain.setPlaceholderText("说明（explainText，可空）")
+
+        self._target_host = QWidget(self)
+        self._target_lay = QVBoxLayout(self._target_host)
+        self._target_lay.setContentsMargins(0, 0, 0, 0)
+        self._target_widget: QWidget | None = None
+
+        seed_tid = seed.chara_rank if seed.kind == "charaRankGE" else seed.target_id
+        self._kind.currentIndexChanged.connect(lambda _i: self._rebuild_target(keep=True))
+        self._rebuild_target(
+            keep=False,
+            selected_id=seed_tid,
+            selected_str=seed.target_str,
+        )
+
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form.addRow("条件类型", self._kind)
+        form.addRow("加成格数", self._point)
+        form.addRow("目标", self._target_host)
+        form.addRow("说明", self._explain)
+
+        remove_btn = PushButton("移除此条件", self)
+        remove_btn.clicked.connect(self._on_remove)
+        ok_btn = PrimaryPushButton("保存", self)
+        ok_btn.clicked.connect(self._on_save)
+        cancel_btn = PushButton("取消", self)
+        cancel_btn.clicked.connect(self.reject)
+        foot = QHBoxLayout()
+        foot.addWidget(remove_btn)
+        foot.addStretch(1)
+        foot.addWidget(cancel_btn)
+        foot.addWidget(ok_btn)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(*fluent_caption_content_margins())
+        lay.setSpacing(12)
+        lay.addLayout(form)
+        lay.addStretch(1)
+        lay.addLayout(foot)
+
+    def _kind_val(self) -> str:
+        k = self._kind.currentData()
+        s = str(k or "")
+        return s if s in ALLOWED_KINDS else "releaseTag"
+
+    def _rebuild_target(
+        self,
+        *,
+        keep: bool,
+        selected_id: int | None = None,
+        selected_str: str | None = None,
+    ) -> None:
+        keep_id = None
+        keep_str = None
+        if keep:
+            w = self._target_widget
+            if isinstance(w, FluentComboBox):
+                d = w.currentData()
+                if isinstance(d, tuple) and len(d) == 2:
+                    keep_id, keep_str = int(d[0]), str(d[1])
+            elif isinstance(w, LineEdit):
+                try:
+                    keep_id = int((w.text() or "").strip())
+                except ValueError:
+                    keep_id = None
+                keep_str = None
+        sid = keep_id if keep else selected_id
+        sstr = keep_str if keep else selected_str
+
+        while self._target_lay.count():
+            it = self._target_lay.takeAt(0)
+            if it.widget() is not None:
+                it.widget().deleteLater()
+        self._target_widget = None
+        kind = self._kind_val()
+
+        if kind == "charaRankGE":
+            le = LineEdit(self._target_host)
+            if sid is not None and sid > 0:
+                le.setText(str(sid))
+            else:
+                le.setText("26")
+            le.setPlaceholderText("角色等级阈值（例如 26）")
+            self._target_lay.addWidget(le)
+            self._target_widget = le
+            return
+
+        cb = FluentComboBox(self._target_host)
+        pairs: list[tuple[int, str]]
+        if kind == "music":
+            pairs = self._music_pairs
+        elif kind == "musicGenre":
+            pairs = self._genre_pairs
+        elif kind == "releaseTag":
+            pairs = self._release_tag_pairs
+        elif kind == "chara":
+            pairs = self._chara_pairs
+        else:
+            pairs = [(-1, "Invalid")]
+
+        cb.addItem("(请选择)", None, None)
+        for i, s in pairs:
+            cb.addItem(f"{i} | {s}", None, (i, s))
+        cb.setMinimumWidth(400)
+        try:
+            cb.view().setMinimumWidth(560)
+        except Exception:
+            pass
+        pick = -1
+        if sid is not None:
+            for i in range(1, cb.count()):
+                d = cb.itemData(i)
+                if isinstance(d, tuple) and len(d) == 2 and d[0] == sid:
+                    pick = i
+                    break
+        if pick < 0 and sstr:
+            for i in range(1, cb.count()):
+                d = cb.itemData(i)
+                if isinstance(d, tuple) and len(d) == 2 and str(d[1]) == str(sstr):
+                    pick = i
+                    break
+        if pick >= 0:
+            cb.setCurrentIndex(pick)
+        self._target_lay.addWidget(cb)
+        self._target_widget = cb
+
+    def _on_remove(self) -> None:
+        self.removed = True
+        self.saved_rule = None
+        self.accept()
+
+    def _on_save(self) -> None:
+        kind = self._kind_val()
+        raw_pt = (self._point.text() or "").strip()
+        try:
+            pt = int(raw_pt) if raw_pt else 1
+        except ValueError:
+            fly_critical(self, "错误", "加成格数必须是整数")
+            return
+        if pt < 1:
+            pt = 1
+        tid = -1
+        tstr = "Invalid"
+        cr = 1
+        tw = self._target_widget
+        if kind == "charaRankGE":
+            if not isinstance(tw, LineEdit):
+                fly_critical(self, "错误", "目标输入异常")
+                return
+            raw_rank = (tw.text() or "").strip()
+            try:
+                cr = int(raw_rank)
+            except ValueError:
+                fly_critical(self, "错误", "角色等级阈值必须是整数")
+                return
+            if cr < 1:
+                fly_critical(self, "错误", "角色等级阈值必须 >= 1")
+                return
+            tid = -1
+            tstr = "Invalid"
+        else:
+            if not isinstance(tw, FluentComboBox):
+                fly_critical(self, "错误", "目标下拉异常")
+                return
+            d = tw.currentData()
+            if not (isinstance(d, tuple) and len(d) == 2):
+                fly_critical(self, "错误", "请从下拉框选择目标")
+                return
+            tid, tstr = int(d[0]), str(d[1])
+        ex = (self._explain.text() or "").strip()
+        self.saved_rule = MapBonusRule(
+            kind=kind,
+            point=pt,
+            target_id=tid,
+            target_str=tstr,
+            chara_rank=cr,
+            explain_text=ex,
+        )
+        self.removed = False
+        self.accept()
+
+
+def _slot_button_style() -> str:
+    dark = isDarkTheme()
+    bg = "#27272A" if dark else "#FAFAFA"
+    bd = "#52525B" if dark else "#D4D4D8"
+    bg_h = "#3F3F46" if dark else "#F4F4F5"
+    bd_h = "#71717A" if dark else "#A1A1AA"
+    fg = "#E4E4E7" if dark else "#3F3F46"
+    return (
+        f"QPushButton{{background:{bg};border:2px dashed {bd};border-radius:10px;color:{fg};"
+        "padding:12px;text-align:left;}}"
+        f"QPushButton:hover{{background:{bg_h};border:2px solid {bd_h};}}"
+    )
+
+
+def _format_slot_text(index: int, rule: MapBonusRule | None) -> str:
+    n = index + 1
+    if rule is None:
+        return f"条件 {n}\n（空白 · 点击添加）"
+    kind_cn = KIND_LABELS.get(rule.kind, rule.kind)
+    if rule.kind == "charaRankGE":
+        tgt = f"等级 ≥ {rule.chara_rank}"
+    else:
+        ts = (rule.target_str or "").strip() or "—"
+        if len(ts) > 28:
+            ts = ts[:26] + "…"
+        tgt = f"{rule.target_id} · {ts}"
+    return f"条件 {n}\n{kind_cn}\n加成格数 {rule.point}\n{tgt}"
+
+
+class MapBonusEditDialog(FluentCaptionDialog):
     def __init__(
         self,
         *,
@@ -67,8 +340,8 @@ class MapBonusEditDialog(QDialog):
         else:
             self.setWindowTitle("新建 MapBonus")
 
-        self.name_id = QLineEdit()
-        self.name_str = QLineEdit()
+        self.name_id = LineEdit(self)
+        self.name_str = LineEdit(self)
         if data is not None:
             self.name_id.setText(str(data.name_id))
             self.name_str.setText(data.name_str)
@@ -78,29 +351,61 @@ class MapBonusEditDialog(QDialog):
             self.name_id.setText(str(sid))
             self.name_str.setText(sstr)
 
-        self.table = QTableWidget(0, 4, self)
-        self.table.setHorizontalHeaderLabels(["条件类型", "加成格数", "目标", "说明"])
-        self.table.setColumnWidth(0, 220)
-        self.table.setColumnWidth(1, 140)
-        self.table.setColumnWidth(2, 520)
-        self.table.setColumnWidth(3, 220)
+        self._slots: list[MapBonusRule | None] = [None] * MAX_RULES
+        if data is not None:
+            for i, r in enumerate(list(data.rules)[:MAX_RULES]):
+                self._slots[i] = r
 
-        btn_add = QPushButton("新增条件")
-        btn_del = QPushButton("删除条件")
-        btn_add.clicked.connect(self._add_row_default)
-        btn_del.clicked.connect(self._del_selected_row)
-        hb = QHBoxLayout()
-        hb.addWidget(btn_add)
-        hb.addWidget(btn_del)
-        hb.addStretch(1)
+        self._slot_btns: list[PushButton] = []
+        grid = QGridLayout()
+        grid.setSpacing(12)
+        for i in range(MAX_RULES):
+            row, col = divmod(i, 2)
+            btn = PushButton(self)
+            btn.setMinimumHeight(120)
+            btn.setSizePolicy(
+                QSizePolicy.Policy.Expanding,
+                QSizePolicy.Policy.Expanding,
+            )
+            btn.setStyleSheet(_slot_button_style())
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(lambda _=False, idx=i: self._edit_slot(idx))
+            self._slot_btns.append(btn)
+            grid.addWidget(btn, row, col)
+        for r in range(2):
+            grid.setRowStretch(r, 1)
+        for c in range(2):
+            grid.setColumnStretch(c, 1)
 
+        name_card = CardWidget(self)
+        name_lay = QVBoxLayout(name_card)
+        name_lay.setContentsMargins(16, 14, 16, 14)
+        name_lay.setSpacing(10)
+        name_lay.addWidget(BodyLabel("MapBonus 标识", self))
         form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         form.addRow("mapBonusName.id", self.name_id)
         form.addRow("mapBonusName.str", wrap_name_input_with_preview(self.name_str, parent=self))
+        name_lay.addLayout(form)
 
-        ok = QPushButton("保存")
-        cancel = QPushButton("取消")
+        rules_card = CardWidget(self)
+        rules_lay = QVBoxLayout(rules_card)
+        rules_lay.setContentsMargins(16, 14, 16, 14)
+        rules_lay.setSpacing(10)
+        rules_lay.addWidget(BodyLabel("命中条件（最多 4 条）", self))
+        hint = BodyLabel(self)
+        hint.setWordWrap(True)
+        hint.setText(
+            "点击下方格子编辑对应序号条件；空白格表示未使用。保存时按条件 1→4 的顺序写入 XML，"
+            "自动跳过空白格。若全部空白，将写入一条默认占位条件。"
+        )
+        hint.setTextColor("#6B7280", "#9CA3AF")
+        rules_lay.addWidget(hint)
+        rules_lay.addLayout(grid, stretch=1)
+
+        ok = PrimaryPushButton("保存", self)
         ok.clicked.connect(self._on_ok)
+        cancel = PushButton("取消", self)
         cancel.clicked.connect(self.reject)
         foot = QHBoxLayout()
         foot.addStretch(1)
@@ -108,131 +413,34 @@ class MapBonusEditDialog(QDialog):
         foot.addWidget(ok)
 
         lay = QVBoxLayout(self)
-        lay.addLayout(form)
-        lay.addWidget(QLabel(f"substances（命中条件，最多 {MAX_RULES} 条；底层 id/str 自动填入）"))
-        lay.addWidget(self.table, stretch=1)
-        lay.addLayout(hb)
+        lay.setContentsMargins(*fluent_caption_content_margins())
+        lay.setSpacing(12)
+        lay.addWidget(name_card)
+        lay.addWidget(rules_card, stretch=1)
         lay.addLayout(foot)
 
-        rules = list(data.rules) if data is not None else []
-        if not rules:
-            rules = [MapBonusRule(kind="releaseTag", point=1, target_id=-1, target_str="Invalid", chara_rank=1, explain_text="")]
-        for r in rules:
-            self._append_rule_row(r)
-        self.resize(980, 520)
+        for i in range(MAX_RULES):
+            self._refresh_slot_button(i)
+        self.resize(720, 560)
 
-    def _set_kind_cell(self, row: int, value: str) -> None:
-        cb = QComboBox(self.table)
-        for x in ALLOWED_KINDS:
-            cb.addItem(KIND_LABELS.get(x, x), x)
-        idx = cb.findData(value)
-        cb.setCurrentIndex(idx if idx >= 0 else cb.findData("releaseTag"))
-        self.table.setCellWidget(row, 0, cb)
-        cb.currentIndexChanged.connect(lambda _=0, rr=row: self._sync_row_widgets(rr, keep_target=False))
+    def _refresh_slot_button(self, index: int) -> None:
+        self._slot_btns[index].setText(_format_slot_text(index, self._slots[index]))
 
-    def _set_target_cell(self, row: int, *, kind: str, selected_id: int | None, selected_str: str | None) -> None:
-        if kind == "charaRankGE":
-            le = QLineEdit(self.table)
-            if selected_id is not None and selected_id > 0:
-                le.setText(str(selected_id))
-            else:
-                le.setText("26")
-            le.setPlaceholderText("角色等级阈值（例如 26）")
-            self.table.setCellWidget(row, 2, le)
-            return
-
-        cb = QComboBox(self.table)
-        pairs: list[tuple[int, str]]
-        if kind == "music":
-            pairs = self._music_pairs
-        elif kind == "musicGenre":
-            pairs = self._genre_pairs
-        elif kind == "releaseTag":
-            pairs = self._release_tag_pairs
-        elif kind == "chara":
-            pairs = self._chara_pairs
-        else:
-            pairs = [(-1, "Invalid")]
-
-        cb.addItem("(请选择)", None)
-        for i, s in pairs:
-            cb.addItem(f"{i} | {s}", (i, s))
-        cb.setMinimumWidth(460)
-        try:
-            cb.view().setMinimumWidth(640)
-        except Exception:
-            pass
-        pick = -1
-        if selected_id is not None:
-            for i in range(1, cb.count()):
-                d = cb.itemData(i)
-                if isinstance(d, tuple) and len(d) == 2 and d[0] == selected_id:
-                    pick = i
-                    break
-        if pick < 0 and selected_str:
-            for i in range(1, cb.count()):
-                d = cb.itemData(i)
-                if isinstance(d, tuple) and len(d) == 2 and str(d[1]) == str(selected_str):
-                    pick = i
-                    break
-        if pick >= 0:
-            cb.setCurrentIndex(pick)
-        self.table.setCellWidget(row, 2, cb)
-
-    def _append_rule_row(self, r: MapBonusRule) -> None:
-        row = self.table.rowCount()
-        self.table.insertRow(row)
-        self._set_kind_cell(row, r.kind)
-        self.table.setItem(row, 1, QTableWidgetItem(str(r.point)))
-        target_seed_id = r.chara_rank if r.kind == "charaRankGE" else r.target_id
-        self.table.setItem(row, 3, QTableWidgetItem(r.explain_text))
-        self._sync_row_widgets(row, keep_target=False, selected_id=target_seed_id, selected_str=r.target_str)
-
-    def _add_row_default(self) -> None:
-        if self.table.rowCount() >= MAX_RULES:
-            QMessageBox.information(self, "已达上限", f"每个 MapBonus 最多添加 {MAX_RULES} 条条件。")
-            return
-        self._append_rule_row(
-            MapBonusRule(kind="releaseTag", point=1, target_id=-1, target_str="Invalid", chara_rank=1, explain_text="")
+    def _edit_slot(self, index: int) -> None:
+        dlg = _MapBonusRuleEditDialog(
+            parent=self,
+            initial=self._slots[index],
+            music_pairs=self._music_pairs,
+            chara_pairs=self._chara_pairs,
+            genre_pairs=self._genre_pairs,
+            release_tag_pairs=self._release_tag_pairs,
         )
-
-    def _del_selected_row(self) -> None:
-        r = self.table.currentRow()
-        if r >= 0:
-            self.table.removeRow(r)
-        if self.table.rowCount() <= 0:
-            self._add_row_default()
-
-    def _kind_at(self, row: int) -> str:
-        w = self.table.cellWidget(row, 0)
-        if isinstance(w, QComboBox):
-            k = str(w.currentData() or "")
-            return k if k in ALLOWED_KINDS else "releaseTag"
-        return "releaseTag"
-
-    def _sync_row_widgets(
-        self,
-        row: int,
-        *,
-        keep_target: bool = True,
-        selected_id: int | None = None,
-        selected_str: str | None = None,
-    ) -> None:
-        if row < 0 or row >= self.table.rowCount():
-            return
-        kind = self._kind_at(row)
-
-        keep_id = None
-        keep_str = None
-        if keep_target:
-            w = self.table.cellWidget(row, 2)
-            if isinstance(w, QComboBox):
-                d = w.currentData()
-                if isinstance(d, tuple) and len(d) == 2:
-                    keep_id, keep_str = int(d[0]), str(d[1])
-        sid = keep_id if keep_target else selected_id
-        sstr = keep_str if keep_target else selected_str
-        self._set_target_cell(row, kind=kind, selected_id=sid, selected_str=sstr)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            if dlg.removed:
+                self._slots[index] = None
+            else:
+                self._slots[index] = dlg.saved_rule
+            self._refresh_slot_button(index)
 
     def _collect_genre_and_release_tags(self) -> tuple[list[tuple[int, str]], list[tuple[int, str]]]:
         genre_map: dict[int, str] = {}
@@ -298,76 +506,26 @@ class MapBonusEditDialog(QDialog):
         release_tags = sorted(rt_map.items(), key=lambda x: x[0])
         return genres, release_tags
 
-    def _row_int(self, row: int, col: int, field: str, default: int | None = None) -> int:
-        it = self.table.item(row, col)
-        raw = (it.text() if it else "").strip()
-        if raw == "" and default is not None:
-            return default
-        try:
-            return int(raw)
-        except Exception:
-            raise ValueError(f"第 {row + 1} 行 {field} 不是整数")
-
     def _on_ok(self) -> None:
         try:
             mid = int((self.name_id.text() or "").strip())
         except Exception:
-            QMessageBox.critical(self, "错误", "mapBonusName.id 必须是整数")
+            fly_critical(self, "错误", "mapBonusName.id 必须是整数")
             return
         mstr = (self.name_str.text() or "").strip() or f"MapBonus{mid}"
 
-        rules: list[MapBonusRule] = []
-        if self.table.rowCount() > MAX_RULES:
-            QMessageBox.critical(self, "错误", f"条件条目超过上限：最多 {MAX_RULES} 条。")
+        rules: list[MapBonusRule] = [r for r in self._slots if r is not None]
+        if len(rules) > MAX_RULES:
+            fly_critical(self, "错误", f"条件条目超过上限：最多 {MAX_RULES} 条。")
             return
-        for r in range(self.table.rowCount()):
-            kind = self._kind_at(r)
-            pt = self._row_int(r, 1, "point", default=1)
-            tbox = self.table.cellWidget(r, 2)
-            tid = -1
-            tstr = "Invalid"
-            cr = 1
-            if kind == "charaRankGE":
-                if not isinstance(tbox, QLineEdit):
-                    QMessageBox.critical(self, "错误", f"第 {r + 1} 行角色等级阈值输入框异常")
-                    return
-                raw_rank = (tbox.text() or "").strip()
-                try:
-                    cr = int(raw_rank)
-                except Exception:
-                    QMessageBox.critical(self, "错误", f"第 {r + 1} 行角色等级阈值必须是整数")
-                    return
-                if cr < 1:
-                    QMessageBox.critical(self, "错误", f"第 {r + 1} 行角色等级阈值必须 >= 1")
-                    return
-                tid = -1
-                tstr = "Invalid"
-            else:
-                if not isinstance(tbox, QComboBox):
-                    QMessageBox.critical(self, "错误", f"第 {r + 1} 行目标下拉异常")
-                    return
-                d = tbox.currentData()
-                if not (isinstance(d, tuple) and len(d) == 2):
-                    QMessageBox.critical(self, "错误", f"第 {r + 1} 行请从下拉框选择目标")
-                    return
-                tid, tstr = int(d[0]), str(d[1])
-            ex = ((self.table.item(r, 3).text() if self.table.item(r, 3) else "") or "").strip()
-            rules.append(
-                MapBonusRule(
-                    kind=kind,
-                    point=pt if pt > 0 else 1,
-                    target_id=tid,
-                    target_str=tstr,
-                    chara_rank=cr,
-                    explain_text=ex,
-                )
-            )
         try:
-            out = save_mapbonus_xml(self._acus_root, MapBonusData(name_id=mid, name_str=mstr, rules=tuple(rules)))
+            out = save_mapbonus_xml(
+                self._acus_root,
+                MapBonusData(name_id=mid, name_str=mstr, rules=tuple(rules)),
+            )
         except Exception as e:
-            QMessageBox.critical(self, "保存失败", str(e))
+            fly_critical(self, "保存失败", str(e))
             return
         self.result_name = (mid, mstr)
         self.result_xml = out
         self.accept()
-

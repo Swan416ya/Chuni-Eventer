@@ -4,21 +4,18 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QPoint, QThread, QTimer, pyqtSignal, Qt
-from PyQt6.QtGui import QPalette
 from PyQt6.QtWidgets import (
     QAbstractItemView,
-    QApplication,
     QDialog,
     QHBoxLayout,
     QHeaderView,
-    QLineEdit,
     QProgressBar,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
 )
 
-from qfluentwidgets import BodyLabel, CardWidget, PrimaryPushButton, PushButton
+from qfluentwidgets import BodyLabel, CardWidget, LineEdit, PrimaryPushButton, PushButton
 
 from ..pjsk_sheet_client import (
     PjskDifficultyRow,
@@ -30,6 +27,7 @@ from ..pjsk_sheet_client import (
     pjsk_song_cache_dir,
     save_pjsk_bundle_to_cache,
 )
+from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
 from .fluent_table import apply_fluent_sheet_table
 from .pjsk_vocal_pick_dialog import PjskVocalPickDialog
@@ -96,7 +94,7 @@ class _PjskCacheThread(QThread):
             self.fail.emit(str(e))
 
 
-class PjskSusDownloadDialog(QDialog):
+class PjskSusDownloadDialog(FluentCaptionDialog):
     """PJSK：缓存封面、曲绘与固定难度 SUS，并尝试生成实验性 c2s。"""
 
     def __init__(
@@ -109,10 +107,7 @@ class PjskSusDownloadDialog(QDialog):
         super().__init__(parent=parent)
         self.setWindowTitle("从 Project SEKAI 缓存资源（实验性）")
         self.setModal(True)
-        self.resize(760, 520)
-        self.setObjectName("pjskSusDownloadDialog")
-        win_bg = QApplication.palette().color(QPalette.ColorRole.Window).name()
-        self.setStyleSheet(f"#pjskSusDownloadDialog {{ background-color: {win_bg}; }}")
+        self.resize(780, 540)
         self._acus_root = acus_root.resolve()
         self._musics: list[PjskMusicRow] = []
         self._diff_index: dict[int, list[PjskDifficultyRow]] = {}
@@ -194,7 +189,7 @@ class PjskSusDownloadDialog(QDialog):
         btns.addWidget(close)
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(16, 16, 16, 16)
+        lay.setContentsMargins(*fluent_caption_content_margins())
         lay.setSpacing(12)
         lay.addWidget(card, stretch=1)
         lay.addLayout(btns)

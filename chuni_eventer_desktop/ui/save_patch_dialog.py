@@ -5,7 +5,6 @@ import re
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QDialog,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
@@ -41,6 +40,7 @@ from ..chusan_save import (
 )
 from ..dds_preview import dds_to_pixmap
 from ..dds_quicktex import quicktex_available
+from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
 
 
@@ -50,7 +50,7 @@ def _preview_frame_style() -> str:
     return f"QLabel {{ border: 1px solid {b}; border-radius: 8px; background: {bg}; }}"
 
 
-class SavePatchDialog(QDialog):
+class SavePatchDialog(FluentCaptionDialog):
     """
     上传 ALL.Net 导出存档 JSON，将 userData 中的名牌/称号改为 ACUS 中已有条目（仅改装备字段）。
     """
@@ -180,7 +180,7 @@ class SavePatchDialog(QDialog):
         tc_lay.addWidget(self.tabs)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 20, 20, 20)
+        root.setContentsMargins(*fluent_caption_content_margins())
         root.setSpacing(14)
         root.addWidget(pick_btn)
         root.addWidget(self.path_label)

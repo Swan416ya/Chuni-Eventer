@@ -5,7 +5,6 @@ from pathlib import Path
 from PyQt6.QtCore import QEvent, QSize, Qt
 from PyQt6.QtGui import QColor, QIcon, QMouseEvent
 from PyQt6.QtWidgets import (
-    QDialog,
     QGraphicsDropShadowEffect,
     QHBoxLayout,
     QSizePolicy,
@@ -16,44 +15,31 @@ from PyQt6.QtWidgets import (
 
 from qfluentwidgets import CardWidget, PushButton, SubtitleLabel
 
+from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
+
 
 def _logo_path(filename: str) -> Path:
     return Path(__file__).resolve().parents[1] / "static" / "logo" / filename
 
 
-# 渠道按钮：宽:高 = 2.5:1，单行三个
 _BTN_H = 44
 _BTN_W = int(round(_BTN_H * 2.5))
 
 
-class MusicSheetChannelsDialog(QDialog):
+class MusicSheetChannelsDialog(FluentCaptionDialog):
     """
-    乐曲页「新增」：自制谱下载渠道（Fluent 无系统标题栏，居中卡片）。
+    乐曲页「新增」：选择自制谱下载渠道（Swan / pgko）。
     """
 
     def __init__(self, *, parent=None) -> None:
         super().__init__(parent=parent)
-        self.setWindowTitle("")
+        self.setWindowTitle("自制谱下载渠道")
         self.setModal(True)
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog
-        )
-        self.setObjectName("musicSheetChannelsDialog")
-        self.setStyleSheet(
-            "#musicSheetChannelsDialog { background-color: #ffffff; border: 1px solid #e5e5e5; }"
-        )
+        self.resize(420, 280)
 
         self._action: str | None = None
 
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.addStretch(1)
-
-        mid = QHBoxLayout()
-        mid.addStretch(1)
-
         card = CardWidget(self)
-        card.setObjectName("musicSheetChannelsCard")
         self._card = card
         cly = QVBoxLayout(card)
         cly.setContentsMargins(24, 22, 24, 20)
@@ -116,10 +102,10 @@ class MusicSheetChannelsDialog(QDialog):
         sh.setColor(QColor(0, 0, 0, 85))
         card.setGraphicsEffect(sh)
 
-        mid.addWidget(card, alignment=Qt.AlignmentFlag.AlignCenter)
-        mid.addStretch(1)
-        root.addLayout(mid)
-        root.addStretch(1)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(*fluent_caption_content_margins())
+        root.setSpacing(12)
+        root.addWidget(card, stretch=1)
 
         min_w = _BTN_W * 2 + 12 * 1 + 48
         card.setMinimumWidth(min_w)

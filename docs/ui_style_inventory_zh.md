@@ -74,25 +74,25 @@
 
 | 模块 | 壳 / 主要结构 | Fluent | 典型 Qt 或其它 |
 |------|----------------|--------|----------------|
-| `settings_dialog.py` | `QDialog` | `BodyLabel`、`CardWidget`、`LineEdit`、`PushButton`、`PrimaryPushButton` | `QFileDialog`、`QInputDialog.getItem` |
-| `save_patch_dialog.py` | `QDialog` | `TabWidget`、`SearchLineEdit`、`EditableComboBox`、`SpinBox`、`BodyLabel`、`CaptionLabel`、`CardWidget`、按钮、`isDarkTheme` | 各 Tab 内 `QWidget`、`QFormLayout`、`QLabel`（预览） |
-| `music_add_actions_dialog.py` | 无边框 `QDialog` | `CardWidget`、`SubtitleLabel`、`PushButton` | `QToolButton`、`QGraphicsDropShadowEffect`、硬编码浅色窗口背景 |
-| `game_music_browser_dialog.py` | `QDialog` | 顶部 `BodyLabel` | `QComboBox`、`QLineEdit`、`QTableWidget`、`QPushButton`、`QMessageBox` |
+| `settings_dialog.py` | `FluentCaptionDialog` | `BodyLabel`、`CardWidget`、`LineEdit`、`PushButton`、`PrimaryPushButton`；`fluent_caption_content_margins` | `QFileDialog`、`QInputDialog.getItem`、`QVBoxLayout` / `QHBoxLayout` |
+| `save_patch_dialog.py` | `FluentCaptionDialog` | `TabWidget`、`SearchLineEdit`、`EditableComboBox`、`SpinBox`、`BodyLabel`、`CaptionLabel`、`CardWidget`、按钮、`isDarkTheme`；`fluent_caption_content_margins` | 各 Tab 内 `QWidget`、`QFormLayout`、`QLabel`（预览） |
+| `music_add_actions_dialog.py` | `FluentCaptionDialog` | `CardWidget`、`SubtitleLabel`、`PushButton`；`fluent_caption_content_margins` | `QToolButton`、`QGraphicsDropShadowEffect`（卡片阴影） |
+| `game_music_browser_dialog.py` | `FluentCaptionDialog` | `CardWidget`、`BodyLabel`、`FluentComboBox`、`LineEdit`、`PushButton` / `PrimaryPushButton`；`fluent_table.apply_fluent_sheet_table`；`fly_warning` / `fly_critical`；`fluent_caption_content_margins` | `QTableWidget`、`QLabel`（筛选标签）、`QVBoxLayout` / `QHBoxLayout` |
 | `chara_add_dialog.py` | `FluentCaptionDialog` | `LineEdit`、`FluentComboBox`、`PushButton`、`PrimaryPushButton`、`CardWidget`、`BodyLabel`；`isDarkTheme`；`fluent_caption_content_margins`；`fly_message` / `fly_critical` | `QFileDialog`；布局 `QVBoxLayout` / `QHBoxLayout` |
-| `event_add_dialog.py` | `QDialog` | 无 | 同上 |
-| `trophy_add_dialog.py` | `QDialog` | 无 | 同上 + 表单内多种 Qt 控件 |
-| `nameplate_add_dialog.py` | `QDialog` | 无 | 同上 |
-| `quest_add_dialog.py` | `QDialog` | 无 | `QCheckBox`、`QGroupBox`、`QListWidget`、`QSpinBox` 等 |
+| `event_add_dialog.py` | `FluentCaptionDialog` | `CardWidget`、`BodyLabel`、`LineEdit`、`PushButton`、`PrimaryPushButton`；`fluent_caption_content_margins`；`fly_message` / `fly_critical` | `QFormLayout`、`QFileDialog` |
+| `trophy_add_dialog.py` | `FluentCaptionDialog` | `CardWidget`、`BodyLabel`、`LineEdit`、`FluentComboBox`、`PushButton`、`PrimaryPushButton`；`isDarkTheme`；`fly_message` / `fly_critical` | `QFormLayout`、`QLabel`（示例图）、`QFileDialog` |
+| `nameplate_add_dialog.py` | `FluentCaptionDialog` | `CardWidget`、`BodyLabel`、`LineEdit`、`PushButton`、`PrimaryPushButton`；`fly_message` / `fly_critical` | `QFormLayout`、`QFileDialog` |
+| `quest_add_dialog.py` | `FluentCaptionDialog` | `CardWidget`、`BodyLabel`、`LineEdit`、`FluentComboBox`、`CheckBox`、`SpinBox`、`PushButton`、`PrimaryPushButton`；`fly_critical`；`fluent_caption_content_margins` | `QFormLayout`、`QListWidget` |
 | `map_add_dialog.py` | `FluentCaptionDialog`（主窗 + 多个子对话框） | `TabWidget`（含 `tabAddRequested` 新建页签）、`CardWidget`、`SubtitleLabel`、`LineEdit`、`FluentComboBox`、`CheckBox`、`ScrollArea`、`TextEdit`、`PushButton` / `PrimaryPushButton`；`fly_message` / `fly_critical` / `fly_warning` / `fly_question`；`fluent_caption_content_margins` | `QFormLayout`、`QGridLayout`、`QLabel`（说明/警告色文案）、`QProgressDialog`、`QFileDialog`；`MapBonusEditDialog` 等仍来自其它模块 |
-| `mapbonus_dialogs.py` | `QDialog` | 无 | `QLineEdit`、`QComboBox`、`QTableWidget`、`QPushButton`、`QMessageBox` |
-| `music_trophy_dialog.py` | `QDialog` | 无 | `QComboBox`、`QLabel`、`QPushButton`、`QMessageBox` |
+| `mapbonus_dialogs.py` | `FluentCaptionDialog`（主窗 + 单条条件子窗） | `CardWidget`、`BodyLabel`、`LineEdit`、`FluentComboBox`、`PushButton`、`PrimaryPushButton`；2×2 槽位 + 子窗编辑；`fly_critical`；`isDarkTheme`（槽位样式） | `QFormLayout`、`QGridLayout` |
+| `music_trophy_dialog.py` | `FluentCaptionDialog` | `FluentComboBox`、`BodyLabel`、`PushButton` / `PrimaryPushButton`；`fly_message` / `fly_warning` / `fly_critical`；`fluent_caption_content_margins` | `QLabel`（表单标签）、`QHBoxLayout` / `QVBoxLayout` |
 | `works_dialogs.py` | `FluentCaptionDialog`（作品库 / 创建 / 绑定） | `LineEdit`、`FluentComboBox`、`PushButton`、`PrimaryPushButton`；`fluent_caption_content_margins` | `QListWidget`（列表）；工具函数仍接受 `QComboBox \| FluentComboBox` 以兼容旧调用 |
-| `swan_sheet_download_dialog.py` | `QDialog` + Card | `BodyLabel`、`CardWidget`、Fluent 按钮 | `QProgressDialog`；表格使用 `fluent_table.apply_fluent_sheet_table`（底层 `QTableWidget`） |
-| `pgko_sheet_download_dialog.py` | 类似 | 同上 | `QMessageBox.question`；Fluent 表样式封装 |
-| `pjsk_hub_dialog.py` | 混合 | `BodyLabel`、`CardWidget`、Fluent 按钮 | 大量 Qt 控件、`QMessageBox`；表格 `apply_fluent_sheet_table` |
-| `pjsk_sus_download_dialog.py` | 混合 | Card + Fluent 按钮 | `QTableWidget` + `apply_fluent_sheet_table` |
-| `pjsk_vocal_pick_dialog.py` | `QDialog` | `BodyLabel`、Fluent 按钮 | `QListWidget` |
-| `sus_c2s_debug_dialog.py` | `QWidget` 独立窗口 | `BodyLabel`、`CardWidget`、Fluent 按钮 | `QLineEdit`、`QPlainTextEdit`、`QFileDialog`；背景取 `QPalette` |
+| `swan_sheet_download_dialog.py` | `FluentCaptionDialog` | `BodyLabel`、`CardWidget`、`PushButton` / `PrimaryPushButton`；`fluent_caption_content_margins`；`fly_*` | `QProgressDialog`；`QTableWidget` + `apply_fluent_sheet_table` |
+| `pgko_sheet_download_dialog.py` | `FluentCaptionDialog`（主窗 + `_PgkoUgcGuideDialog` + `_PgkoInstallConfigDialog`） | `CardWidget`、`BodyLabel`、`LineEdit`、`FluentComboBox`、`CheckBox`、`PushButton` / `PrimaryPushButton`；`fly_question` / `fly_*`；`fluent_caption_content_margins` | `QTableWidget` + `apply_fluent_sheet_table`、`QLabel`（富文本说明） |
+| `pjsk_hub_dialog.py` | `FluentCaptionDialog`（`PjskHubDialog` + `PjskInstallToAcusDialog`） | `BodyLabel`、`CardWidget`、`LineEdit`、`SpinBox`、`CheckBox`、`PushButton` / `PrimaryPushButton`；`fly_question` / `fly_*`；`fluent_caption_content_margins` | `QTableWidget` + `apply_fluent_sheet_table`、`QFormLayout`、`QGridLayout`、`QLabel`、`QProgressBar` |
+| `pjsk_sus_download_dialog.py` | `FluentCaptionDialog` | `CardWidget`、`BodyLabel`、`LineEdit`、`PushButton` / `PrimaryPushButton`；`fluent_caption_content_margins`；`fly_*` | `QTableWidget` + `apply_fluent_sheet_table`、`QProgressBar` |
+| `pjsk_vocal_pick_dialog.py` | `FluentCaptionDialog` | `BodyLabel`、`PushButton` / `PrimaryPushButton`；`fluent_caption_content_margins` | `QListWidget` |
+| `sus_c2s_debug_dialog.py` | `FluentCaptionDialog`（非模态调试窗） | `BodyLabel`、`CardWidget`、`LineEdit`、`PushButton` / `PrimaryPushButton`；`fluent_caption_content_margins`；`fly_*` | `QPlainTextEdit`、`QFileDialog` |
 | `index_progress.py` | 进度 | 无 | `QProgressDialog` |
 | `dds_progress.py` | 进度 | 无 | `QProgressDialog` |
 
@@ -110,11 +110,11 @@
 ## 7. 与「仅 Fluent + 自研样式组件」目标的差距摘要
 
 1. **布局与容器**：广泛依赖 `QWidget`、`QVBoxLayout`、`QHBoxLayout`、`QFormLayout`、`QSplitter`、`QStackedWidget`、`QFrame`。Fluent 通常不替代布局；若目标包含「界面代码中不出现 Qt 控件」，需单独定义是否允许 **无外观的布局/容器**。
-2. **输入与展示**：大量 `QLineEdit`、`QComboBox`、`QCheckBox`、`QSpinBox`、`QListWidget`、`QTabWidget`、`QTableWidget`、`QScrollArea`、`QGroupBox` 等仍待替换为 Fluent 对应件或项目封装。
-3. **系统对话框**：`QFileDialog`、`QInputDialog`、`QProgressDialog`、部分 `QMessageBox` —— 若也要 Fluent 化，需改用库内同类能力或自研，并权衡跨平台外观。
-4. **消息与确认**：业务中仍大量 `QMessageBox`，与 `fluent_dialogs` 的 `MessageBox` 封装并存，视觉不统一。
-5. **已有自研/半自研**：`FlipMusicCard`、`MusicSheetChannelsDialog` 的硬编码窗口色、`fluent_table` 等 —— 宜纳入统一主题（如 `isDarkTheme`、Fluent 色板）。
-6. **已推进模块**：地图新增/编辑（`map_add_dialog.py`）、角色新增（`chara_add_dialog.py`）、作品库相关（`works_dialogs.py`）已采用 `FluentCaptionDialog` 与 Fluent 表单控件，业务提示以 `fly_*` 为主；名称输入旁字库预览（`name_glyph_preview.py`）已用 Fluent 卡片与 `TransparentToolButton`。
+2. **输入与展示**：主流程弹窗已大量改用 Fluent 输入件；工作区内及少数调试界面仍混用 `QTableWidget`、`QListWidget`、`QPlainTextEdit`、原生布局容器等（见上表「典型 Qt」列）。
+3. **系统对话框**：`QFileDialog`、`QInputDialog`、`QProgressDialog` 等仍为系统原生；若需完全 Fluent 化需自研封装。
+4. **消息与确认**：业务弹窗已统一为 `fly_message` / `fly_critical` / `fly_warning` / `fly_question`（`fluent_dialogs.py`）；非 UI 模块或脚本可能仍直接使用 Qt 消息框（若有）。
+5. **已有自研/半自研**：`FlipMusicCard`（卡片翻转）、`fluent_table`（表样式）等 —— 与 Fluent 主题并存即可。
+6. **已推进模块**：除主窗口与工作区表格外，**上述 §5 表中列出的对话框均已使用 `FluentCaptionDialog`（或同等 Fluent 标题栏壳）+ `fluent_caption_content_margins`**，自制谱 Swan / pgko 全链路及其子窗、设置与存档装备、游戏乐曲浏览、乐曲课题称号、乐曲新增渠道、PJSK 下载/导入/人声选择与 SUS 调试窗等均已纳入；业务提示以 `fly_*` 为主。
 
 ---
 

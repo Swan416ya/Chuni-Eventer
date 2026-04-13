@@ -4,25 +4,23 @@ from pathlib import Path
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QComboBox,
-    QDialog,
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QLineEdit,
-    QMessageBox,
-    QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
 )
 
-from qfluentwidgets import BodyLabel
+from qfluentwidgets import BodyLabel, CardWidget, ComboBox as FluentComboBox, LineEdit, PrimaryPushButton, PushButton
 
 from ..game_data_index import GameDataIndex, scan_game_music_catalog
+from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
+from .fluent_table import apply_fluent_sheet_table
+from .fluent_dialogs import fly_critical, fly_warning
 
 
-class GameMusicBrowserDialog(QDialog):
+class GameMusicBrowserDialog(FluentCaptionDialog):
     """只读：浏览游戏数据包内扫描到的全部乐曲（含版本标签、流派）。"""
 
     def __init__(
@@ -35,26 +33,28 @@ class GameMusicBrowserDialog(QDialog):
         super().__init__(parent=parent)
         self.setWindowTitle("游戏乐曲资源（只读）")
         self.setModal(True)
-        self.resize(980, 560)
+        self.resize(1000, 580)
         self._game_root = game_root.expanduser().resolve()
         self._get_index = get_index
         self._rows: list[dict] = []
 
         hint = BodyLabel(
             "数据来自游戏目录下所有已扫描数据包（如 data/a000/opt/*、bin/option/A*）。"
-            "若列表为空或不全，请在【设置】中配置游戏根目录并点击「重新扫描游戏索引」。"
+            "若列表为空或不全，请在【设置】中配置游戏根目录并点击「重新扫描游戏索引」。",
+            self,
         )
         hint.setWordWrap(True)
 
-        self._filter_tag = QComboBox(self)
-        self._filter_tag.addItem("全部版本", "")
-        self._filter_genre = QComboBox(self)
-        self._filter_genre.addItem("全部流派", "")
-        self._search = QLineEdit(self)
+        self._filter_tag = FluentComboBox(self)
+        self._filter_tag.addItem("全部版本", None, "")
+        self._filter_genre = FluentComboBox(self)
+        self._filter_genre.addItem("全部流派", None, "")
+        self._search = LineEdit(self)
         self._search.setPlaceholderText("筛选：ID / 曲名 / 艺术家 / 来源路径…")
         self._search.textChanged.connect(self._apply_filter)
 
         fl = QHBoxLayout()
+        fl.setSpacing(8)
         fl.addWidget(QLabel("版本(releaseTag)"))
         fl.addWidget(self._filter_tag, stretch=1)
         fl.addWidget(QLabel("流派"))
@@ -62,6 +62,7 @@ class GameMusicBrowserDialog(QDialog):
         fl.addWidget(self._search, stretch=2)
 
         self._table = QTableWidget(0, 8, self)
+        apply_fluent_sheet_table(self._table)
         self._table.setHorizontalHeaderLabels(
             [
                 "ID",
@@ -87,20 +88,29 @@ class GameMusicBrowserDialog(QDialog):
         hh.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         self._table.setColumnHidden(7, True)
 
-        refresh = QPushButton("从磁盘重新扫描", self)
+        refresh = PushButton("从磁盘重新扫描", self)
         refresh.clicked.connect(self._reload_from_disk)
-        close = QPushButton("关闭", self)
+        close = PrimaryPushButton("关闭", self)
         close.clicked.connect(self.accept)
 
         btns = QHBoxLayout()
+        btns.setSpacing(8)
         btns.addWidget(refresh)
         btns.addStretch(1)
         btns.addWidget(close)
 
+        card = CardWidget(self)
+        cly = QVBoxLayout(card)
+        cly.setContentsMargins(16, 14, 16, 14)
+        cly.setSpacing(10)
+        cly.addWidget(hint)
+        cly.addLayout(fl)
+        cly.addWidget(self._table, stretch=1)
+
         lay = QVBoxLayout(self)
-        lay.addWidget(hint)
-        lay.addLayout(fl)
-        lay.addWidget(self._table, stretch=1)
+        lay.setContentsMargins(*fluent_caption_content_margins())
+        lay.setSpacing(12)
+        lay.addWidget(card, stretch=1)
         lay.addLayout(btns)
 
         self._filter_tag.currentIndexChanged.connect(self._apply_filter)
@@ -118,14 +128,14 @@ class GameMusicBrowserDialog(QDialog):
         try:
             self._rows = scan_game_music_catalog(self._game_root)
         except Exception as e:
-            QMessageBox.warning(self, "读取失败", str(e))
+            fly_warning(self, "读取失败", str(e))
             self._rows = []
 
     def _reload_from_disk(self) -> None:
         try:
             self._rows = scan_game_music_catalog(self._game_root)
         except Exception as e:
-            QMessageBox.critical(self, "扫描失败", str(e))
+            fly_critical(self, "扫描失败", str(e))
             return
         self._fill_filters()
         self._apply_filter()
@@ -154,19 +164,19 @@ class GameMusicBrowserDialog(QDialog):
         self._filter_genre.blockSignals(True)
         self._filter_tag.clear()
         self._filter_genre.clear()
-        self._filter_tag.addItem("全部版本", "")
+        self._filter_tag.addItem("全部版本", None, "")
         for t in self._all_tags():
-            self._filter_tag.addItem(t, t)
-        self._filter_genre.addItem("全部流派", "")
+            self._filter_tag.addItem(t, None, t)
+        self._filter_genre.addItem("全部流派", None, "")
         for g in self._all_genres():
-            self._filter_genre.addItem(g, g)
+            self._filter_genre.addItem(g, None, g)
         self._restore_combo(self._filter_tag, cur_t)
         self._restore_combo(self._filter_genre, cur_g)
         self._filter_tag.blockSignals(False)
         self._filter_genre.blockSignals(False)
 
     @staticmethod
-    def _restore_combo(cb: QComboBox, data) -> None:
+    def _restore_combo(cb: FluentComboBox, data) -> None:
         if data is None:
             cb.setCurrentIndex(0)
             return

@@ -3,28 +3,29 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtCore import QThread, Qt, pyqtSignal
-from PyQt6.QtGui import QPalette
 from PyQt6.QtWidgets import (
     QAbstractItemView,
-    QApplication,
-    QCheckBox,
     QDialog,
     QFormLayout,
     QGridLayout,
-    QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QLineEdit,
-    QMessageBox,
     QProgressBar,
-    QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
 )
 
-from qfluentwidgets import BodyLabel, CardWidget, PrimaryPushButton, PushButton
+from qfluentwidgets import (
+    BodyLabel,
+    CardWidget,
+    CheckBox,
+    LineEdit,
+    PrimaryPushButton,
+    PushButton,
+    SpinBox,
+)
 
 from ..dds_quicktex import quicktex_available
 from ..pjsk_acus_install import (
@@ -38,7 +39,8 @@ from ..pjsk_acus_install import (
     next_chuni_music_id,
 )
 from ..pjsk_sheet_client import pjsk_cache_root
-from .fluent_dialogs import fly_critical, fly_message, fly_warning
+from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
+from .fluent_dialogs import fly_critical, fly_message, fly_question, fly_warning
 from .fluent_table import apply_fluent_sheet_table
 from .pjsk_sus_download_dialog import PjskSusDownloadDialog
 
@@ -94,7 +96,7 @@ _SLOT_LABELS: dict[str, str] = {
 }
 
 
-class PjskInstallToAcusDialog(QDialog):
+class PjskInstallToAcusDialog(FluentCaptionDialog):
     """将选中的 pjsk_cache 条目写入 ACUS（Music + cueFile + 可选 ULT 事件）。"""
 
     def __init__(
@@ -114,35 +116,41 @@ class PjskInstallToAcusDialog(QDialog):
         self._bundle = bundle
         self._tool = tool_path
         self._thread: _InstallToAcusThread | None = None
-        self._level_spins: dict[str, tuple[QSpinBox, QSpinBox]] = {}
+        self._level_spins: dict[str, tuple[SpinBox, SpinBox]] = {}
 
         m = bundle.manifest
         title = str(m.get("title") or "").strip()
         comp = str(m.get("composer") or "").strip()
 
-        self._id_spin = QSpinBox(self)
+        self._id_spin = SpinBox(self)
         self._id_spin.setRange(1, 999999)
         self._id_spin.setValue(int(default_chuni_id))
 
-        self._title = QLineEdit(self)
+        self._title = LineEdit(self)
         self._title.setText(title)
-        self._artist = QLineEdit(self)
+        self._artist = LineEdit(self)
         self._artist.setText(comp)
-        self._sort = QLineEdit(self)
+        self._sort = LineEdit(self)
         self._sort.setText(title)
         self._sort.setPlaceholderText("通常与曲名相同")
 
-        self._stage_id = QSpinBox(self)
+        self._stage_id = SpinBox(self)
         self._stage_id.setRange(-1, 999999)
         self._stage_id.setValue(DEFAULT_STAGE_ID)
-        self._stage_str = QLineEdit(self)
+        self._stage_str = LineEdit(self)
         self._stage_str.setText(DEFAULT_STAGE_STR)
 
-        self._ult_event = QCheckBox("存在 ULTIMA 谱面时生成 ULT 解锁事件（type=3）", self)
+        self._ult_event = CheckBox("存在 ULTIMA 谱面时生成 ULT 解锁事件（type=3）", self)
         self._ult_event.setChecked(True)
 
-        levels_box = QGroupBox("各难度定数（Music.xml level / levelDecimal）", self)
-        levels_grid = QGridLayout(levels_box)
+        levels_box = CardWidget(self)
+        levels_lay = QVBoxLayout(levels_box)
+        levels_lay.setContentsMargins(12, 12, 12, 12)
+        levels_lay.setSpacing(8)
+        levels_lay.addWidget(
+            BodyLabel("各难度定数（Music.xml level / levelDecimal）", levels_box)
+        )
+        levels_grid = QGridLayout()
         present = chuni_slots_with_c2s(bundle)
         if not present:
             levels_grid.addWidget(
@@ -158,10 +166,10 @@ class PjskInstallToAcusDialog(QDialog):
             levels_grid.addWidget(QLabel("levelDecimal（0～99）"), 0, 2)
         for row, slot in enumerate(present, start=1):
             lab = QLabel(_SLOT_LABELS.get(slot, slot), levels_box)
-            w_lv = QSpinBox(levels_box)
+            w_lv = SpinBox(levels_box)
             w_lv.setRange(1, 15)
             w_lv.setValue(13)
-            w_dec = QSpinBox(levels_box)
+            w_dec = SpinBox(levels_box)
             w_dec.setRange(0, 99)
             w_dec.setValue(0)
             w_dec.setToolTip("写入 XML 的 levelDecimal；显示为小数时多为整十，如 50→13.5")
@@ -169,6 +177,7 @@ class PjskInstallToAcusDialog(QDialog):
             levels_grid.addWidget(w_lv, row, 1)
             levels_grid.addWidget(w_dec, row, 2)
             self._level_spins[slot] = (w_lv, w_dec)
+        levels_lay.addLayout(levels_grid)
 
         form = QFormLayout()
         form.addRow("中二乐曲 ID", self._id_spin)
@@ -206,6 +215,8 @@ class PjskInstallToAcusDialog(QDialog):
         row.addWidget(ok)
 
         root = QVBoxLayout(self)
+        root.setContentsMargins(*fluent_caption_content_margins())
+        root.setSpacing(12)
         root.addWidget(hint)
         root.addLayout(form)
         root.addWidget(levels_box)
@@ -278,7 +289,7 @@ class PjskInstallToAcusDialog(QDialog):
             self.setEnabled(True)
 
 
-class PjskHubDialog(QDialog):
+class PjskHubDialog(FluentCaptionDialog):
     """
     PJSK 入口：主体为本地 pjsk_cache 列表；可打开曲目库下载，或将选中项转写到 ACUS。
     """
@@ -293,10 +304,7 @@ class PjskHubDialog(QDialog):
         super().__init__(parent=parent)
         self.setWindowTitle("Project SEKAI 谱面（本地缓存）")
         self.setModal(True)
-        self.resize(820, 560)
-        self.setObjectName("pjskHubDialog")
-        win_bg = QApplication.palette().color(QPalette.ColorRole.Window).name()
-        self.setStyleSheet(f"#pjskHubDialog {{ background-color: {win_bg}; }}")
+        self.resize(840, 580)
         self._acus_root = acus_root.resolve()
         self._get_tool_path = get_tool_path
         self._cache_root = pjsk_cache_root(self._acus_root)
@@ -362,7 +370,7 @@ class PjskHubDialog(QDialog):
         row.addWidget(close)
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(16, 16, 16, 16)
+        lay.setContentsMargins(*fluent_caption_content_margins())
         lay.setSpacing(12)
         lay.addWidget(card, stretch=1)
         lay.addLayout(row)
@@ -421,15 +429,14 @@ class PjskHubDialog(QDialog):
             return
         tool = self._get_tool_path()
         if tool is None and not quicktex_available():
-            r = QMessageBox.question(
+            if not fly_question(
                 self,
                 "封面转 DDS",
                 "未安装 quicktex 且未在设置中配置 compressonatorcli，可能无法将 封面.png 转为 DDS。\n"
                 "是否仍继续（若已有工具可稍后在设置中配置后重试）？",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if r != QMessageBox.StandardButton.Yes:
+                yes_text="继续",
+                no_text="取消",
+            ):
                 return
         default_id = next_chuni_music_id(self._acus_root, start=7000)
         dlg = PjskInstallToAcusDialog(
