@@ -2208,7 +2208,11 @@ class MapAddDialog(FluentCaptionDialog):
                 pass
             prog.setValue(i)
             QApplication.processEvents()
+        prog.reset()
+        prog.setWindowModality(Qt.WindowModality.NonModal)
         prog.close()
+        prog.deleteLater()
+        QApplication.processEvents()
 
     def _get_chara_back_head_pixmaps(
         self, chara_id: int

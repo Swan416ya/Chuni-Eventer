@@ -43,5 +43,8 @@ def run_rebuild_game_index_with_progress(
             progress=on_progress,
         )
     finally:
+        prog.reset()
+        prog.setWindowModality(Qt.WindowModality.NonModal)
         prog.close()
         prog.deleteLater()
+        QApplication.processEvents()

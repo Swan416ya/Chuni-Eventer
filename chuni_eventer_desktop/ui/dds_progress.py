@@ -89,7 +89,13 @@ def run_bc3_jobs_with_progress(
     thread.start()
     loop.exec()
     thread.wait(120_000)
+    # 显式重置并解除模态，避免在某些无边框父窗体下残留“隐形模态层”
+    # 导致后续完成提示框无法点击。
+    dialog.reset()
+    dialog.setWindowModality(Qt.WindowModality.NonModal)
     dialog.close()
+    dialog.deleteLater()
+    QApplication.processEvents()
 
     if err:
         return False, err

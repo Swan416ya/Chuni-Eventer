@@ -162,9 +162,12 @@ class SwanSheetDownloadDialog(FluentCaptionDialog):
 
     def _close_progress(self) -> None:
         if self._progress_dialog is not None:
+            self._progress_dialog.reset()
+            self._progress_dialog.setWindowModality(Qt.WindowModality.NonModal)
             self._progress_dialog.close()
             self._progress_dialog.deleteLater()
             self._progress_dialog = None
+            QApplication.processEvents()
 
     def _on_refresh(self) -> None:
         base = self._base_url
@@ -207,6 +210,7 @@ class SwanSheetDownloadDialog(FluentCaptionDialog):
         self._status.setText(f"共 {len(self._entries)} 条可下载铺面。")
 
     def _on_fetch_fail(self, msg: str) -> None:
+        self._close_progress()
         self._status.setText("加载失败。")
         fly_critical(self, "无法获取铺面列表", msg)
 
@@ -256,9 +260,11 @@ class SwanSheetDownloadDialog(FluentCaptionDialog):
             QApplication.processEvents()
 
     def _on_install_ok(self, msg: str) -> None:
+        self._close_progress()
         self._status.setText("安装完成。")
         fly_message(self, "完成", msg)
 
     def _on_install_fail(self, msg: str) -> None:
+        self._close_progress()
         self._status.setText("安装失败。")
         fly_critical(self, "下载或解压失败", msg)
