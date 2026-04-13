@@ -28,6 +28,7 @@ from ..xml_writer import (
     write_ddsimage_xml,
 )
 from .dds_progress import run_bc3_jobs_with_progress
+from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message
 from .name_glyph_preview import wrap_name_input_with_preview
 from .works_dialogs import (
@@ -146,7 +147,7 @@ def _hint_style() -> str:
     return f"color:{c}; font-size:11px;"
 
 
-class CharaAddDialog(QDialog):
+class CharaAddDialog(FluentCaptionDialog):
     def __init__(self, *, acus_root: Path, tool_path: Path | None, parent=None) -> None:
         super().__init__(parent=parent)
         self.setModal(True)
@@ -275,7 +276,7 @@ class CharaAddDialog(QDialog):
 
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
-        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setContentsMargins(*fluent_caption_content_margins())
         layout.addWidget(id_card)
         layout.addWidget(tex_card)
         layout.addWidget(warn)

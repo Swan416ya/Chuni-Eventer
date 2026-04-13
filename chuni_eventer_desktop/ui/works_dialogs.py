@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..works_library import add_work_entry, load_works_library, remove_work_entry, WORKS_CUSTOM_ID_START
+from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .name_glyph_preview import wrap_name_input_with_preview
 from ..xml_writer import (
     CHARA_DEFAULT_NET_OPEN_ID,
@@ -77,7 +78,7 @@ def combo_works_id_str(cb: QComboBox) -> tuple[int, str]:
     return -1, "Invalid"
 
 
-class WorkCreateDialog(QDialog):
+class WorkCreateDialog(FluentCaptionDialog):
     """新建一条作品并写入缓存（可指定 id）。"""
 
     def __init__(self, *, suggest_id: int, acus_root: Path | None = None, parent=None) -> None:
@@ -108,6 +109,7 @@ class WorkCreateDialog(QDialog):
         btns.addWidget(ok)
 
         lay = QVBoxLayout(self)
+        lay.setContentsMargins(*fluent_caption_content_margins())
         lay.addLayout(form)
         lay.addWidget(works_warning_label())
         lay.addLayout(btns)
@@ -136,7 +138,7 @@ class WorkCreateDialog(QDialog):
         return self._work_id, self._work_str
 
 
-class WorksLibraryManagerDialog(QDialog):
+class WorksLibraryManagerDialog(FluentCaptionDialog):
     """列表维护缓存中的作品库。"""
 
     def __init__(self, *, acus_root: Path | None = None, parent=None) -> None:
@@ -162,6 +164,7 @@ class WorksLibraryManagerDialog(QDialog):
         close.clicked.connect(self.accept)
 
         lay = QVBoxLayout(self)
+        lay.setContentsMargins(*fluent_caption_content_margins())
         _hint = (
             "保存在应用 .cache/works_library.json。"
             "CharaWorks 须与角色 Chara.xml 的 releaseTag/netOpen 一致，请用「编辑作品」或运行 "
@@ -315,7 +318,7 @@ def patch_chara_xml_works(xml_path: Path, *, works_id: int, works_str: str) -> N
     ET.ElementTree(root).write(xml_path, encoding="utf-8", xml_declaration=True)
 
 
-class CharaEditWorksDialog(QDialog):
+class CharaEditWorksDialog(FluentCaptionDialog):
     """编辑已有 Chara.xml 的 works 字段。"""
 
     def __init__(self, *, xml_path: Path, parent=None) -> None:
@@ -340,6 +343,7 @@ class CharaEditWorksDialog(QDialog):
         btns.addWidget(ok)
 
         lay = QVBoxLayout(self)
+        lay.setContentsMargins(*fluent_caption_content_margins())
         lay.addWidget(QLabel(str(xml_path.name)))
         lay.addWidget(row)
         lay.addWidget(works_warning_label())
