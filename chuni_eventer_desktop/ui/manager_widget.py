@@ -6,24 +6,16 @@ import shutil
 import xml.etree.ElementTree as ET
 
 from PyQt6.QtCore import QPoint, Qt, QModelIndex, QSortFilterProxyModel
-from PyQt6.QtGui import QPixmap, QStandardItem, QStandardItemModel
+from PyQt6.QtGui import QColor, QPixmap, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QAbstractItemView,
-    QComboBox,
     QDialog,
     QFileDialog,
-    QFrame,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
-    QMessageBox,
-    QPushButton,
     QSizePolicy,
     QSplitter,
     QStackedWidget,
-    QTabWidget,
-    QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -32,16 +24,26 @@ from qfluentwidgets import (
     Action,
     BodyLabel,
     CaptionLabel,
+    CardWidget,
     ComboBox as FluentComboBox,
     FluentIcon as FIF,
     MenuAnimationType,
+    PushButton,
     RoundMenu,
+    SearchLineEdit,
+    TabWidget,
     TableView,
+    isDarkTheme,
 )
 
-from .fluent_dialogs import fly_critical, fly_message
+from .chara_add_dialog import (
+    CharaAddDialog,
+    chara_master_xml_path,
+    chara_variant_display_name,
+    remove_chara_variant_slot as remove_chara_variant_from_xml,
+)
+from .fluent_dialogs import fly_critical, fly_message, fly_question
 from .music_cards_view import MusicCardsView
-from .works_dialogs import CharaEditWorksDialog, WorksLibraryManagerDialog
 
 from ..chara_delete import delete_chara_from_acus
 from ..music_delete import execute_music_deletion, plan_music_deletion
@@ -73,6 +75,8 @@ from ..dds_preview import dds_to_pixmap
 from ..dds_quicktex import quicktex_available
 from ..game_data_index import GameDataIndex
 from ..trophy_preview import load_trophy_frame_pixmap, render_trophy_text_preview
+
+_CHARA_TAB_ADD = "__chara_tab_add__"
 
 _KIND_DEFS: tuple[tuple[str, str], ...] = (
     ("事件", "Event"),
@@ -134,9 +138,10 @@ class CharaDdsPreviewWidget(QWidget):
         self._left = QLabel()
         self._r1 = QLabel()
         self._r2 = QLabel()
+        border = "#4B5563" if isDarkTheme() else "#D1D5DB"
         for lb in (self._left, self._r1, self._r2):
             lb.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lb.setStyleSheet("border: 1px solid #555;")
+            lb.setStyleSheet(f"border: 1px solid {border}; border-radius: 4px;")
         self._right_wrap = QWidget()
         rv = QVBoxLayout(self._right_wrap)
         rv.setContentsMargins(0, 0, 0, 0)
@@ -233,52 +238,56 @@ class ManagerWidget(QWidget):
         self.kind.blockSignals(False)
         self.kind.currentIndexChanged.connect(self._on_kind_changed)
 
-        self.event_filter = QComboBox()
-        self.event_filter.addItems(["全部", "ULT/WE曲解锁", "地图解禁", "宣传(含DDS)", "其它"])
+        self.event_filter = FluentComboBox()
+        for t in ("全部", "ULT/WE曲解锁", "地图解禁", "宣传(含DDS)", "其它"):
+            self.event_filter.addItem(t, None, None)
         self.event_filter.currentIndexChanged.connect(self.reload)
         self.event_bar = QWidget()
         ev_row = QHBoxLayout(self.event_bar)
         ev_row.setContentsMargins(0, 0, 0, 0)
-        ev_row.addWidget(QLabel("事件分类"))
+        ev_row.addWidget(CaptionLabel("事件分类"))
         ev_row.addWidget(self.event_filter, stretch=1)
         self.event_bar.setVisible(False)
 
-        self.reward_type_filter = QComboBox()
-        self.reward_type_filter.addItem("全部类型", None)
-        self.reward_type_filter.addItem("功能票", 1)
-        self.reward_type_filter.addItem("称号", 2)
-        self.reward_type_filter.addItem("角色", 3)
-        self.reward_type_filter.addItem("姓名牌", 5)
-        self.reward_type_filter.addItem("乐曲解锁", 6)
-        self.reward_type_filter.addItem("地图图标", 7)
-        self.reward_type_filter.addItem("头像配件", 9)
-        self.reward_type_filter.addItem("场景", 13)
+        self.reward_type_filter = FluentComboBox()
+        for text, data in (
+            ("全部类型", None),
+            ("功能票", 1),
+            ("称号", 2),
+            ("角色", 3),
+            ("姓名牌", 5),
+            ("乐曲解锁", 6),
+            ("地图图标", 7),
+            ("头像配件", 9),
+            ("场景", 13),
+        ):
+            self.reward_type_filter.addItem(text, None, data)
         self.reward_type_filter.currentIndexChanged.connect(self.reload)
         self.reward_bar = QWidget()
         rr = QHBoxLayout(self.reward_bar)
         rr.setContentsMargins(0, 0, 0, 0)
-        rr.addWidget(QLabel("奖励类型"))
+        rr.addWidget(CaptionLabel("奖励类型"))
         rr.addWidget(self.reward_type_filter, stretch=1)
         self.reward_bar.setVisible(False)
 
-        self.search = QLineEdit()
+        self.search = SearchLineEdit()
         self.search.setPlaceholderText(
             "搜索：ID / 名称 / 关键字（地图双击编辑；歌曲双击生成课题称号）"
         )
         self.search.textChanged.connect(self._apply_filter)
 
-        self.refresh_btn = QPushButton("刷新")
+        self.refresh_btn = PushButton("刷新")
         self.refresh_btn.clicked.connect(self.reload)
-        self._game_music_btn = QPushButton("游戏乐曲资源…")
+        self._game_music_btn = PushButton("游戏乐曲资源…")
         self._game_music_btn.setToolTip("只读浏览游戏目录内已扫描数据包中的全部乐曲（含版本标签、流派）")
         self._game_music_btn.clicked.connect(self._on_game_music_browser)
         self._game_music_btn.setVisible(False)
 
         top = QHBoxLayout()
-        top.addWidget(QLabel("类型"))
+        top.addWidget(CaptionLabel("类型"))
         top.addWidget(self.kind)
         top.addSpacing(8)
-        top.addWidget(QLabel("搜索"))
+        top.addWidget(CaptionLabel("搜索"))
         top.addWidget(self.search, stretch=1)
         top.addStretch(1)
         top.addWidget(self._game_music_btn)
@@ -309,49 +318,43 @@ class ManagerWidget(QWidget):
         pv = QVBoxLayout(self.preview_section)
         pv.setContentsMargins(0, 0, 0, 0)
         pv.setSpacing(8)
-        self.preview_title = CaptionLabel("DDS 预览（quicktex 或 compressonator）")
         self.simple_preview = WidthScaledPreviewLabel()
-        self.chara_variant_tabs = QTabWidget()
-        for i in range(10):
-            self.chara_variant_tabs.addTab(QWidget(), str(i))
+        self.chara_variant_tabs = TabWidget(self)
+        self.chara_variant_tabs.setTabsClosable(False)
+        self.chara_variant_tabs.tabBar.setAddButtonVisible(False)
+        tb_view = self.chara_variant_tabs.tabBar.view
+        tb_view.setObjectName("charaVariantTabStrip")
+        tb_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        tb_view.customContextMenuRequested.connect(self._on_chara_variant_tab_context_menu)
         self.chara_variant_tabs.currentChanged.connect(self._on_chara_variant_changed)
+        self._style_chara_variant_tabs()
         self.chara_triple = CharaDdsPreviewWidget()
-        pv.addWidget(self.preview_title)
-        pv.addWidget(self.simple_preview)
         pv.addWidget(self.chara_variant_tabs)
+        pv.addWidget(self.simple_preview)
         pv.addWidget(self.chara_triple)
         self.preview_section.setVisible(False)
 
-        self._chara_works_bar = QWidget()
-        cwb = QHBoxLayout(self._chara_works_bar)
-        cwb.setContentsMargins(0, 4, 0, 0)
-        self._btn_chara_edit_works = QPushButton("编辑作品（works）…")
-        self._btn_chara_works_lib = QPushButton("管理作品库…")
-        self._btn_chara_edit_works.clicked.connect(self._on_chara_edit_works_clicked)
-        self._btn_chara_works_lib.clicked.connect(self._on_chara_works_library_clicked)
-        cwb.addWidget(self._btn_chara_edit_works)
-        cwb.addWidget(self._btn_chara_works_lib)
-        cwb.addStretch(1)
-        self._chara_works_bar.setVisible(False)
-
-        self.attrs_table = QTableWidget(0, 2)
-        self.attrs_table.setHorizontalHeaderLabels(["属性", "值"])
+        self._attrs_model = QStandardItemModel(0, 2, self)
+        self._attrs_model.setHorizontalHeaderLabels(["属性", "值"])
+        self.attrs_table = TableView(self)
+        self.attrs_table.setModel(self._attrs_model)
+        self.attrs_table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.attrs_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.attrs_table.horizontalHeader().setStretchLastSection(True)
         self.attrs_table.verticalHeader().setVisible(False)
-        self.attrs_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.attrs_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.attrs_table.setAlternatingRowColors(True)
         self.attrs_table.setWordWrap(True)
+        self.attrs_table.setShowGrid(False)
 
         self._selected_chara: CharaItem | None = None
         self._chara_variant_map: dict[int, int] = {}
 
         # right panel：上 DDS（有则显示），下属性表
-        right_card = QFrame()
-        right_card.setFrameShape(QFrame.Shape.NoFrame)
+        right_card = CardWidget()
         right_layout = QVBoxLayout(right_card)
-        right_layout.setContentsMargins(12, 12, 12, 12)
+        right_layout.setContentsMargins(12, 6, 12, 12)
         right_layout.addWidget(self.preview_section, stretch=0)
-        right_layout.addWidget(self._chara_works_bar)
         right_layout.addWidget(BodyLabel("属性"))
         right_layout.addWidget(self.attrs_table, stretch=1)
 
@@ -424,7 +427,7 @@ class ManagerWidget(QWidget):
 
     def reload(self) -> None:
         self.model.removeRows(0, self.model.rowCount())
-        self.attrs_table.setRowCount(0)
+        self._attrs_model.removeRows(0, self._attrs_model.rowCount())
         self._hide_preview_section()
         self.simple_preview.clear_source()
         self.chara_triple.clear()
@@ -528,11 +531,34 @@ class ManagerWidget(QWidget):
 
     def _hide_preview_section(self) -> None:
         self.preview_section.setVisible(False)
-        self.preview_title.setVisible(True)
         self.simple_preview.setVisible(False)
         self.chara_variant_tabs.setVisible(False)
         self.chara_triple.setVisible(False)
-        self._chara_works_bar.setVisible(False)
+
+    def _style_chara_variant_tabs(self) -> None:
+        """标签条与选中态：与右侧卡片背景区分开，便于辨认。"""
+        strip = self.chara_variant_tabs.tabBar.view
+        if isDarkTheme():
+            strip.setStyleSheet(
+                "QWidget#charaVariantTabStrip {"
+                " background-color: rgba(255, 255, 255, 0.07);"
+                " border: 1px solid rgba(255, 255, 255, 0.14);"
+                " border-radius: 8px;"
+                "}"
+            )
+        else:
+            strip.setStyleSheet(
+                "QWidget#charaVariantTabStrip {"
+                " background-color: #eef2f7;"
+                " border: 1px solid #d8dee9;"
+                " border-radius: 8px;"
+                "}"
+            )
+        # 参数顺序：浅色主题下的选中底色、深色主题下的选中底色
+        self.chara_variant_tabs.setTabSelectedBackgroundColor(
+            QColor(191, 219, 254),
+            QColor(52, 73, 112),
+        )
 
     def _rel_acus_path(self, p: Path) -> str:
         try:
@@ -549,14 +575,14 @@ class ManagerWidget(QWidget):
         return str(x.id)
 
     def _append_attr_row(self, label: str, value: str) -> None:
-        r = self.attrs_table.rowCount()
-        self.attrs_table.insertRow(r)
-        self.attrs_table.setItem(r, 0, QTableWidgetItem(label))
-        self.attrs_table.setItem(r, 1, QTableWidgetItem(value))
+        c0 = QStandardItem(label)
+        c1 = QStandardItem(value)
+        c0.setEditable(False)
+        c1.setEditable(False)
+        self._attrs_model.appendRow([c0, c1])
 
     def _fill_attrs_table(self, it: object) -> None:
-        self._chara_works_bar.setVisible(False)
-        self.attrs_table.setRowCount(0)
+        self._attrs_model.removeRows(0, self._attrs_model.rowCount())
         for label, val in self._attr_rows(it):
             self._append_attr_row(label, val)
         self.attrs_table.resizeColumnsToContents()
@@ -922,7 +948,7 @@ class ManagerWidget(QWidget):
             return
         tool = self._get_tool_path()
         if tool is None and not quicktex_available():
-            QMessageBox.critical(
+            fly_critical(
                 self.window(),
                 "无法更换封面",
                 "未安装 quicktex 且未在【设置】中配置 compressonatorcli，无法将图片转为 BC3 DDS。",
@@ -956,7 +982,7 @@ class ManagerWidget(QWidget):
             return
         plan = plan_music_deletion(self._acus_root, it)
         if plan.music_dir is None or not plan.music_dir.is_dir():
-            QMessageBox.warning(
+            fly_message(
                 self.window(),
                 "无法删除",
                 "未找到该乐曲在 ACUS/music 下的目录，已中止。",
@@ -964,19 +990,12 @@ class ManagerWidget(QWidget):
             return
         lines = plan.summary_lines()
         body = "将执行以下操作：\n\n• " + "\n• ".join(lines) + "\n\n此操作不可撤销，确定删除？"
-        r = QMessageBox.question(
-            self.window(),
-            "删除乐曲",
-            body,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if r != QMessageBox.StandardButton.Yes:
+        if not fly_question(self.window(), "删除乐曲", body):
             return
         try:
             execute_music_deletion(plan)
         except Exception as e:
-            QMessageBox.critical(self.window(), "删除失败", str(e))
+            fly_critical(self.window(), "删除失败", str(e))
             return
         self.reload()
 
@@ -1003,11 +1022,6 @@ class ManagerWidget(QWidget):
         if k == "Chara":
             if not isinstance(payload, CharaItem):
                 return
-            act_works = Action(FIF.EDIT, "编辑作品（works）…", self.table)
-            act_works.triggered.connect(
-                lambda checked=False, p=payload: self._open_chara_edit_works_dialog(p)
-            )
-            menu.addAction(act_works)
             act_del = Action(FIF.DELETE, "删除角色…", self.table)
             act_del.triggered.connect(lambda checked=False, p=payload: self._delete_chara_item(p))
             menu.addAction(act_del)
@@ -1049,26 +1063,19 @@ class ManagerWidget(QWidget):
         try:
             plan = plan_trophy_deletion(self._acus_root, it, scan_charas(self._acus_root))
         except ValueError as e:
-            QMessageBox.warning(self.window(), "无法删除", str(e))
+            fly_message(self.window(), "无法删除", str(e))
             return
         lines = plan.summary_lines(include_chara=with_chara)
         if with_chara and plan.linked_chara_ids and not plan.chara_items_to_remove:
             lines.append("（未找到可删的角色目录，将仅删除称号）")
         title = "删除称号并删除关联角色" if with_chara else "删除称号"
         body = "将执行以下操作：\n\n• " + "\n• ".join(lines) + "\n\n此操作不可撤销，确定删除？"
-        r = QMessageBox.question(
-            self.window(),
-            title,
-            body,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if r != QMessageBox.StandardButton.Yes:
+        if not fly_question(self.window(), title, body):
             return
         try:
             execute_trophy_deletion(self._acus_root, plan, delete_linked_charas=with_chara)
         except Exception as e:
-            QMessageBox.critical(self.window(), "删除失败", str(e))
+            fly_critical(self.window(), "删除失败", str(e))
             return
         fly_message(self.window(), "已删除", "已移除所选称号" + ("及关联角色资源。" if with_chara else "。"))
         self.reload()
@@ -1076,7 +1083,7 @@ class ManagerWidget(QWidget):
     def _delete_quest_item(self, it: QuestItem) -> None:
         qdir = it.xml_path.parent
         if not qdir.is_dir():
-            QMessageBox.warning(
+            fly_message(
                 self.window(),
                 "无法删除",
                 f"未找到任务目录：\n{qdir}",
@@ -1088,50 +1095,26 @@ class ManagerWidget(QWidget):
             f"• {self._rel_acus_path(qdir)}\n\n"
             "此操作不可撤销，确定删除？"
         )
-        r = QMessageBox.question(
-            self.window(),
-            "删除任务",
-            body,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if r != QMessageBox.StandardButton.Yes:
+        if not fly_question(self.window(), "删除任务", body):
             return
         try:
             shutil.rmtree(qdir)
         except Exception as e:
-            QMessageBox.critical(self.window(), "删除失败", str(e))
+            fly_critical(self.window(), "删除失败", str(e))
             return
         fly_message(self.window(), "已删除", f"已移除任务 {it.name.id} 的目录。")
         self.reload()
 
-    def _on_chara_edit_works_clicked(self) -> None:
-        it = self._selected_chara
-        if it is not None:
-            self._open_chara_edit_works_dialog(it)
-
-    def _on_chara_works_library_clicked(self) -> None:
-        WorksLibraryManagerDialog(acus_root=self._acus_root, parent=self.window()).exec()
-
-    def _open_chara_edit_works_dialog(self, it: CharaItem) -> None:
-        dlg = CharaEditWorksDialog(xml_path=it.xml_path, parent=self.window())
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            self.reload()
-            fly_message(self.window(), "已更新", "已写入 Chara.xml 的 works，并已尝试同步 charaWorks。")
-
     def _delete_chara_item(self, it: CharaItem) -> None:
         nm = (it.name.str or "").strip() or "—"
-        r = QMessageBox.question(
+        if not fly_question(
             self.window(),
             "删除角色",
             f"将永久删除角色 ID {it.name.id}（{nm}）在 ACUS 下的目录：\n"
             f"• chara/{it.xml_path.parent.name}/\n"
             f"• ddsImage/ddsImage{it.name.id:06d}/（若存在）\n\n"
             "此操作不可撤销，确定删除？",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if r != QMessageBox.StandardButton.Yes:
+        ):
             return
         try:
             delete_chara_from_acus(self._acus_root, it)
@@ -1165,7 +1148,6 @@ class ManagerWidget(QWidget):
         if hint:
             self._append_attr_row("预览说明", hint)
         if pm is not None:
-            self.preview_title.setVisible(True)
             self.simple_preview.setVisible(True)
             self.chara_variant_tabs.setVisible(False)
             self.chara_triple.setVisible(False)
@@ -1229,32 +1211,181 @@ class ManagerWidget(QWidget):
             if dlg.exec() == QDialog.DialogCode.Accepted:
                 self.reload()
 
+    def _chara_master_xml(self, it: CharaItem) -> Path:
+        p = chara_master_xml_path(self._acus_root, it.name.id)
+        return p if p.is_file() else it.xml_path
+
+    def _rebuild_chara_variant_tabs(self) -> None:
+        self.chara_variant_tabs.blockSignals(True)
+        self.chara_variant_tabs.clear()
+        slots = sorted(self._chara_variant_map.keys())
+        for s in slots:
+            page = QWidget(self.chara_variant_tabs)
+            self.chara_variant_tabs.addTab(page, str(s), routeKey=f"cv_slot_{s}")
+            idx = self.chara_variant_tabs.count() - 1
+            self.chara_variant_tabs.setTabData(idx, s)
+        if self._next_free_chara_variant_slot() is not None:
+            page = QWidget(self.chara_variant_tabs)
+            self.chara_variant_tabs.addTab(page, "+", routeKey="cv_slot_add")
+            idx = self.chara_variant_tabs.count() - 1
+            self.chara_variant_tabs.setTabData(idx, _CHARA_TAB_ADD)
+        self.chara_variant_tabs.blockSignals(False)
+        if self.chara_variant_tabs.count() > 0:
+            self.chara_variant_tabs.setCurrentIndex(0)
+
+    def _next_free_chara_variant_slot(self) -> int | None:
+        for i in range(1, 10):
+            if i not in self._chara_variant_map:
+                return i
+        return None
+
+    def _current_chara_variant_slot(self) -> int | None:
+        idx = self.chara_variant_tabs.currentIndex()
+        if idx < 0:
+            return None
+        d = self.chara_variant_tabs.tabData(idx)
+        if d == _CHARA_TAB_ADD or not isinstance(d, int):
+            return None
+        return d
+
+    def _chara_variant_tab_index_at(self, pos_in_view: QPoint) -> int:
+        bar = self.chara_variant_tabs.tabBar
+        for i in range(bar.count()):
+            if bar.tabItem(i).geometry().contains(pos_in_view):
+                return i
+        return -1
+
+    def _on_chara_variant_tab_context_menu(self, pos: QPoint) -> None:
+        if self._selected_chara is None:
+            return
+        idx = self._chara_variant_tab_index_at(pos)
+        if idx < 0:
+            return
+        d = self.chara_variant_tabs.tabData(idx)
+        if d == _CHARA_TAB_ADD:
+            return
+        if not isinstance(d, int):
+            return
+        slot = d
+        menu = RoundMenu(parent=self.chara_variant_tabs.tabBar.view)
+        menu.setItemHeight(36)
+        vf = menu.view.font()
+        vf.setPointSize(max(12, vf.pointSize()))
+        menu.view.setFont(vf)
+        gpos = self.chara_variant_tabs.tabBar.view.mapToGlobal(pos)
+        act_edit = Action(FIF.EDIT, "编辑此变体…", self.chara_variant_tabs)
+        act_edit.triggered.connect(lambda _=False, sl=slot: self._open_chara_variant_editor(sl))
+        menu.addAction(act_edit)
+        if slot >= 1:
+            act_del = Action(FIF.DELETE, "删除此变体…", self.chara_variant_tabs)
+            act_del.triggered.connect(lambda _=False, sl=slot: self._delete_chara_variant_from_tab(sl))
+            menu.addAction(act_del)
+        menu.exec(gpos, ani=True, aniType=MenuAnimationType.DROP_DOWN)
+
+    def _open_chara_variant_editor(self, variant_slot: int) -> None:
+        it = self._selected_chara
+        if it is None:
+            return
+        master = self._chara_master_xml(it)
+        if not master.is_file():
+            fly_message(self.window(), "无法编辑", f"未找到主 Chara.xml：\n{master}")
+            return
+        tool = self._get_tool_path()
+        if tool is None and not quicktex_available():
+            fly_critical(
+                self.window(),
+                "无法生成 DDS",
+                "请安装 quicktex 或在【设置】中配置 compressonatorcli。",
+            )
+            return
+        base = it.name.id // 10
+        dlg = CharaAddDialog(acus_root=self._acus_root, tool_path=tool, parent=self.window())
+        dlg.base.setText(str(base))
+        dlg.variant.setText(str(variant_slot))
+        dlg.base.setReadOnly(True)
+        dlg.variant.setReadOnly(True)
+        nm = chara_variant_display_name(master, variant_slot)
+        if nm:
+            dlg.name.setText(nm)
+        ill = ""
+        try:
+            root = ET.parse(master).getroot()
+            ill = (root.findtext("illustratorName/str") or "").strip()
+        except Exception:
+            pass
+        if ill:
+            dlg.illustrator.setText(ill)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.reload()
+
+    def _open_chara_variant_add_dialog(self) -> None:
+        it = self._selected_chara
+        if it is None:
+            return
+        slot = self._next_free_chara_variant_slot()
+        if slot is None:
+            fly_message(self.window(), "无法新增", "addImages1~9 已全部占用。")
+            return
+        master = self._chara_master_xml(it)
+        if not master.is_file():
+            fly_message(self.window(), "无法新增", f"未找到主 Chara.xml：\n{master}")
+            return
+        tool = self._get_tool_path()
+        if tool is None and not quicktex_available():
+            fly_critical(
+                self.window(),
+                "无法生成 DDS",
+                "请安装 quicktex 或在【设置】中配置 compressonatorcli。",
+            )
+            return
+        base = it.name.id // 10
+        dlg = CharaAddDialog(acus_root=self._acus_root, tool_path=tool, parent=self.window())
+        dlg.base.setText(str(base))
+        dlg.variant.setText(str(slot))
+        dlg.base.setReadOnly(True)
+        dlg.variant.setReadOnly(True)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.reload()
+
+    def _delete_chara_variant_from_tab(self, variant_slot: int) -> None:
+        it = self._selected_chara
+        if it is None:
+            return
+        if variant_slot < 1:
+            fly_message(self.window(), "无法删除", "默认立绘槽位（0）不能从此处删除。")
+            return
+        master = self._chara_master_xml(it)
+        if not master.is_file():
+            fly_message(self.window(), "无法删除", f"未找到主 Chara.xml：\n{master}")
+            return
+        if not fly_question(
+            self.window(),
+            "删除变体",
+            f"将从主 Chara.xml 移除 addImages{variant_slot}。\n"
+            f"不会自动删除 ddsImage 目录下的文件，可稍后手动清理。\n\n确定删除？",
+        ):
+            return
+        try:
+            remove_chara_variant_from_xml(xml_path=master, variant=variant_slot)
+        except Exception as e:
+            fly_critical(self.window(), "删除失败", str(e))
+            return
+        fly_message(self.window(), "已删除", f"已移除 addImages{variant_slot}。")
+        self.reload()
+
     def _show_chara_detail(self, it: CharaItem) -> None:
         self._selected_chara = it
-        self._chara_works_bar.setVisible(True)
-        self._chara_variant_map, meta = self._parse_chara_variants_and_meta(it.xml_path)
-        self.attrs_table.setRowCount(0)
+        master = self._chara_master_xml(it)
+        self._chara_variant_map, meta = self._parse_chara_variants_and_meta(master)
+        self._attrs_model.removeRows(0, self._attrs_model.rowCount())
         for label, val in self._chara_attr_rows(it, meta):
             self._append_attr_row(label, val)
         self.attrs_table.resizeColumnsToContents()
 
-        self.preview_title.setVisible(True)
         self.simple_preview.setVisible(False)
         self.simple_preview.clear_source()
         self.chara_variant_tabs.setVisible(True)
-        cur = self.chara_variant_tabs.currentIndex()
-        for i in range(10):
-            has_variant = i in self._chara_variant_map
-            self.chara_variant_tabs.setTabEnabled(i, has_variant)
-            self.chara_variant_tabs.setTabText(i, f"{i}{' *' if has_variant else ''}")
-        if cur not in self._chara_variant_map:
-            next_idx = 0
-            for i in range(10):
-                if i in self._chara_variant_map:
-                    next_idx = i
-                    break
-            self.chara_variant_tabs.setCurrentIndex(next_idx)
-
+        self._rebuild_chara_variant_tabs()
         self._update_chara_variant_preview()
         self.preview_section.setVisible(True)
 
@@ -1295,14 +1426,27 @@ class ManagerWidget(QWidget):
             variant_map[i] = int(vid_raw)
         return variant_map, meta
 
-    def _on_chara_variant_changed(self, _idx: int) -> None:
-        if self._selected_chara is not None:
-            self._update_chara_variant_preview()
+    def _on_chara_variant_changed(self, idx: int) -> None:
+        if self._selected_chara is None or idx < 0:
+            return
+        d = self.chara_variant_tabs.tabData(idx)
+        if d == _CHARA_TAB_ADD:
+            self.chara_variant_tabs.blockSignals(True)
+            prev = max(0, idx - 1)
+            self.chara_variant_tabs.setCurrentIndex(prev)
+            self.chara_variant_tabs.blockSignals(False)
+            self._open_chara_variant_add_dialog()
+            return
+        self._update_chara_variant_preview()
 
     def _update_chara_variant_preview(self) -> None:
         if self._selected_chara is None:
             return
-        var = self.chara_variant_tabs.currentIndex()
+        var = self._current_chara_variant_slot()
+        if var is None:
+            self.chara_triple.clear()
+            self.chara_triple.setVisible(False)
+            return
         cid = self._chara_variant_map.get(var)
         tool = self._get_tool_path()
         if cid is None:
@@ -1348,17 +1492,22 @@ class ManagerWidget(QWidget):
         self.chara_triple.set_pixmaps(pms[0], pms[1], pms[2])
 
     def _upsert_chara_preview_hint(self, text: str) -> None:
-        for r in range(self.attrs_table.rowCount()):
-            it0 = self.attrs_table.item(r, 0)
+        for r in range(self._attrs_model.rowCount()):
+            it0 = self._attrs_model.item(r, 0)
             if it0 is not None and it0.text() == "预览说明":
-                self.attrs_table.setItem(r, 1, QTableWidgetItem(text))
+                it1 = self._attrs_model.item(r, 1)
+                if it1 is None:
+                    it1 = QStandardItem()
+                    it1.setEditable(False)
+                    self._attrs_model.setItem(r, 1, it1)
+                it1.setText(text)
                 return
         self._append_attr_row("预览说明", text)
 
     def _remove_chara_preview_hint(self) -> None:
-        for r in range(self.attrs_table.rowCount() - 1, -1, -1):
-            it0 = self.attrs_table.item(r, 0)
+        for r in range(self._attrs_model.rowCount() - 1, -1, -1):
+            it0 = self._attrs_model.item(r, 0)
             if it0 is not None and it0.text() == "预览说明":
-                self.attrs_table.removeRow(r)
+                self._attrs_model.removeRow(r)
                 return
 

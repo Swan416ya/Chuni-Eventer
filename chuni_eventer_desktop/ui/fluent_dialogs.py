@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QWidget
+from PyQt6.QtWidgets import QDialog, QWidget
 
 from qfluentwidgets import MessageBox
 
@@ -20,3 +20,18 @@ def fly_warning(parent: QWidget | None, title: str, text: str) -> None:
 
 def fly_critical(parent: QWidget | None, title: str, text: str) -> None:
     fly_message(parent, title, text, single_button=True)
+
+
+def fly_question(
+    parent: QWidget | None,
+    title: str,
+    text: str,
+    *,
+    yes_text: str = "确定",
+    no_text: str = "取消",
+) -> bool:
+    """Fluent MessageBox：是 / 否。返回 True 表示点击确认（yes）。"""
+    w = MessageBox(title, text, parent)
+    w.yesButton.setText(yes_text)
+    w.cancelButton.setText(no_text)
+    return w.exec() == QDialog.DialogCode.Accepted

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QVBoxLayout, QWidget
 
 from qfluentwidgets import (
     FluentIcon,
@@ -34,7 +34,19 @@ from .save_patch_dialog import SavePatchDialog
 from .event_add_dialog import EventAddDialog
 from .quest_add_dialog import QuestAddDialog
 from .mapbonus_dialogs import MapBonusEditDialog
-from .fluent_dialogs import fly_critical, fly_message
+from .fluent_dialogs import fly_critical, fly_message, fly_warning
+from .nav_icons import (
+    SVG_CHARA,
+    SVG_EVENT,
+    SVG_MAP,
+    SVG_MAPBONUS,
+    SVG_MUSIC,
+    SVG_NAMEPLATE,
+    SVG_QUEST,
+    SVG_REWARD,
+    SVG_TROPHY,
+    nav_qicon,
+)
 
 
 class MainWindow(MSFluentWindow):
@@ -89,16 +101,16 @@ class MainWindow(MSFluentWindow):
 
         self.stackedWidget.addWidget(self._workspace)
 
-        self._nav_specs: list[tuple[str, FluentIcon, str, str, str]] = [
-            ("nav_chara", FluentIcon.PEOPLE, "角色", "Chara", "角色"),
-            ("nav_map", FluentIcon.GAME, "地图", "Map", "地图"),
-            ("nav_event", FluentIcon.CALENDAR, "事件", "Event", "事件"),
-            ("nav_quest", FluentIcon.DOCUMENT, "任务", "Quest", "任务"),
-            ("nav_music", FluentIcon.MUSIC, "歌曲", "Music", "歌曲"),
-            ("nav_trophy", FluentIcon.CERTIFICATE, "称号", "Trophy", "称号"),
-            ("nav_nameplate", FluentIcon.EMOJI_TAB_SYMBOLS, "名牌", "NamePlate", "名牌"),
-            ("nav_reward", FluentIcon.SHOPPING_CART, "奖励", "Reward", "奖励"),
-            ("nav_mapbonus", FluentIcon.DOCUMENT, "加成", "MapBonus", "加成"),
+        self._nav_specs: list[tuple[str, object, str, str, str]] = [
+            ("nav_chara", nav_qicon(SVG_CHARA), "角色", "Chara", "角色"),
+            ("nav_map", nav_qicon(SVG_MAP), "地图", "Map", "地图"),
+            ("nav_event", nav_qicon(SVG_EVENT), "事件", "Event", "事件"),
+            ("nav_quest", nav_qicon(SVG_QUEST), "任务", "Quest", "任务"),
+            ("nav_music", nav_qicon(SVG_MUSIC), "歌曲", "Music", "歌曲"),
+            ("nav_trophy", nav_qicon(SVG_TROPHY), "称号", "Trophy", "称号"),
+            ("nav_nameplate", nav_qicon(SVG_NAMEPLATE), "名牌", "NamePlate", "名牌"),
+            ("nav_reward", nav_qicon(SVG_REWARD), "奖励", "Reward", "奖励"),
+            ("nav_mapbonus", nav_qicon(SVG_MAPBONUS), "加成", "MapBonus", "加成"),
         ]
         for route_key, icon, text, kind, title in self._nav_specs:
             self.navigationInterface.addItem(
@@ -335,7 +347,7 @@ class MainWindow(MSFluentWindow):
 
         tool = self._get_tool_path_or_none()
         if tool is None and not quicktex_available():
-            QMessageBox.critical(
+            fly_critical(
                 self,
                 "无法生成 DDS",
                 "请任选其一：\n"
@@ -366,7 +378,7 @@ class MainWindow(MSFluentWindow):
             if dlg.exec() == dlg.DialogCode.Accepted:
                 self._on_refresh()
         else:
-            QMessageBox.information(
+            fly_warning(
                 self,
                 "未实现",
                 "当前已实现【新增角色】【新增地图】【新增事件】【新增任务】【新增歌曲课题称号】【新增称号】【新增名牌】【新增奖励】。"

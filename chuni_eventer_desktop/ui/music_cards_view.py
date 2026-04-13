@@ -20,12 +20,11 @@ from PyQt6.QtWidgets import (
     QApplication,
     QFrame,
     QGridLayout,
-    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
-from qfluentwidgets import Action, FluentIcon as FIF, MenuAnimationType, RoundMenu
+from qfluentwidgets import Action, FluentIcon as FIF, MenuAnimationType, RoundMenu, ScrollArea
 
 
 from ..acus_scan import MusicItem
@@ -439,7 +438,7 @@ class MusicCardsView(QWidget):
         self._last_card_size = -1
         self._last_viewport_w = -1
 
-        self._scroll = QScrollArea(self)
+        self._scroll = ScrollArea(self)
         # False：内容区按网格真实宽高布局，否则视口会把子控件压成单列竖排
         self._scroll.setWidgetResizable(False)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)

@@ -4,17 +4,16 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (
-    QDialog,
-    QFileDialog,
-    QFormLayout,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QMessageBox,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
+from PyQt6.QtWidgets import QDialog, QFileDialog, QHBoxLayout, QVBoxLayout, QWidget
+
+from qfluentwidgets import (
+    BodyLabel,
+    CardWidget,
+    ComboBox as FluentComboBox,
+    LineEdit,
+    PrimaryPushButton,
+    PushButton,
+    isDarkTheme,
 )
 
 from ..chuni_formats import ChuniCharaId
@@ -29,8 +28,15 @@ from ..xml_writer import (
     write_ddsimage_xml,
 )
 from .dds_progress import run_bc3_jobs_with_progress
+from .fluent_dialogs import fly_critical, fly_message
 from .name_glyph_preview import wrap_name_input_with_preview
-from .works_dialogs import combo_works_id_str, make_works_picker_row, works_warning_label
+from .works_dialogs import (
+    WORKS_WARNING_TEXT,
+    WorkCreateDialog,
+    WorksLibraryManagerDialog,
+    combo_works_id_str,
+    load_works_library,
+)
 
 
 def _set_idstr(node: ET.Element, val_id: int, val_str: str) -> None:
@@ -93,29 +99,76 @@ def update_chara_variant_slot(*, acus_root: Path, base_id: int, variant: int, va
     return xml_path
 
 
+def chara_master_xml_path(acus_root: Path, any_chara_id: int) -> Path:
+    """主角色 Chara.xml（base*10 目录），与变体 addImages 写入位置一致。"""
+    base_raw = (any_chara_id // 10) * 10
+    return acus_root / "chara" / f"chara{base_raw:06d}" / "Chara.xml"
+
+
+def chara_variant_display_name(xml_path: Path, variant_slot: int) -> str:
+    try:
+        root = ET.parse(xml_path).getroot()
+    except Exception:
+        return ""
+    if variant_slot == 0:
+        return (root.findtext("name/str") or "").strip()
+    sec = root.find(f"addImages{variant_slot}")
+    if sec is None:
+        return ""
+    return (sec.findtext("charaName/str") or "").strip()
+
+
+def remove_chara_variant_slot(*, xml_path: Path, variant: int) -> None:
+    """从主 Chara.xml 移除 addImages{variant}（仅 1~9）。"""
+    if not (1 <= variant <= 9):
+        raise ValueError("仅可删除 addImages1~9")
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+    sec = root.find(f"addImages{variant}")
+    if sec is None:
+        return
+    root.remove(sec)
+    ET.indent(root, space="  ")
+    tree.write(xml_path, encoding="utf-8", xml_declaration=True)
+
+
+def _fill_works_fluent_combo(cb: FluentComboBox, *, include_invalid: bool = True) -> None:
+    cb.clear()
+    if include_invalid:
+        cb.addItem("（不填）Invalid — 检索可能受限", None, (-1, "Invalid"))
+    entries, _ = load_works_library()
+    for e in entries:
+        cb.addItem(f"{e.id} · {e.str}", None, (e.id, e.str))
+
+
+def _hint_style() -> str:
+    c = "#9CA3AF" if isDarkTheme() else "#6B7280"
+    return f"color:{c}; font-size:11px;"
+
+
 class CharaAddDialog(QDialog):
     def __init__(self, *, acus_root: Path, tool_path: Path | None, parent=None) -> None:
         super().__init__(parent=parent)
-        self.setWindowTitle("新增角色")
         self.setModal(True)
+        self.resize(540, 680)
         self._acus_root = acus_root
         self._tool = tool_path
 
-        self.base = QLineEdit()
+        self.base = LineEdit(self)
         self.base.setPlaceholderText("角色基ID（例如 2469）")
-        self.variant = QLineEdit()
+        self.variant = LineEdit(self)
         self.variant.setPlaceholderText("变体 0-9（例如 0）")
-        self.cid_preview = QLineEdit()
+        self.cid_preview = LineEdit(self)
         self.cid_preview.setReadOnly(True)
 
-        self.name = QLineEdit()
+        self.name = LineEdit(self)
         self.name.setPlaceholderText("角色显示名")
-        self.illustrator = QLineEdit()
+        self.illustrator = LineEdit(self)
         self.illustrator.setPlaceholderText("绘师 / illustratorName.str（可选，不填则 Invalid）")
 
-        self.head = QLineEdit()
-        self.half = QLineEdit()
-        self.full = QLineEdit()
+        self.head = LineEdit(self)
+        self.half = LineEdit(self)
+        self.full = LineEdit(self)
         for e in (self.head, self.half, self.full):
             e.setPlaceholderText("选择图片或 DDS（DDS 需为 BC3）")
 
@@ -123,81 +176,146 @@ class CharaAddDialog(QDialog):
         self.variant.textChanged.connect(self._update_preview)
         self._update_preview()
 
-        form = QFormLayout()
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        form.addRow("基ID", self.base)
-        form.addRow("变体", self.variant)
-        form.addRow("最终ID", self.cid_preview)
-        form.addRow("角色名", wrap_name_input_with_preview(self.name, parent=self))
-        form.addRow("绘师（可选）", self.illustrator)
-        self._works_row, self._works_combo = make_works_picker_row(parent=self, acus_root=self._acus_root)
-        form.addRow("作品（works）", self._works_row)
-        form.addRow("", works_warning_label())
-        # releaseTagName 默认 0 / v1 1.00.00（CHARA_DEFAULT_*，与底包已有 id=0 的 ReleaseTag 对齐）。
-        # A001：CHU_UI_Character_*_00/01/02 = 全身 / 半身 / 大头（与 ddsFile0/1/2 一致）
-        form.addRow(
-            "全身（_00）",
+        id_card = CardWidget(self)
+        id_lay = QVBoxLayout(id_card)
+        id_lay.setContentsMargins(16, 16, 16, 16)
+        id_lay.setSpacing(10)
+        id_lay.addWidget(BodyLabel("ID 与名称", self))
+        id_lay.addWidget(self._row("基 ID", self.base))
+        id_lay.addWidget(self._row("变体", self.variant))
+        id_lay.addWidget(self._row("最终 ID", self.cid_preview))
+        id_lay.addWidget(self._row("角色名", wrap_name_input_with_preview(self.name, parent=self)))
+        id_lay.addWidget(self._row("绘师（可选）", self.illustrator))
+
+        self._works_combo = FluentComboBox(self)
+        _fill_works_fluent_combo(self._works_combo)
+        works_row = QWidget(self)
+        wh = QHBoxLayout(works_row)
+        wh.setContentsMargins(0, 0, 0, 0)
+        wh.setSpacing(8)
+        wh.addWidget(self._works_combo, stretch=1)
+        new_btn = PushButton("新建…", self)
+        mgr_btn = PushButton("管理库…", self)
+
+        def _new_works() -> None:
+            _, nid = load_works_library()
+            dlg = WorkCreateDialog(suggest_id=nid, acus_root=self._acus_root, parent=self)
+            if dlg.exec() == QDialog.DialogCode.Accepted and dlg.created:
+                i, s = dlg.created
+                _fill_works_fluent_combo(self._works_combo)
+                for j in range(self._works_combo.count()):
+                    d = self._works_combo.itemData(j)
+                    if d is not None and len(d) == 2 and int(d[0]) == i:
+                        self._works_combo.setCurrentIndex(j)
+                        break
+
+        def _mgr_works() -> None:
+            WorksLibraryManagerDialog(acus_root=self._acus_root, parent=self).exec()
+            cur = combo_works_id_str(self._works_combo)
+            _fill_works_fluent_combo(self._works_combo)
+            for j in range(self._works_combo.count()):
+                d = self._works_combo.itemData(j)
+                if d is not None and len(d) == 2 and int(d[0]) == cur[0] and d[1] == cur[1]:
+                    self._works_combo.setCurrentIndex(j)
+                    return
+            self._works_combo.setCurrentIndex(0)
+
+        new_btn.clicked.connect(_new_works)
+        mgr_btn.clicked.connect(_mgr_works)
+        wh.addWidget(new_btn)
+        wh.addWidget(mgr_btn)
+        id_lay.addWidget(self._row("作品（works）", works_row))
+        ww = BodyLabel(WORKS_WARNING_TEXT, self)
+        ww.setWordWrap(True)
+        ww.setStyleSheet("color:#B45309; font-size:12px;")
+        id_lay.addWidget(ww)
+
+        tex_card = CardWidget(self)
+        tex_lay = QVBoxLayout(tex_card)
+        tex_lay.setContentsMargins(16, 16, 16, 16)
+        tex_lay.setSpacing(10)
+        tex_lay.addWidget(BodyLabel("贴图（CHU_UI_Character：全身 _00 / 半身 _01 / 大头 _02）", self))
+        tex_lay.addWidget(
             self._file_row(
                 self.full,
                 "选择全身图",
                 dim_hint="参考分辨率：1024 × 1024 像素；也可直传 BC3 DDS。",
-            ),
+            )
         )
-        form.addRow(
-            "半身（_01）",
+        tex_lay.addWidget(
             self._file_row(
                 self.half,
                 "选择半身图",
                 dim_hint="参考分辨率：512 × 512 像素；也可直传 BC3 DDS。",
-            ),
+            )
         )
-        form.addRow(
-            "大头（_02）",
+        tex_lay.addWidget(
             self._file_row(
                 self.head,
                 "选择大头图",
                 dim_hint="参考分辨率：128 × 128 像素；也可直传 BC3 DDS。",
-            ),
+            )
         )
 
-        ok = QPushButton("生成并写入 ACUS")
-        ok.clicked.connect(self._run)
-        cancel = QPushButton("取消")
-        cancel.clicked.connect(self.reject)
+        warn = BodyLabel(
+            "提示：角色名请尽量使用日语字库内可显示字符；超出字库的汉字在游戏内可能显示为方块。",
+            self,
+        )
+        warn.setWordWrap(True)
+        warn.setStyleSheet("color:#B45309;")
 
+        ok = PrimaryPushButton("生成并写入 ACUS", self)
+        ok.clicked.connect(self._run)
+        cancel = PushButton("取消", self)
+        cancel.clicked.connect(self.reject)
         btns = QHBoxLayout()
         btns.addStretch(1)
         btns.addWidget(cancel)
         btns.addWidget(ok)
 
         layout = QVBoxLayout(self)
-        layout.addLayout(form)
-        warn = QLabel("提示：角色名请尽量使用日语字库内可显示字符；超出字库的汉字在游戏内可能显示为方块。")
-        warn.setStyleSheet("color:#B45309;")
+        layout.setSpacing(12)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.addWidget(id_card)
+        layout.addWidget(tex_card)
         layout.addWidget(warn)
         layout.addLayout(btns)
 
-    def _file_row(self, edit: QLineEdit, title: str, *, dim_hint: str | None = None) -> QWidget:
-        w = QWidget()
+        self.setWindowTitle("编辑角色" if self.base.isReadOnly() else "新增角色")
+
+    def _row(self, label: str, field: QWidget) -> QWidget:
+        w = QWidget(self)
+        h = QHBoxLayout(w)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(12)
+        lb = BodyLabel(label, self)
+        lb.setMinimumWidth(108)
+        h.addWidget(lb, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        h.addWidget(field, 1)
+        return w
+
+    def _file_row(self, edit: LineEdit, title: str, *, dim_hint: str | None = None) -> QWidget:
+        w = QWidget(self)
         v = QVBoxLayout(w)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(4)
-        row = QWidget()
+        row = QWidget(self)
         h = QHBoxLayout(row)
         h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(8)
         h.addWidget(edit, stretch=1)
-        b = QPushButton("浏览…")
+        b = PushButton("浏览…", self)
         b.clicked.connect(lambda: self._pick_into(edit, title))
         h.addWidget(b)
         v.addWidget(row)
         if dim_hint:
-            hint = QLabel(dim_hint)
-            hint.setStyleSheet("color:#6B7280; font-size: 11px;")
+            hint = BodyLabel(dim_hint, self)
             hint.setWordWrap(True)
+            hint.setStyleSheet(_hint_style())
             v.addWidget(hint)
         return w
 
-    def _pick_into(self, edit: QLineEdit, title: str) -> None:
+    def _pick_into(self, edit: LineEdit, title: str) -> None:
         path, _ = QFileDialog.getOpenFileName(self, title)
         if path:
             edit.setText(path)
@@ -281,10 +399,9 @@ class CharaAddDialog(QDialog):
                 msg += f"\n并生成主角色 chara{cid.raw6}/Chara.xml"
             else:
                 msg += f"\n并更新主角色 chara{base*10:06d}/Chara.xml 的 addImages{var}"
-            QMessageBox.information(self, "完成", msg)
+            fly_message(self, "完成", msg)
             self.accept()
         except DdsToolError as e:
-            QMessageBox.critical(self, "DDS 转换失败", str(e))
+            fly_critical(self, "DDS 转换失败", str(e))
         except Exception as e:
-            QMessageBox.critical(self, "错误", str(e))
-
+            fly_critical(self, "错误", str(e))
