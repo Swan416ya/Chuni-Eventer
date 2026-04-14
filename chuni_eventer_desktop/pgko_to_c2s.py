@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import struct
 import zlib
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
@@ -368,6 +369,288 @@ def _read_ugc_text(path: Path) -> str:
             return path.read_text(encoding="utf-8", errors="ignore")
 
 
+def _b36_int(s: str) -> int:
+    return int((s or "0").strip().upper(), 36)
+
+
+def _parse_bar_tick(text: str) -> tuple[int, int]:
+    s = text.strip()
+    if "'" not in s:
+        raise ValueError(f"invalid BarTick: {text!r}")
+    a, b = s.split("'", 1)
+    return int(a), int(b)
+
+
+def _build_bar_to_tick(beat_events: list[_MgxcEvent]) -> callable:
+    arr = sorted(beat_events, key=lambda x: x.tick)
+    if not arr or arr[0].tick != 0:
+        arr.insert(0, _MgxcEvent(kind="beat", tick=0, value=4.0, value2=4))
+    bar_starts: list[tuple[int, int, int, int]] = []
+    acc = 0
+    for i, b in enumerate(arr):
+        num = max(1, int(round(b.value)))
+        den = max(1, int(b.value2))
+        if i > 0:
+            prev_bar = arr[i - 1].tick
+            prev_num = max(1, int(round(arr[i - 1].value)))
+            prev_den = max(1, int(arr[i - 1].value2))
+            acc += int(round(480 * prev_num / prev_den * max(0, b.tick - prev_bar)))
+        bar_starts.append((b.tick, acc, num, den))
+
+    def to_abs(bar: int, tick_in_bar: int) -> int:
+        chosen = bar_starts[0]
+        for item in bar_starts:
+            if item[0] <= bar:
+                chosen = item
+            else:
+                break
+        start_bar, start_tick, num, den = chosen
+        bar_len = int(round(480 * num / den))
+        return int(start_tick + max(0, bar - start_bar) * bar_len + tick_in_bar)
+
+    return to_abs
+
+
+def _parse_ugc(path: Path) -> tuple[_MgxcMeta, list[_MgxcEvent], list[_MgxcNote]]:
+    txt = _read_ugc_text(path)
+    lines = txt.splitlines()
+    meta = _MgxcMeta()
+    events: list[_MgxcEvent] = []
+    notes: list[_MgxcNote] = []
+    in_body = False
+    current_timeline = 0
+    seq = 0
+
+    bpm_raw: list[tuple[int, int, float]] = []
+    smod_raw: list[tuple[int, int, float]] = []
+    til_raw: list[tuple[int, int, int, float]] = []
+
+    for raw in lines:
+        ln = raw.strip()
+        if not ln:
+            continue
+        if ln.startswith("'"):
+            continue
+        if ln.startswith("@ENDHEAD"):
+            in_body = True
+            continue
+        if ln.startswith("@"):
+            parts = ln.split("\t")
+            cmd = parts[0][1:].upper()
+            args = [p for p in parts[1:] if p != ""]
+            if cmd == "TITLE" and args:
+                meta = _MgxcMeta(**{**meta.__dict__, "title": args[0].strip()})
+            elif cmd == "ARTIST" and args:
+                meta = _MgxcMeta(**{**meta.__dict__, "artist": args[0].strip()})
+            elif cmd == "DESIGN" and args:
+                meta = _MgxcMeta(**{**meta.__dict__, "designer": args[0].strip()})
+            elif cmd == "SONGID" and args:
+                meta = _MgxcMeta(**{**meta.__dict__, "song_id": args[0].strip()})
+            elif cmd == "BGM" and args:
+                meta = _MgxcMeta(**{**meta.__dict__, "bgm_file": args[0].strip()})
+            elif cmd == "DIFF" and args:
+                try:
+                    meta = _MgxcMeta(**{**meta.__dict__, "difficulty": int(args[0])})
+                except Exception:
+                    pass
+            elif cmd == "CONST" and args:
+                try:
+                    meta = _MgxcMeta(**{**meta.__dict__, "level_const": float(args[0])})
+                except Exception:
+                    pass
+            elif cmd == "BPM" and len(args) >= 2:
+                try:
+                    b, t = _parse_bar_tick(args[0])
+                    bpm_raw.append((b, t, float(args[1])))
+                except Exception:
+                    pass
+            elif cmd == "BEAT" and len(args) >= 3:
+                try:
+                    events.append(
+                        _MgxcEvent(kind="beat", tick=int(args[0]), value=float(int(args[1])), value2=int(args[2]))
+                    )
+                except Exception:
+                    pass
+            elif cmd == "SPDMOD" and len(args) >= 2:
+                try:
+                    b, t = _parse_bar_tick(args[0])
+                    smod_raw.append((b, t, float(args[1])))
+                except Exception:
+                    pass
+            elif cmd == "TIL" and len(args) >= 3:
+                try:
+                    tid = int(args[0])
+                    b, t = _parse_bar_tick(args[1])
+                    til_raw.append((tid, b, t, float(args[2])))
+                except Exception:
+                    pass
+            elif cmd == "USETIL" and args:
+                try:
+                    current_timeline = int(args[0])
+                except Exception:
+                    current_timeline = 0
+            continue
+        if not in_body or not ln.startswith("#"):
+            continue
+
+    beats = [e for e in events if e.kind == "beat"]
+    to_abs = _build_bar_to_tick(beats)
+    for b, t, v in bpm_raw:
+        events.append(_MgxcEvent(kind="bpm", tick=to_abs(b, t), value=v))
+    for b, t, v in smod_raw:
+        events.append(_MgxcEvent(kind="smod", tick=to_abs(b, t), value=v))
+    for tid, b, t, v in til_raw:
+        events.append(_MgxcEvent(kind="til", tick=to_abs(b, t), value=v, value2=tid))
+
+    parent_re = re.compile(r"^#([^:>]+):([^,]+)(?:,(.*))?$")
+    child_re = re.compile(r"^#([0-9]+)>(.+)$")
+    parent: dict[str, object] | None = None
+
+    def add_note(typ: int, long_attr: int, direction: int, x: int, width: int, tick: int, height: int = 0) -> None:
+        nonlocal seq
+        notes.append(
+            _MgxcNote(
+                typ=typ,
+                long_attr=long_attr,
+                direction=direction,
+                ex_attr=0,
+                x=max(0, int(x)),
+                width=max(1, int(width)),
+                height=int(height),
+                tick=max(0, int(tick)),
+                timeline=int(current_timeline),
+                seq=seq,
+            )
+        )
+        seq += 1
+
+    def parse_parent_payload(payload: str) -> dict[str, object]:
+        p = payload.strip()
+        t = p[:1]
+        d: dict[str, object] = {"t": t, "raw": p}
+        if t in ("t", "d", "h", "s"):
+            d["x"] = _b36_int(p[1:2]); d["w"] = _b36_int(p[2:3])
+        elif t in ("x", "f"):
+            d["x"] = _b36_int(p[1:2]); d["w"] = _b36_int(p[2:3]); d["dir"] = p[3:4]
+        elif t == "a":
+            d["x"] = _b36_int(p[1:2]); d["w"] = _b36_int(p[2:3]); d["dd"] = p[3:5]
+        elif t == "H":
+            d["x"] = _b36_int(p[1:2]); d["w"] = _b36_int(p[2:3])
+        elif t in ("S", "C"):
+            d["x"] = _b36_int(p[1:2]); d["w"] = _b36_int(p[2:3]); d["hh"] = _b36_int(p[3:5])
+        return d
+
+    def parse_child_payload(payload: str) -> dict[str, object]:
+        p = payload.strip()
+        t = p[:1]
+        d: dict[str, object] = {"t": t, "raw": p}
+        if len(p) >= 3:
+            d["x"] = _b36_int(p[1:2]); d["w"] = _b36_int(p[2:3])
+        if len(p) >= 5:
+            d["hh"] = _b36_int(p[3:5])
+        return d
+
+    def map_extap_dir(ch: str) -> int:
+        return {"U": 2, "D": 3, "C": 4, "L": 6, "R": 5, "A": 11, "W": 12, "I": 13}.get(ch.upper(), 2)
+
+    def map_flick_dir(ch: str) -> int:
+        return {"L": 6, "R": 5, "A": 0}.get(ch.upper(), 0)
+
+    def map_air_dir(code: str) -> int:
+        u = code.upper()
+        return {"UC": 0, "UL": 8, "UR": 7, "DC": 3, "DL": 10, "DR": 9}.get(u, 0)
+
+    def flush_parent() -> None:
+        nonlocal parent
+        if not parent:
+            return
+        p = parent
+        t = str(p["t"])
+        st = int(p["tick"])
+        x = int(p.get("x", 0))
+        w = int(p.get("w", 1))
+        children = list(p.get("children", []))
+        if t == "t":
+            add_note(0x01, 0x00, 0, x, w, st)
+        elif t == "x":
+            add_note(0x02, 0x00, map_extap_dir(str(p.get("dir", "U"))), x, w, st)
+        elif t == "f":
+            add_note(0x03, 0x00, map_flick_dir(str(p.get("dir", "A"))), x, w, st)
+        elif t == "d":
+            add_note(0x04, 0x00, 0, x, w, st)
+        elif t == "a":
+            add_note(0x07, 0x00, map_air_dir(str(p.get("dd", "UC"))), x, w, st)
+        elif t == "h":
+            add_note(0x05, 0x01, 0, x, w, st)
+            if children:
+                off, ch = children[-1]
+                cx = int(ch.get("x", x)); cw = int(ch.get("w", w))
+                add_note(0x05, 0x05, 0, cx, cw, st + int(off))
+        elif t == "s":
+            add_note(0x06, 0x01, 0, x, w, st)
+            for i, (off, ch) in enumerate(children):
+                cx = int(ch.get("x", x)); cw = int(ch.get("w", w))
+                is_last = i == len(children) - 1
+                la = 0x03 if str(ch.get("t", "s")) == "c" else (0x05 if is_last else 0x02)
+                add_note(0x06, la, 0, cx, cw, st + int(off))
+        elif t == "H":
+            add_note(0x08, 0x01, 0, x, w, st)
+            for i, (off, ch) in enumerate(children):
+                is_last = i == len(children) - 1
+                la = 0x05 if is_last else 0x02
+                add_note(0x08, la, 0, int(ch.get("x", x)), int(ch.get("w", w)), st + int(off))
+        elif t == "S":
+            add_note(0x09, 0x01, 0, x, w, st, height=int(p.get("hh", 0)))
+            for i, (off, ch) in enumerate(children):
+                is_last = i == len(children) - 1
+                la = 0x03 if str(ch.get("t", "s")) == "c" else (0x05 if is_last else 0x02)
+                add_note(
+                    0x09, la, 0, int(ch.get("x", x)), int(ch.get("w", w)), st + int(off), height=int(ch.get("hh", p.get("hh", 0)))
+                )
+        elif t == "C":
+            add_note(0x0A, 0x01, 0, x, w, st, height=int(p.get("hh", 0)))
+            for i, (off, ch) in enumerate(children):
+                is_last = i == len(children) - 1
+                la = 0x05 if is_last else 0x02
+                add_note(0x0A, la, 0, int(ch.get("x", x)), int(ch.get("w", w)), st + int(off), height=int(ch.get("hh", p.get("hh", 0))))
+        parent = None
+
+    for raw in lines:
+        ln = raw.strip()
+        if not ln:
+            continue
+        if ln.startswith("@USETIL"):
+            parts = ln.split("\t")
+            if len(parts) >= 2:
+                try:
+                    current_timeline = int(parts[1].strip())
+                except Exception:
+                    current_timeline = 0
+            continue
+        if not ln.startswith("#"):
+            continue
+        m_child = child_re.match(ln)
+        if m_child:
+            if parent is None:
+                continue
+            off = int(m_child.group(1))
+            ch = parse_child_payload(m_child.group(2))
+            parent.setdefault("children", []).append((off, ch))
+            continue
+        m_parent = parent_re.match(ln)
+        if not m_parent:
+            continue
+        flush_parent()
+        bar, inbar = _parse_bar_tick(m_parent.group(1))
+        abs_tick = to_abs(bar, inbar)
+        info = parse_parent_payload(m_parent.group(2))
+        info["tick"] = abs_tick
+        info["children"] = []
+        parent = info
+    flush_parent()
+    return meta, events, notes
+
+
 def _try_read_ugc_designer_near(mgxc_path: Path) -> str:
     for p in _iter_ugc_paths_near_mgxc(mgxc_path):
         try:
@@ -451,47 +734,15 @@ def _resolve_mgxc_audio_file(meta: _MgxcMeta, mgxc_path: Path) -> Path | None:
     return cands[0] if cands else None
 
 
-def convert_pgko_chart_pick_to_c2s(pick: PgkoChartPick) -> Path:
-    out, _backend = convert_pgko_chart_pick_to_c2s_with_backend(pick)
-    return out
-
-
-def convert_pgko_chart_pick_to_c2s_with_backend(pick: PgkoChartPick) -> tuple[Path, str]:
-    """
-    内置转码（第二版）：
-    - 支持 mgxc -> c2s（BPM/TAP/HOLD/SLIDE + Air/AirHold 基础映射）
-    - ugc 通过同目录/邻近 mgxc 回退
-    """
-    source_path = pick.path
-    source_ext = pick.ext.lower().strip(".")
-    if source_ext != "mgxc":
-        fallback = _find_fallback_mgxc(source_path)
-        if fallback is not None:
-            source_path = fallback
-            source_ext = "mgxc"
-        else:
-            nearby = sorted(
-                p.name
-                for p in source_path.parent.glob("*")
-                if p.is_file() and p.suffix.lower() in (".mgxc", ".ugc")
-            )
-            nearby_tip = ", ".join(nearby) if nearby else "（同目录未找到 mgxc/ugc）"
-            raise NotImplementedError(
-                f"暂不支持 {pick.ext} 直转，且未找到可回退的 mgxc。\n"
-                "即：暂不支持 ugc 直转；部分不含 mgxc 文件的谱面无法转化。\n"
-                f"源文件：{source_path}\n"
-                f"同目录可见谱面文件：{nearby_tip}"
-            )
-
-    out = source_path.with_suffix(".c2s")
-    try:
-        convert_mgxc_with_penguin_bridge(input_mgxc=source_path, output_c2s=out)
-        return out, "cs"
-    except Exception:
-        # bridge 不可用时回退 Python 实现（开发期兜底）
-        pass
-
-    meta, events, raw_notes = _parse_mgxc(source_path)
+def _emit_c2s_from_semantic(
+    *,
+    out: Path,
+    meta: _MgxcMeta,
+    events: list[_MgxcEvent],
+    raw_notes: list[_MgxcNote],
+    source_path: Path,
+    creator_fallback: str,
+) -> tuple[Path, str]:
     if not events:
         events = [_MgxcEvent(kind="bpm", tick=0, value=120.0)]
 
@@ -542,9 +793,7 @@ def convert_pgko_chart_pick_to_c2s_with_backend(pick: PgkoChartPick) -> tuple[Pa
                 end = max(0, int(round(smod_events[i + 1].tick * scale)))
             else:
                 end = max(start + 1, int(round(last_note_tick_480 * scale)))
-            if end <= start:
-                continue
-            if abs(float(s.value) - 1.0) < 1e-6:
+            if end <= start or abs(float(s.value) - 1.0) < 1e-6:
                 continue
             sp = DcmSetting()
             sp.measure = start // 384
@@ -570,9 +819,7 @@ def convert_pgko_chart_pick_to_c2s_with_backend(pick: PgkoChartPick) -> tuple[Pa
                     end = max(0, int(round(arr[i + 1].tick * scale)))
                 else:
                     end = max(start + 1, int(round(last_timeline_tick_480 * scale)))
-                if end <= start:
-                    continue
-                if abs(float(e.value) - 1.0) < 1e-6:
+                if end <= start or abs(float(e.value) - 1.0) < 1e-6:
                     continue
                 sp = TimelineSpeedSetting()
                 sp.measure = start // 384
@@ -585,7 +832,6 @@ def convert_pgko_chart_pick_to_c2s_with_backend(pick: PgkoChartPick) -> tuple[Pa
     converted_notes = sorted(raw_notes, key=lambda x: (x.tick, x.seq))
     ground_anchors: list[_GroundAnchor] = []
 
-    # pass1: build coarse ground anchors for air linkage decisions
     hold_begins: list[_MgxcNote] = []
     slide_chain: list[_MgxcNote] = []
     slide_started = False
@@ -601,14 +847,7 @@ def convert_pgko_chart_pick_to_c2s_with_backend(pick: PgkoChartPick) -> tuple[Pa
             elif n.long_attr == 0x05 and hold_begins:
                 st = hold_begins.pop(0)
                 st_t = max(0, int(round(st.tick * scale)))
-                ground_anchors.append(
-                    _GroundAnchor(
-                        tick=st_t,
-                        lane=int(st.x),
-                        width=max(1, int(st.width)),
-                        linkage="HLD",
-                    )
-                )
+                ground_anchors.append(_GroundAnchor(tick=st_t, lane=int(st.x), width=max(1, int(st.width)), linkage="HLD"))
         elif n.typ == 0x06:
             if n.long_attr == 0x01:
                 slide_chain = [n]
@@ -619,18 +858,12 @@ def convert_pgko_chart_pick_to_c2s_with_backend(pick: PgkoChartPick) -> tuple[Pa
                     for p in slide_chain[:-1]:
                         p_t = max(0, int(round(p.tick * scale)))
                         ground_anchors.append(
-                            _GroundAnchor(
-                                tick=p_t,
-                                lane=int(p.x),
-                                width=max(1, int(p.width)),
-                                linkage="SLD",
-                            )
+                            _GroundAnchor(tick=p_t, lane=int(p.x), width=max(1, int(p.width)), linkage="SLD")
                         )
                     slide_started = False
                     slide_chain = []
 
     def _resolve_air_linkage(tick: int, lane: int, width: int, fallback: str = "TAP") -> str:
-        # prefer same-tick covering anchor, then nearest previous covering, finally nearest previous any
         same_cover: list[tuple[int, _GroundAnchor]] = []
         prev_cover: list[tuple[int, _GroundAnchor]] = []
         prev_any: list[tuple[int, _GroundAnchor]] = []
@@ -659,23 +892,10 @@ def convert_pgko_chart_pick_to_c2s_with_backend(pick: PgkoChartPick) -> tuple[Pa
         return fallback
 
     def _map_extap_effect(direction: int) -> str:
-        # Align with PenguinTools ExTap direction mapping
-        return {
-            2: "UP",  # Up
-            3: "DW",  # Down
-            4: "CE",  # Center
-            5: "LS",  # Left Side
-            6: "RS",  # Right Side
-            11: "LC",  # RotateLeft
-            12: "RC",  # RotateRight
-            13: "BS",  # InOut
-            14: "CE",  # OutIn -> CE
-        }.get(direction, "UP")
+        return {2: "UP", 3: "DW", 4: "CE", 5: "LS", 6: "RS", 11: "LC", 12: "RC", 13: "BS", 14: "CE"}.get(direction, "UP")
 
     def _map_flick_dir(direction: int) -> str:
-        if direction in (6, 8, 10, 12):  # right-ish
-            return "R"
-        return "L"
+        return "R" if direction in (6, 8, 10, 12) else "L"
 
     notes_out: list[TapNote | ChargeNote | FlickNote | MineNote | HoldNote | SlideNote | AirNote | AirHold] = []
     active_holds: list[_MgxcNote] = []
@@ -687,117 +907,53 @@ def convert_pgko_chart_pick_to_c2s_with_backend(pick: PgkoChartPick) -> tuple[Pa
         t = max(0, int(round(n.tick * scale)))
         lane = int(n.x)
         width = max(1, int(n.width))
-        if n.typ == 0x01:  # tap
-            x = TapNote()
-            x.measure = t // 384
-            x.tick = t % 384
-            x.lane = lane
-            x.width = width
-            notes_out.append(x)
-        elif n.typ == 0x02:  # extap -> chr
-            x = ChargeNote()
-            x.measure = t // 384
-            x.tick = t % 384
-            x.lane = lane
-            x.width = width
-            x.effect = _map_extap_effect(int(n.direction))
-            notes_out.append(x)
-        elif n.typ == 0x03:  # flick
-            x = FlickNote()
-            x.measure = t // 384
-            x.tick = t % 384
-            x.lane = lane
-            x.width = width
-            x.direction_tag = _map_flick_dir(int(n.direction))
-            notes_out.append(x)
-        elif n.typ == 0x04:  # damage
-            x = MineNote()
-            x.measure = t // 384
-            x.tick = t % 384
-            x.lane = lane
-            x.width = width
-            notes_out.append(x)
-        elif n.typ == 0x07:  # air
-            x = AirNote()
-            x.measure = t // 384
-            x.tick = t % 384
-            x.lane = lane
-            x.width = width
-            # mgxc direction -> c2s direction
-            if n.direction in (7,):  # UpLeft
-                x.direction = -1
-                x.isUp = True
-            elif n.direction in (8,):  # UpRight
-                x.direction = 1
-                x.isUp = True
-            elif n.direction in (9,):  # DownLeft
-                x.direction = -1
-                x.isUp = False
-            elif n.direction in (10,):  # DownRight
-                x.direction = 1
-                x.isUp = False
-            elif n.direction in (3,):  # Down
-                x.direction = 0
-                x.isUp = False
-            else:  # Up/Auto/others
-                x.direction = 0
-                x.isUp = True
+        if n.typ == 0x01:
+            x = TapNote(); x.measure = t // 384; x.tick = t % 384; x.lane = lane; x.width = width; notes_out.append(x)
+        elif n.typ == 0x02:
+            x = ChargeNote(); x.measure = t // 384; x.tick = t % 384; x.lane = lane; x.width = width; x.effect = _map_extap_effect(int(n.direction)); notes_out.append(x)
+        elif n.typ == 0x03:
+            x = FlickNote(); x.measure = t // 384; x.tick = t % 384; x.lane = lane; x.width = width; x.direction_tag = _map_flick_dir(int(n.direction)); notes_out.append(x)
+        elif n.typ == 0x04:
+            x = MineNote(); x.measure = t // 384; x.tick = t % 384; x.lane = lane; x.width = width; notes_out.append(x)
+        elif n.typ == 0x07:
+            x = AirNote(); x.measure = t // 384; x.tick = t % 384; x.lane = lane; x.width = width
+            if n.direction in (7,): x.direction = -1; x.isUp = True
+            elif n.direction in (8,): x.direction = 1; x.isUp = True
+            elif n.direction in (9,): x.direction = -1; x.isUp = False
+            elif n.direction in (10,): x.direction = 1; x.isUp = False
+            elif n.direction in (3,): x.direction = 0; x.isUp = False
+            else: x.direction = 0; x.isUp = True
             x.linkage = _resolve_air_linkage(t, lane, width, fallback="TAP")
             notes_out.append(x)
-        elif n.typ == 0x05:  # hold
+        elif n.typ == 0x05:
             if n.long_attr == 0x01:
                 active_holds.append(n)
             elif n.long_attr == 0x05 and active_holds:
                 st = active_holds.pop(0)
-                st_t = max(0, int(round(st.tick * scale)))
-                end_t = t
-                if end_t <= st_t:
-                    continue
-                x = HoldNote()
-                x.measure = st_t // 384
-                x.tick = st_t % 384
-                x.lane = int(st.x)
-                x.width = max(1, int(st.width))
-                x.length = end_t - st_t
-                notes_out.append(x)
-        elif n.typ in (0x08, 0x09):  # airhold/airslide
+                st_t = max(0, int(round(st.tick * scale))); end_t = t
+                if end_t <= st_t: continue
+                x = HoldNote(); x.measure = st_t // 384; x.tick = st_t % 384; x.lane = int(st.x); x.width = max(1, int(st.width)); x.length = end_t - st_t; notes_out.append(x)
+        elif n.typ in (0x08, 0x09):
             if n.long_attr == 0x01:
                 active_air_holds.append(n)
             elif n.long_attr in (0x02, 0x03, 0x04, 0x05, 0x06) and active_air_holds:
                 st = active_air_holds[-1]
-                st_t = max(0, int(round(st.tick * scale)))
-                end_t = max(0, int(round(n.tick * scale)))
-                if end_t <= st_t:
-                    continue
-                x = AirHold()
-                x.measure = st_t // 384
-                x.tick = st_t % 384
-                x.lane = int(st.x)
-                x.width = max(1, int(st.width))
-                x.length = end_t - st_t
-                notes_out.append(x)
+                st_t = max(0, int(round(st.tick * scale))); end_t = max(0, int(round(n.tick * scale)))
+                if end_t <= st_t: continue
+                x = AirHold(); x.measure = st_t // 384; x.tick = st_t % 384; x.lane = int(st.x); x.width = max(1, int(st.width)); x.length = end_t - st_t; notes_out.append(x)
                 active_air_holds[-1] = n
-                if n.long_attr in (0x05, 0x06):
-                    active_air_holds.pop()
-        elif n.typ == 0x0A:  # aircrush -> approximate as chained AHD
+                if n.long_attr in (0x05, 0x06): active_air_holds.pop()
+        elif n.typ == 0x0A:
             if n.long_attr == 0x01:
                 active_air_crash.append(n)
             elif n.long_attr in (0x02, 0x03, 0x04, 0x05, 0x06) and active_air_crash:
                 st = active_air_crash[-1]
-                st_t = max(0, int(round(st.tick * scale)))
-                end_t = max(0, int(round(n.tick * scale)))
+                st_t = max(0, int(round(st.tick * scale))); end_t = max(0, int(round(n.tick * scale)))
                 if end_t > st_t:
-                    x = AirHold()
-                    x.measure = st_t // 384
-                    x.tick = st_t % 384
-                    x.lane = int(st.x)
-                    x.width = max(1, int(st.width))
-                    x.length = end_t - st_t
-                    notes_out.append(x)
+                    x = AirHold(); x.measure = st_t // 384; x.tick = st_t % 384; x.lane = int(st.x); x.width = max(1, int(st.width)); x.length = end_t - st_t; notes_out.append(x)
                 active_air_crash[-1] = n
-                if n.long_attr in (0x05, 0x06):
-                    active_air_crash.pop()
-        elif n.typ == 0x06:  # slide
+                if n.long_attr in (0x05, 0x06): active_air_crash.pop()
+        elif n.typ == 0x06:
             if n.long_attr == 0x01:
                 slide_start = n
                 active_slides = [n]
@@ -805,48 +961,76 @@ def convert_pgko_chart_pick_to_c2s_with_backend(pick: PgkoChartPick) -> tuple[Pa
                 active_slides.append(n)
                 if n.long_attr in (0x05, 0x06):
                     for i in range(len(active_slides) - 1):
-                        a = active_slides[i]
-                        b = active_slides[i + 1]
-                        at = max(0, int(round(a.tick * scale)))
-                        bt = max(0, int(round(b.tick * scale)))
-                        if bt <= at:
-                            continue
-                        x = SlideNote()
-                        x.measure = at // 384
-                        x.tick = at % 384
-                        x.lane = int(a.x)
-                        x.width = max(1, int(a.width))
-                        x.length = bt - at
-                        x.end_lane = int(b.x)
-                        x.end_width = max(1, int(b.width))
-                        x.is_curve = b.long_attr in (0x03, 0x04, 0x06)
-                        notes_out.append(x)
+                        a = active_slides[i]; b = active_slides[i + 1]
+                        at = max(0, int(round(a.tick * scale))); bt = max(0, int(round(b.tick * scale)))
+                        if bt <= at: continue
+                        x = SlideNote(); x.measure = at // 384; x.tick = at % 384; x.lane = int(a.x); x.width = max(1, int(a.width)); x.length = bt - at; x.end_lane = int(b.x); x.end_width = max(1, int(b.width)); x.is_curve = b.long_attr in (0x03, 0x04, 0x06); notes_out.append(x)
                     slide_start = None
                     active_slides = []
 
-    ugc_designer = _try_read_ugc_designer_near(source_path)
-    creator_name = (
-        ugc_designer
-        or (meta.designer or "").strip()
-        or (meta.artist or "").strip()
-        or "MGXC import"
-    )
-
+    creator_name = (meta.designer or "").strip() or (meta.artist or "").strip() or creator_fallback
     b0 = beat_events[0]
-    met_def_hdr = (
-        max(1, int(b0.value2)),
-        max(1, int(round(b0.value))),
-    )
-    text = create_file(
-        defs,
-        notes_out,
-        creator=creator_name,
-        bpm_def=float(bpm_def),
-        met_def=met_def_hdr,
-        include_footer=False,
-    )
+    met_def_hdr = (max(1, int(b0.value2)), max(1, int(round(b0.value))))
+    text = create_file(defs, notes_out, creator=creator_name, bpm_def=float(bpm_def), met_def=met_def_hdr, include_footer=False)
     out.write_text(text, encoding="utf-8")
     return out, "python"
+
+
+def convert_pgko_chart_pick_to_c2s(pick: PgkoChartPick) -> Path:
+    out, _backend = convert_pgko_chart_pick_to_c2s_with_backend(pick)
+    return out
+
+
+def convert_pgko_chart_pick_to_c2s_with_backend(pick: PgkoChartPick) -> tuple[Path, str]:
+    """
+    内置转码（第二版）：
+    - 支持 mgxc -> c2s（BPM/TAP/HOLD/SLIDE + Air/AirHold 基础映射）
+    - ugc 通过同目录/邻近 mgxc 回退
+    """
+    source_path = pick.path
+    source_ext = pick.ext.lower().strip(".")
+
+    if source_ext == "ugc":
+        out = source_path.with_suffix(".c2s")
+        meta, events, raw_notes = _parse_ugc(source_path)
+        return _emit_c2s_from_semantic(
+            out=out,
+            meta=meta,
+            events=events,
+            raw_notes=raw_notes,
+            source_path=source_path,
+            creator_fallback="UGC import",
+        )
+
+    if source_ext != "mgxc":
+        nearby = sorted(
+            p.name
+            for p in source_path.parent.glob("*")
+            if p.is_file() and p.suffix.lower() in (".mgxc", ".ugc")
+        )
+        nearby_tip = ", ".join(nearby) if nearby else "（同目录未找到 mgxc/ugc）"
+        raise NotImplementedError(
+            f"暂不支持 {pick.ext} 直转，且未找到可处理的输入。\n"
+            f"源文件：{source_path}\n"
+            f"同目录可见谱面文件：{nearby_tip}"
+        )
+
+    out = source_path.with_suffix(".c2s")
+    try:
+        convert_mgxc_with_penguin_bridge(input_mgxc=source_path, output_c2s=out)
+        return out, "cs"
+    except Exception:
+        pass
+
+    meta, events, raw_notes = _parse_mgxc(source_path)
+    return _emit_c2s_from_semantic(
+        out=out,
+        meta=meta,
+        events=events,
+        raw_notes=raw_notes,
+        source_path=source_path,
+        creator_fallback="MGXC import",
+    )
 
 
 def convert_pgko_audio_to_chuni_from_pick(
