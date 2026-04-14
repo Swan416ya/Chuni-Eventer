@@ -21,18 +21,26 @@ from .pjsk_acus_install import (
 )
 PGKO_RELEASE_TAG_ID = -1
 PGKO_RELEASE_TAG_STR = "Invalid"
+MGXC_TICKS_PER_BAR_4_4 = 1920
 
 from ._suspect.c2s_emit import (
+    AldNote,
     AirHold,
     AirNote,
+    AscNote,
+    AsdNote,
     BpmSetting,
     ChargeNote,
     DcmSetting,
     FlickNote,
     HoldNote,
+    HxdNote,
     MeterSetting,
     MineNote,
     SlideNote,
+    SxcNote,
+    SxdNote,
+    SlaNote,
     TimelineSpeedSetting,
     TapNote,
     create_file,
@@ -116,6 +124,7 @@ class _MgxcMeta:
     has_preview_stop: bool = False
     difficulty: int = 3
     level_const: float | None = None
+    soffset: bool = False
 
 
 def _read_exact(f: BinaryIO, size: int) -> bytes:
@@ -394,19 +403,45 @@ def _build_bar_to_tick(beat_events: list[_MgxcEvent]) -> callable:
             prev_bar = arr[i - 1].tick
             prev_num = max(1, int(round(arr[i - 1].value)))
             prev_den = max(1, int(arr[i - 1].value2))
-            acc += int(round(480 * prev_num / prev_den * max(0, b.tick - prev_bar)))
+            acc += int(round(MGXC_TICKS_PER_BAR_4_4 * prev_num / prev_den * max(0, b.tick - prev_bar)))
         bar_starts.append((b.tick, acc, num, den))
 
+    beat_by_bar = [(b.tick, max(1, int(round(b.value))), max(1, int(b.value2))) for b in arr]
+
+    def _bar_len_at(bar_idx: int) -> int:
+        chosen = beat_by_bar[0]
+        for bb, num, den in beat_by_bar:
+            if bb <= bar_idx:
+                chosen = (bb, num, den)
+            else:
+                break
+        _bb, num, den = chosen
+        return int(round(MGXC_TICKS_PER_BAR_4_4 * num / den))
+
     def to_abs(bar: int, tick_in_bar: int) -> int:
+        # BarTick offset may exceed current bar length and cross later bars with different signatures.
         chosen = bar_starts[0]
         for item in bar_starts:
             if item[0] <= bar:
                 chosen = item
             else:
                 break
-        start_bar, start_tick, num, den = chosen
-        bar_len = int(round(480 * num / den))
-        return int(start_tick + max(0, bar - start_bar) * bar_len + tick_in_bar)
+        start_bar, start_tick, _num, _den = chosen
+        abs_tick = int(start_tick)
+        # advance full bars from beat-anchor to target bar
+        for b in range(start_bar, bar):
+            abs_tick += _bar_len_at(b)
+        # advance tick within bar, spilling across later bars if needed
+        rem = int(tick_in_bar)
+        cur_bar = int(bar)
+        while rem > 0:
+            bl = _bar_len_at(cur_bar)
+            take = min(rem, bl)
+            abs_tick += take
+            rem -= take
+            if rem > 0:
+                cur_bar += 1
+        return abs_tick
 
     return to_abs
 
@@ -458,6 +493,14 @@ def _parse_ugc(path: Path) -> tuple[_MgxcMeta, list[_MgxcEvent], list[_MgxcNote]
                     meta = _MgxcMeta(**{**meta.__dict__, "level_const": float(args[0])})
                 except Exception:
                     pass
+            elif cmd == "FLAG" and len(args) >= 2:
+                try:
+                    k = args[0].strip().upper()
+                    v = args[1].strip().upper()
+                    if k == "SOFFSET":
+                        meta = _MgxcMeta(**{**meta.__dict__, "soffset": v in ("TRUE", "1", "YES")})
+                except Exception:
+                    pass
             elif cmd == "BPM" and len(args) >= 2:
                 try:
                     b, t = _parse_bar_tick(args[0])
@@ -506,14 +549,23 @@ def _parse_ugc(path: Path) -> tuple[_MgxcMeta, list[_MgxcEvent], list[_MgxcNote]
     child_re = re.compile(r"^#([0-9]+)>(.+)$")
     parent: dict[str, object] | None = None
 
-    def add_note(typ: int, long_attr: int, direction: int, x: int, width: int, tick: int, height: int = 0) -> None:
+    def add_note(
+        typ: int,
+        long_attr: int,
+        direction: int,
+        x: int,
+        width: int,
+        tick: int,
+        height: int = 0,
+        ex_attr: int = 0,
+    ) -> None:
         nonlocal seq
         notes.append(
             _MgxcNote(
                 typ=typ,
                 long_attr=long_attr,
                 direction=direction,
-                ex_attr=0,
+                ex_attr=int(ex_attr),
                 x=max(0, int(x)),
                 width=max(1, int(width)),
                 height=int(height),
@@ -524,7 +576,7 @@ def _parse_ugc(path: Path) -> tuple[_MgxcMeta, list[_MgxcEvent], list[_MgxcNote]
         )
         seq += 1
 
-    def parse_parent_payload(payload: str) -> dict[str, object]:
+    def parse_parent_payload(payload: str, suffix: str | None = None) -> dict[str, object]:
         p = payload.strip()
         t = p[:1]
         d: dict[str, object] = {"t": t, "raw": p}
@@ -538,6 +590,14 @@ def _parse_ugc(path: Path) -> tuple[_MgxcMeta, list[_MgxcEvent], list[_MgxcNote]
             d["x"] = _b36_int(p[1:2]); d["w"] = _b36_int(p[2:3])
         elif t in ("S", "C"):
             d["x"] = _b36_int(p[1:2]); d["w"] = _b36_int(p[2:3]); d["hh"] = _b36_int(p[3:5])
+            if t == "C":
+                d["clr"] = p[5:6] if len(p) >= 6 else "0"
+                try:
+                    d["interval"] = int((suffix or "").strip()) if suffix not in (None, "", "$") else 0
+                    if suffix == "$":
+                        d["interval"] = -1
+                except Exception:
+                    d["interval"] = 0
         return d
 
     def parse_child_payload(payload: str) -> dict[str, object]:
@@ -558,7 +618,8 @@ def _parse_ugc(path: Path) -> tuple[_MgxcMeta, list[_MgxcEvent], list[_MgxcNote]
 
     def map_air_dir(code: str) -> int:
         u = code.upper()
-        return {"UC": 0, "UL": 8, "UR": 7, "DC": 3, "DL": 10, "DR": 9}.get(u, 0)
+        # UGC code uses player-perspective labels; align with observed official c2s direction.
+        return {"UC": 0, "UL": 7, "UR": 8, "DC": 3, "DL": 10, "DR": 9}.get(u, 0)
 
     def flush_parent() -> None:
         nonlocal parent
@@ -608,11 +669,24 @@ def _parse_ugc(path: Path) -> tuple[_MgxcMeta, list[_MgxcEvent], list[_MgxcNote]
                     0x09, la, 0, int(ch.get("x", x)), int(ch.get("w", w)), st + int(off), height=int(ch.get("hh", p.get("hh", 0)))
                 )
         elif t == "C":
-            add_note(0x0A, 0x01, 0, x, w, st, height=int(p.get("hh", 0)))
+            interval = int(p.get("interval", 0))
+            clr = str(p.get("clr", "0") or "0")[:1].upper()
+            dir_code = ord(clr) if clr else ord("0")
+            add_note(0x0A, 0x01, dir_code, x, w, st, height=int(p.get("hh", 0)), ex_attr=interval)
             for i, (off, ch) in enumerate(children):
                 is_last = i == len(children) - 1
-                la = 0x05 if is_last else 0x02
-                add_note(0x0A, la, 0, int(ch.get("x", x)), int(ch.get("w", w)), st + int(off), height=int(ch.get("hh", p.get("hh", 0))))
+                ch_t = str(ch.get("t", "c"))
+                la = 0x03 if ch_t == "c" else (0x05 if is_last else 0x02)
+                add_note(
+                    0x0A,
+                    la,
+                    dir_code,
+                    int(ch.get("x", x)),
+                    int(ch.get("w", w)),
+                    st + int(off),
+                    height=int(ch.get("hh", p.get("hh", 0))),
+                    ex_attr=interval,
+                )
         parent = None
 
     for raw in lines:
@@ -643,7 +717,7 @@ def _parse_ugc(path: Path) -> tuple[_MgxcMeta, list[_MgxcEvent], list[_MgxcNote]
         flush_parent()
         bar, inbar = _parse_bar_tick(m_parent.group(1))
         abs_tick = to_abs(bar, inbar)
-        info = parse_parent_payload(m_parent.group(2))
+        info = parse_parent_payload(m_parent.group(2), m_parent.group(3))
         info["tick"] = abs_tick
         info["children"] = []
         parent = info
@@ -743,11 +817,52 @@ def _emit_c2s_from_semantic(
     source_path: Path,
     creator_fallback: str,
 ) -> tuple[Path, str]:
+    min_note_tick = min((n.tick for n in raw_notes), default=0)
+    base_shift = max(0, MGXC_TICKS_PER_BAR_4_4 - int(min_note_tick))
+    if base_shift > 0:
+        raw_notes = [
+            _MgxcNote(
+                typ=n.typ,
+                long_attr=n.long_attr,
+                direction=n.direction,
+                ex_attr=n.ex_attr,
+                x=n.x,
+                width=n.width,
+                height=n.height,
+                tick=n.tick + base_shift,
+                timeline=n.timeline,
+                seq=n.seq,
+            )
+            for n in raw_notes
+        ]
+
+    if meta.soffset:
+        shift = MGXC_TICKS_PER_BAR_4_4
+        events = [
+            _MgxcEvent(kind=e.kind, tick=(e.tick + shift) if e.tick > 0 and e.kind != "beat" else e.tick, value=e.value, value2=e.value2)
+            for e in events
+        ]
+        raw_notes = [
+            _MgxcNote(
+                typ=n.typ,
+                long_attr=n.long_attr,
+                direction=n.direction,
+                ex_attr=n.ex_attr,
+                x=n.x,
+                width=n.width,
+                height=n.height,
+                tick=n.tick + shift,
+                timeline=n.timeline,
+                seq=n.seq,
+            )
+            for n in raw_notes
+        ]
+
     if not events:
         events = [_MgxcEvent(kind="bpm", tick=0, value=120.0)]
 
     bpm_def = sorted((e for e in events if e.kind == "bpm"), key=lambda x: x.tick)[0].value
-    scale = 384.0 / 480.0
+    scale = 384.0 / float(MGXC_TICKS_PER_BAR_4_4)
 
     defs: list[BpmSetting | MeterSetting | DcmSetting | TimelineSpeedSetting] = []
     bpm_events = sorted((e for e in events if e.kind == "bpm"), key=lambda x: x.tick)
@@ -773,7 +888,7 @@ def _emit_c2s_from_semantic(
             prev_num = max(1, int(round(beat_events[i - 1].value)))
             prev_den = max(1, int(beat_events[i - 1].value2))
             bars = max(0, b.tick - prev_bar)
-            acc += int(round(480 * prev_num / prev_den * bars))
+            acc += int(round(MGXC_TICKS_PER_BAR_4_4 * prev_num / prev_den * bars))
         beat_ticks.append((acc, num, den))
 
     for bt, num, den in beat_ticks:
@@ -897,7 +1012,22 @@ def _emit_c2s_from_semantic(
     def _map_flick_dir(direction: int) -> str:
         return "R" if direction in (6, 8, 10, 12) else "L"
 
-    notes_out: list[TapNote | ChargeNote | FlickNote | MineNote | HoldNote | SlideNote | AirNote | AirHold] = []
+    notes_out: list[
+        TapNote
+        | ChargeNote
+        | FlickNote
+        | MineNote
+        | HoldNote
+        | SlideNote
+        | AirNote
+        | AirHold
+        | HxdNote
+        | AscNote
+        | AsdNote
+        | AldNote
+        | SxcNote
+        | SxdNote
+    ] = []
     active_holds: list[_MgxcNote] = []
     active_air_holds: list[_MgxcNote] = []
     active_air_crash: list[_MgxcNote] = []
@@ -933,16 +1063,54 @@ def _emit_c2s_from_semantic(
                 st_t = max(0, int(round(st.tick * scale))); end_t = t
                 if end_t <= st_t: continue
                 x = HoldNote(); x.measure = st_t // 384; x.tick = st_t % 384; x.lane = int(st.x); x.width = max(1, int(st.width)); x.length = end_t - st_t; notes_out.append(x)
-        elif n.typ in (0x08, 0x09):
+        elif n.typ == 0x08:
             if n.long_attr == 0x01:
                 active_air_holds.append(n)
             elif n.long_attr in (0x02, 0x03, 0x04, 0x05, 0x06) and active_air_holds:
                 st = active_air_holds[-1]
                 st_t = max(0, int(round(st.tick * scale))); end_t = max(0, int(round(n.tick * scale)))
                 if end_t <= st_t: continue
-                x = AirHold(); x.measure = st_t // 384; x.tick = st_t % 384; x.lane = int(st.x); x.width = max(1, int(st.width)); x.length = end_t - st_t; notes_out.append(x)
+                x = HxdNote()
+                x.measure = st_t // 384
+                x.tick = st_t % 384
+                x.lane = int(st.x)
+                x.width = max(1, int(st.width))
+                x.length = end_t - st_t
+                x.direction_tag = "UP"
+                notes_out.append(x)
                 active_air_holds[-1] = n
                 if n.long_attr in (0x05, 0x06): active_air_holds.pop()
+        elif n.typ == 0x09:
+            if n.long_attr == 0x01:
+                active_air_holds.append(n)
+            elif n.long_attr in (0x02, 0x03, 0x04, 0x05, 0x06) and active_air_holds:
+                st = active_air_holds[-1]
+                st_t = max(0, int(round(st.tick * scale)))
+                end_t = max(0, int(round(n.tick * scale)))
+                if end_t <= st_t:
+                    continue
+                linkage = _resolve_air_linkage(st_t, int(st.x), max(1, int(st.width)), fallback="TAP")
+                # UGC compact encoding commonly maps to PenguinTools default air height 5.0 for ASC/ASD chains.
+                h0 = 5.0
+                h1 = 5.0
+                is_final = n.long_attr in (0x05, 0x06)
+                prev_is_start = st.long_attr == 0x01
+                x = AsdNote() if is_final else AscNote()
+                x.measure = st_t // 384
+                x.tick = st_t % 384
+                x.lane = int(st.x)
+                x.width = max(1, int(st.width))
+                x.linkage = linkage if prev_is_start else "ASC"
+                x.start_height = h0
+                x.length = end_t - st_t
+                x.end_lane = int(n.x)
+                x.end_width = max(1, int(n.width))
+                x.end_height = h1
+                x.color = "DEF"
+                notes_out.append(x)
+                active_air_holds[-1] = n
+                if n.long_attr in (0x05, 0x06):
+                    active_air_holds.pop()
         elif n.typ == 0x0A:
             if n.long_attr == 0x01:
                 active_air_crash.append(n)
@@ -950,7 +1118,49 @@ def _emit_c2s_from_semantic(
                 st = active_air_crash[-1]
                 st_t = max(0, int(round(st.tick * scale))); end_t = max(0, int(round(n.tick * scale)))
                 if end_t > st_t:
-                    x = AirHold(); x.measure = st_t // 384; x.tick = st_t % 384; x.lane = int(st.x); x.width = max(1, int(st.width)); x.length = end_t - st_t; notes_out.append(x)
+                    x = AldNote()
+                    x.measure = st_t // 384
+                    x.tick = st_t % 384
+                    x.lane = int(st.x)
+                    x.width = max(1, int(st.width))
+                    x.mode = 0
+                    x.start_height = max(1.0, float(int(st.height) / 10.0 if int(st.height) else 1.0))
+                    x.length = end_t - st_t
+                    x.end_lane = int(n.x)
+                    x.end_width = max(1, int(n.width))
+                    x.end_height = max(1.0, float(int(n.height) / 10.0 if int(n.height) else 1.0))
+                    clr = chr(int(st.direction)) if int(st.direction) > 0 else "0"
+                    x.color = {
+                        "0": "DEF",
+                        "1": "RED",
+                        "2": "ORN",
+                        "3": "YEL",
+                        "4": "GRN",
+                        "5": "CYN",
+                        "6": "AQA",
+                        "7": "BLU",
+                        "8": "VLT",
+                        "9": "PPL",
+                        "A": "GRY",
+                        "Y": "PPL",
+                        "B": "AQA",
+                        "C": "NON",
+                        "D": "BLK",
+                        "Z": "NON",
+                    }.get(clr.upper(), "DEF")
+                    notes_out.append(x)
+                    interval = int(st.ex_attr)
+                    if interval > 0:
+                        for tt in range(st_t + interval, end_t, interval):
+                            s = SlaNote()
+                            s.measure = tt // 384
+                            s.tick = tt % 384
+                            s.lane = int(st.x)
+                            s.width = max(1, int(st.width))
+                            s.a = max(1, int(st.width))
+                            s.b = 1
+                            s.c = 1
+                            notes_out.append(s)
                 active_air_crash[-1] = n
                 if n.long_attr in (0x05, 0x06): active_air_crash.pop()
         elif n.typ == 0x06:
@@ -967,6 +1177,40 @@ def _emit_c2s_from_semantic(
                         x = SlideNote(); x.measure = at // 384; x.tick = at % 384; x.lane = int(a.x); x.width = max(1, int(a.width)); x.length = bt - at; x.end_lane = int(b.x); x.end_width = max(1, int(b.width)); x.is_curve = b.long_attr in (0x03, 0x04, 0x06); notes_out.append(x)
                     slide_start = None
                     active_slides = []
+
+    def _note_order_key(obj: object) -> int:
+        if isinstance(obj, (TapNote, ChargeNote, FlickNote, MineNote)):
+            return 10
+        if isinstance(obj, HoldNote):
+            return 20
+        if isinstance(obj, SlideNote):
+            return 30
+        if isinstance(obj, (SxcNote, SxdNote)):
+            return 35
+        if isinstance(obj, (AscNote, AsdNote)):
+            return 40
+        if isinstance(obj, AirNote):
+            return 50
+        if isinstance(obj, HxdNote):
+            return 60
+        if isinstance(obj, AldNote):
+            return 70
+        if isinstance(obj, SlaNote):
+            return 75
+        if isinstance(obj, AirHold):
+            return 80
+        return 999
+
+    notes_out.sort(
+        key=lambda o: (
+            int(getattr(o, "measure", 0)),
+            int(getattr(o, "tick", 0)),
+            _note_order_key(o),
+            int(getattr(o, "lane", 0)),
+            int(getattr(o, "width", 0)),
+            str(o),
+        )
+    )
 
     creator_name = (meta.designer or "").strip() or (meta.artist or "").strip() or creator_fallback
     b0 = beat_events[0]

@@ -147,6 +147,140 @@ class AirHold(C2sNote):
         )
 
 
+class HxdNote(C2sNote):
+    length: int = 0
+    direction_tag: str = "UP"
+
+    def __str__(self) -> str:
+        return "HXD\t%s\t%s\t%s\t%s\t%s\t%s" % (
+            self.measure,
+            self.tick,
+            self.lane,
+            self.width,
+            self.length,
+            self.direction_tag,
+        )
+
+
+class AscNote(C2sNote):
+    linkage: str = "TAP"
+    start_height: float = 5.0
+    length: int = 0
+    end_lane: int = 0
+    end_width: int = 0
+    end_height: float = 5.0
+    color: str = "DEF"
+
+    def __str__(self) -> str:
+        return "ASC\t%s\t%s\t%s\t%s\t%s\t%.1f\t%s\t%s\t%s\t%.1f\t%s" % (
+            self.measure,
+            self.tick,
+            self.lane,
+            self.width,
+            self.linkage,
+            self.start_height,
+            self.length,
+            self.end_lane,
+            self.end_width,
+            self.end_height,
+            self.color,
+        )
+
+
+class AsdNote(AscNote):
+    def __str__(self) -> str:
+        return "ASD\t%s\t%s\t%s\t%s\t%s\t%.1f\t%s\t%s\t%s\t%.1f\t%s" % (
+            self.measure,
+            self.tick,
+            self.lane,
+            self.width,
+            self.linkage,
+            self.start_height,
+            self.length,
+            self.end_lane,
+            self.end_width,
+            self.end_height,
+            self.color,
+        )
+
+
+class AldNote(C2sNote):
+    mode: int = 0
+    start_height: float = 1.0
+    length: int = 0
+    end_lane: int = 0
+    end_width: int = 0
+    end_height: float = 1.0
+    color: str = "DEF"
+
+    def __str__(self) -> str:
+        return "ALD\t%s\t%s\t%s\t%s\t%s\t%.1f\t%s\t%s\t%s\t%.1f\t%s" % (
+            self.measure,
+            self.tick,
+            self.lane,
+            self.width,
+            self.mode,
+            self.start_height,
+            self.length,
+            self.end_lane,
+            self.end_width,
+            self.end_height,
+            self.color,
+        )
+
+
+class SlaNote(C2sNote):
+    a: int = 1
+    b: int = 1
+    c: int = 1
+
+    def __str__(self) -> str:
+        return "SLA\t%s\t%s\t%s\t%s\t%s\t%s" % (
+            self.measure,
+            self.tick,
+            self.lane,
+            self.a,
+            self.b,
+            self.c,
+        )
+
+
+class SxcNote(C2sNote):
+    length: int = 0
+    end_lane: int = 0
+    end_width: int = 0
+    slide_tag: str = "SLD"
+    direction_tag: str = "UP"
+
+    def __str__(self) -> str:
+        return "SXC\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s" % (
+            self.measure,
+            self.tick,
+            self.lane,
+            self.width,
+            self.length,
+            self.end_lane,
+            self.end_width,
+            self.slide_tag,
+            self.direction_tag,
+        )
+
+
+class SxdNote(SxcNote):
+    def __str__(self) -> str:
+        return "SXD\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s" % (
+            self.measure,
+            self.tick,
+            self.lane,
+            self.width,
+            self.length,
+            self.end_lane,
+            self.end_width,
+            self.slide_tag,
+            self.direction_tag,
+        )
+
+
 class HoldNote(C2sNote):
     length: int = 0
 
@@ -239,8 +373,9 @@ def create_file(
             f"RESOLUTION\t{C2S_TICKS_PER_MEASURE}",
             f"CLK_DEF\t{C2S_TICKS_PER_MEASURE}",
             "PROGJUDGE_BPM\t240.000",
-            "PROGJUDGE_AER\t 0.999",
+            "PROGJUDGE_AER\t  0.999",
             "TUTORIAL\t0",
+            "",
             "",
         ]
     )

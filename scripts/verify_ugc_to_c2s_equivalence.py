@@ -24,6 +24,11 @@ def main() -> int:
     parser.add_argument("--ugc", required=True, help="Path to .ugc chart file")
     parser.add_argument("--ref", required=True, help="Path to reference .c2s file")
     parser.add_argument(
+        "--out",
+        default="",
+        help="Optional output .c2s path. If provided, converted chart is copied there before comparison.",
+    )
+    parser.add_argument(
         "--show-diff-lines",
         type=int,
         default=120,
@@ -45,6 +50,10 @@ def main() -> int:
         PgkoChartPick(path=ugc_path, ext="ugc")
     )
     out_path = out_path.resolve()
+    if args.out:
+        out_override = Path(args.out).resolve()
+        out_override.write_bytes(out_path.read_bytes())
+        out_path = out_override
 
     out_bytes = out_path.read_bytes()
     same = ref_bytes == out_bytes
