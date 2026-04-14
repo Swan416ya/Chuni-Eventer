@@ -70,7 +70,10 @@ def evaluate_case(name: str, ugc: Path, ref: Path, out: Path) -> EvalResult:
     ref_text = ref.read_text(encoding="utf-8", errors="replace")
     ref_lines = ref_text.splitlines()
     ref_bytes = ref.read_bytes()
-    out_path, backend = convert_pgko_chart_pick_to_c2s_with_backend(PgkoChartPick(path=ugc, ext="ugc"))
+    out_path, backend = convert_pgko_chart_pick_to_c2s_with_backend(
+        PgkoChartPick(path=ugc, ext="ugc"),
+        allow_ugc_experimental=True,
+    )
     out.write_bytes(out_path.read_bytes())
     out_lines = out.read_text(encoding="utf-8", errors="replace").splitlines()
     out_bytes = out.read_bytes()

@@ -5,6 +5,7 @@ from pathlib import Path
 from PyQt6.QtCore import QEvent, QSize, Qt
 from PyQt6.QtGui import QColor, QIcon, QMouseEvent
 from PyQt6.QtWidgets import (
+    QDialog,
     QGraphicsDropShadowEffect,
     QHBoxLayout,
     QSizePolicy,
@@ -13,10 +14,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from qfluentwidgets import CardWidget, PushButton, SubtitleLabel
-
-from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
-
+from qfluentwidgets import PushButton, SubtitleLabel
 
 def _logo_path(filename: str) -> Path:
     return Path(__file__).resolve().parents[1] / "static" / "logo" / filename
@@ -26,7 +24,7 @@ _BTN_H = 44
 _BTN_W = int(round(_BTN_H * 2.5))
 
 
-class MusicSheetChannelsDialog(FluentCaptionDialog):
+class MusicSheetChannelsDialog(QDialog):
     """
     乐曲页「新增」：选择自制谱下载渠道（Swan / pgko）。
     """
@@ -35,12 +33,22 @@ class MusicSheetChannelsDialog(FluentCaptionDialog):
         super().__init__(parent=parent)
         self.setWindowTitle("自制谱下载渠道")
         self.setModal(True)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.resize(420, 280)
 
         self._action: str | None = None
 
-        card = CardWidget(self)
+        card = QWidget(self)
         self._card = card
+        card.setObjectName("channelDialogCard")
+        card.setStyleSheet(
+            "#channelDialogCard{"
+            "background-color: rgba(255,255,255,190);"
+            "border: 1px solid rgba(255,255,255,70);"
+            "border-radius: 14px;"
+            "}"
+        )
         cly = QVBoxLayout(card)
         cly.setContentsMargins(24, 22, 24, 20)
         cly.setSpacing(18)
@@ -103,7 +111,7 @@ class MusicSheetChannelsDialog(FluentCaptionDialog):
         card.setGraphicsEffect(sh)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(*fluent_caption_content_margins())
+        root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(12)
         root.addWidget(card, stretch=1)
 

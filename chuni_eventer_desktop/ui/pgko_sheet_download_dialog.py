@@ -218,6 +218,7 @@ class _PgkoUgcGuideDialog(FluentCaptionDialog):
         *,
         on_open_bundle: Callable[[Path], None],
         on_try_experimental_ugc: Callable[[Path], None],
+        experimental_enabled: bool,
         parent=None,
     ) -> None:
         super().__init__(parent=parent)
@@ -226,6 +227,7 @@ class _PgkoUgcGuideDialog(FluentCaptionDialog):
         self.resize(800, 660)
         self._on_open_bundle = on_open_bundle
         self._on_try_experimental_ugc = on_try_experimental_ugc
+        self._experimental_enabled = experimental_enabled
 
         help_panel = QWidget(self)
         hp = QVBoxLayout(help_panel)
@@ -294,6 +296,9 @@ class _PgkoUgcGuideDialog(FluentCaptionDialog):
         refresh.clicked.connect(self._reload_table)
         exp = PrimaryPushButton("实验性：仅用 UGC 直转 c2s", self)
         exp.clicked.connect(self._on_experimental_convert)
+        exp.setEnabled(self._experimental_enabled)
+        if not self._experimental_enabled:
+            exp.setToolTip("已在设置中关闭。可在“设置 -> PGKO UGC 直转 c2s（实验）”中启用。")
         close = PushButton("关闭", self)
         close.clicked.connect(self.reject)
         row = QHBoxLayout()
@@ -361,6 +366,9 @@ class _PgkoUgcGuideDialog(FluentCaptionDialog):
         self._on_open_bundle(folder)
 
     def _on_experimental_convert(self) -> None:
+        if not self._experimental_enabled:
+            fly_warning(self, "已禁用", "该实验功能已在设置中关闭。")
+            return
         r = self._table.currentRow()
         if r < 0:
             fly_warning(self, "未选择", "请先在列表中选择一个缓存文件夹。")
@@ -510,13 +518,19 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
         th.start()
 
     def _on_ugc_guide(self) -> None:
+        cfg = AcusConfig.load()
         _PgkoUgcGuideDialog(
             on_open_bundle=self._try_convert_pgko_to_c2s,
             on_try_experimental_ugc=self._try_convert_pgko_ugc_experimental,
+            experimental_enabled=bool(getattr(cfg, "enable_pgko_ugc_experimental", False)),
             parent=self,
         ).exec()
 
     def _try_convert_pgko_ugc_experimental(self, output: Path) -> None:
+        cfg = AcusConfig.load()
+        if not bool(getattr(cfg, "enable_pgko_ugc_experimental", False)):
+            fly_warning(self, "已禁用", "实验性 UGC 直转已在设置中关闭。")
+            return
         ugc_list: list[Path] = []
         if output.is_dir():
             ugc_list = sorted(p for p in output.glob("**/*.ugc") if p.is_file())
@@ -533,7 +547,8 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
         self._status.setText(f"实验性 UGC 转换中：{src.name} ...")
         try:
             out, backend = convert_pgko_chart_pick_to_c2s_with_backend(
-                PgkoChartPick(path=src, ext="ugc")
+                PgkoChartPick(path=src, ext="ugc"),
+                allow_ugc_experimental=True,
             )
         except Exception as e:
             self._status.setText("实验性 UGC 转换失败。")

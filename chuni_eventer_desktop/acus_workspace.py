@@ -94,6 +94,7 @@ class AcusConfig:
     compressonatorcli_path: str = ""
     """游戏安装/数据根目录（用于索引全量 music、stage、ddsImage、ddsMap，供下拉选择）。"""
     game_root: str = ""
+    enable_pgko_ugc_experimental: bool = False
 
     @staticmethod
     def path() -> Path:
@@ -108,6 +109,7 @@ class AcusConfig:
         return cls(
             compressonatorcli_path=str(data.get("compressonatorcli_path", "")),
             game_root=str(data.get("game_root", "")),
+            enable_pgko_ugc_experimental=bool(data.get("enable_pgko_ugc_experimental", False)),
         )
 
     def save(self) -> None:
@@ -116,6 +118,7 @@ class AcusConfig:
         payload: dict[str, Any] = {
             "compressonatorcli_path": self.compressonatorcli_path,
             "game_root": self.game_root,
+            "enable_pgko_ugc_experimental": bool(self.enable_pgko_ugc_experimental),
         }
         p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 

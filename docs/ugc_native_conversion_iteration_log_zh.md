@@ -586,3 +586,108 @@
 - sha256(out/ref): `34e6db8c310c414d81446b259f49d2b404c111d430d246285ab7e57a64cd9a57` / `ed7fdbdc526a88ebf8c81671356d842a18884b4e07f23cb985b548cfb0fa83c8`
 - first_diff: `line 22: ref='SXC\t2\t48\t0\t3\t168\t0\t16\tSLD\tUP' out='CHR\t2\t48\t0\t3\tUP'`
 - top_tag_deltas: `ALD:-788, SLC:-305, SLD:-141, ASD:-54, CHR:+46, ASC:-38, HLD:+30, SLA:+15, SXD:-8, HXD:-4`
+
+## 迭代 28：0x0A按chain_id状态机配对
+
+### Ver seX（迭代 28：0x0A按chain_id状态机配对）
+- backend: `python`
+- same_bytes: `False`
+- similarity(seq-pos): `1.91%`
+- similarity(edit-op): `46.21%`
+- sha256(out/ref): `094497791981ea8d8ba096615393792b60c6b6fc2522a2117a098ccff95c0e8e` / `e5f27afad36507c70f8dcd92be8488c5a71aa2a3b15c0279201308bb9f8c3ca1`
+- first_diff: `line 106: ref='ASC\t1\t11\t2\t4\tASC\t5.0\t28\t5\t4\t5.0\tDEF' out='SLC\t1\t0\t12\t4\t11\t10\t4\tSLD'`
+- top_tag_deltas: `SLA:-347, SLC:-121, SLD:-104, ASD:-79, ALD:-65, HXD:+52, CHR:+47, ASC:+25, HLD:+24, SXD:-22`
+
+
+### Divide et impera!（迭代 28：0x0A按chain_id状态机配对）
+- backend: `python`
+- same_bytes: `False`
+- similarity(seq-pos): `0.92%`
+- similarity(edit-op): `41.04%`
+- sha256(out/ref): `5e8561fc6a9592103d0485e7af9134d16e3f58043749893d21ce06b2c0080d97` / `ed7fdbdc526a88ebf8c81671356d842a18884b4e07f23cb985b548cfb0fa83c8`
+- first_diff: `line 22: ref='SXC\t2\t48\t0\t3\t168\t0\t16\tSLD\tUP' out='CHR\t2\t48\t0\t3\tUP'`
+- top_tag_deltas: `SLC:-305, ALD:-171, SLD:-141, ASD:-54, CHR:+46, ASC:-38, HLD:+30, SLA:+15, SXD:-8, HXD:-4`
+
+## 迭代 29：补充末尾未闭合slide链发射
+
+### Ver seX（迭代 29：补充末尾未闭合slide链发射）
+- backend: `python`
+- same_bytes: `False`
+- similarity(seq-pos): `1.91%`
+- similarity(edit-op): `46.21%`
+- sha256(out/ref): `094497791981ea8d8ba096615393792b60c6b6fc2522a2117a098ccff95c0e8e` / `e5f27afad36507c70f8dcd92be8488c5a71aa2a3b15c0279201308bb9f8c3ca1`
+- first_diff: `line 106: ref='ASC\t1\t11\t2\t4\tASC\t5.0\t28\t5\t4\t5.0\tDEF' out='SLC\t1\t0\t12\t4\t11\t10\t4\tSLD'`
+- top_tag_deltas: `SLA:-347, SLC:-121, SLD:-104, ASD:-79, ALD:-65, HXD:+52, CHR:+47, ASC:+25, HLD:+24, SXD:-22`
+
+
+### Divide et impera!（迭代 29：补充末尾未闭合slide链发射）
+- backend: `python`
+- same_bytes: `False`
+- similarity(seq-pos): `0.92%`
+- similarity(edit-op): `41.04%`
+- sha256(out/ref): `5e8561fc6a9592103d0485e7af9134d16e3f58043749893d21ce06b2c0080d97` / `ed7fdbdc526a88ebf8c81671356d842a18884b4e07f23cb985b548cfb0fa83c8`
+- first_diff: `line 22: ref='SXC\t2\t48\t0\t3\t168\t0\t16\tSLD\tUP' out='CHR\t2\t48\t0\t3\tUP'`
+- top_tag_deltas: `SLC:-305, ALD:-171, SLD:-141, ASD:-54, CHR:+46, ASC:-38, HLD:+30, SLA:+15, SXD:-8, HXD:-4`
+
+## 迭代 30：回退0x0A chain_id配对保留slide隐式闭链
+
+### Ver seX（迭代 30：回退0x0A chain_id配对保留slide隐式闭链）
+- backend: `python`
+- same_bytes: `False`
+- similarity(seq-pos): `1.91%`
+- similarity(edit-op): `52.29%`
+- sha256(out/ref): `46b753443a14224521d573a10de1cf12937ee2020607df509d49f5804df0e91d` / `e5f27afad36507c70f8dcd92be8488c5a71aa2a3b15c0279201308bb9f8c3ca1`
+- first_diff: `line 106: ref='ASC\t1\t11\t2\t4\tASC\t5.0\t28\t5\t4\t5.0\tDEF' out='SLC\t1\t0\t12\t4\t11\t10\t4\tSLD'`
+- top_tag_deltas: `ALD:-1572, SLA:-347, SLC:-121, SLD:-104, ASD:-79, HXD:+52, CHR:+47, ASC:+25, HLD:+24, SXD:-22`
+
+
+### Divide et impera!（迭代 30：回退0x0A chain_id配对保留slide隐式闭链）
+- backend: `python`
+- same_bytes: `False`
+- similarity(seq-pos): `0.60%`
+- similarity(edit-op): `44.46%`
+- sha256(out/ref): `34e6db8c310c414d81446b259f49d2b404c111d430d246285ab7e57a64cd9a57` / `ed7fdbdc526a88ebf8c81671356d842a18884b4e07f23cb985b548cfb0fa83c8`
+- first_diff: `line 22: ref='SXC\t2\t48\t0\t3\t168\t0\t16\tSLD\tUP' out='CHR\t2\t48\t0\t3\tUP'`
+- top_tag_deltas: `ALD:-788, SLC:-305, SLD:-141, ASD:-54, CHR:+46, ASC:-38, HLD:+30, SLA:+15, SXD:-8, HXD:-4`
+
+## 迭代 31：按类型分组优先排序以推动首差后移
+
+### Ver seX（迭代 31：按类型分组优先排序以推动首差后移）
+- backend: `python`
+- same_bytes: `False`
+- similarity(seq-pos): `1.78%`
+- similarity(edit-op): `43.32%`
+- sha256(out/ref): `048712ba9d3afbafe0e71515ecd5149718e3b341480df0e29a3a0ddbd9430fbb` / `e5f27afad36507c70f8dcd92be8488c5a71aa2a3b15c0279201308bb9f8c3ca1`
+- first_diff: `line 105: ref='ASC\t1\t0\t0\t4\tTAP\t5.0\t11\t2\t4\t5.0\tDEF' out='TAP\t1\t336\t2\t3'`
+- top_tag_deltas: `ALD:-1572, SLA:-347, SLC:-121, SLD:-104, ASD:-79, HXD:+52, CHR:+47, ASC:+25, HLD:+24, SXD:-22`
+
+
+### Divide et impera!（迭代 31：按类型分组优先排序以推动首差后移）
+- backend: `python`
+- same_bytes: `False`
+- similarity(seq-pos): `0.55%`
+- similarity(edit-op): `35.92%`
+- sha256(out/ref): `3814674ee746ee8caefc856f50d9c9e95d3a85cf6d7c122e4e1349a029fb77e9` / `ed7fdbdc526a88ebf8c81671356d842a18884b4e07f23cb985b548cfb0fa83c8`
+- first_diff: `line 19: ref='TAP\t2\t0\t3\t5' out='CHR\t2\t0\t13\t3\tUP'`
+- top_tag_deltas: `ALD:-788, SLC:-305, SLD:-141, ASD:-54, CHR:+46, ASC:-38, HLD:+30, SLA:+15, SXD:-8, HXD:-4`
+
+## 迭代 32：回退类型优先排序实验恢复稳定基线
+
+### Ver seX（迭代 32：回退类型优先排序实验恢复稳定基线）
+- backend: `python`
+- same_bytes: `False`
+- similarity(seq-pos): `1.91%`
+- similarity(edit-op): `52.29%`
+- sha256(out/ref): `46b753443a14224521d573a10de1cf12937ee2020607df509d49f5804df0e91d` / `e5f27afad36507c70f8dcd92be8488c5a71aa2a3b15c0279201308bb9f8c3ca1`
+- first_diff: `line 106: ref='ASC\t1\t11\t2\t4\tASC\t5.0\t28\t5\t4\t5.0\tDEF' out='SLC\t1\t0\t12\t4\t11\t10\t4\tSLD'`
+- top_tag_deltas: `ALD:-1572, SLA:-347, SLC:-121, SLD:-104, ASD:-79, HXD:+52, CHR:+47, ASC:+25, HLD:+24, SXD:-22`
+
+
+### Divide et impera!（迭代 32：回退类型优先排序实验恢复稳定基线）
+- backend: `python`
+- same_bytes: `False`
+- similarity(seq-pos): `0.60%`
+- similarity(edit-op): `44.46%`
+- sha256(out/ref): `34e6db8c310c414d81446b259f49d2b404c111d430d246285ab7e57a64cd9a57` / `ed7fdbdc526a88ebf8c81671356d842a18884b4e07f23cb985b548cfb0fa83c8`
+- first_diff: `line 22: ref='SXC\t2\t48\t0\t3\t168\t0\t16\tSLD\tUP' out='CHR\t2\t48\t0\t3\tUP'`
+- top_tag_deltas: `ALD:-788, SLC:-305, SLD:-141, ASD:-54, CHR:+46, ASC:-38, HLD:+30, SLA:+15, SXD:-8, HXD:-4`

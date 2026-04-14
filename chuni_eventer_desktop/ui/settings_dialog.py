@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QInputDialog, QVBoxLayout
 
-from qfluentwidgets import BodyLabel, CardWidget, LineEdit, PrimaryPushButton, PushButton
+from qfluentwidgets import BodyLabel, CardWidget, CheckBox, LineEdit, PrimaryPushButton, PushButton
 
 from ..acus_workspace import AcusConfig
 from ..dds_convert import DdsToolError, is_bc3_dds, run_cmd, validate_compressonator_tool
@@ -117,6 +117,22 @@ class SettingsDialog(FluentCaptionDialog):
         pjsk_open.clicked.connect(self._open_pjsk_hub)
         pjsk_layout.addWidget(pjsk_open)
 
+        pgko_card = CardWidget(self)
+        pgko_layout = QVBoxLayout(pgko_card)
+        pgko_layout.setContentsMargins(16, 16, 16, 16)
+        pgko_layout.setSpacing(12)
+        pgko_layout.addWidget(BodyLabel("PGKO UGC 直转 c2s（实验）", self))
+        pgko_hint = BodyLabel(
+            "默认关闭。关闭时，主流程只允许 mgxc -> c2s；"
+            "UGC 直转仅作为实验功能在 UGC 引导页中可见。"
+        )
+        pgko_hint.setWordWrap(True)
+        pgko_hint.setStyleSheet("color:#b45309;font-size:13px;")
+        pgko_layout.addWidget(pgko_hint)
+        self.pgko_exp_checkbox = CheckBox("启用实验性 UGC 直转入口", self)
+        self.pgko_exp_checkbox.setChecked(bool(getattr(cfg, "enable_pgko_ugc_experimental", False)))
+        pgko_layout.addWidget(self.pgko_exp_checkbox)
+
         ok = PrimaryPushButton("保存", self)
         ok.clicked.connect(self.accept)
         cancel = PushButton("取消", self)
@@ -133,6 +149,7 @@ class SettingsDialog(FluentCaptionDialog):
         layout.addWidget(game_card)
         layout.addWidget(card)
         layout.addWidget(pjsk_card)
+        layout.addWidget(pgko_card)
         layout.addStretch(1)
         layout.addLayout(btns)
 
@@ -298,6 +315,7 @@ class SettingsDialog(FluentCaptionDialog):
         self._cfg.compressonatorcli_path = raw
         gr = self.game_root.text().strip()
         self._cfg.game_root = gr
+        self._cfg.enable_pgko_ugc_experimental = bool(self.pgko_exp_checkbox.isChecked())
         self._cfg.save()
         if gr:
             _idx, err = run_rebuild_game_index_with_progress(

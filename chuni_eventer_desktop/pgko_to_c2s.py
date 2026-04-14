@@ -995,6 +995,12 @@ def _emit_c2s_from_semantic(
                         )
                     slide_started = False
                     slide_chain = []
+    if slide_started and len(slide_chain) >= 2:
+        for p in slide_chain[:-1]:
+            p_t = max(0, int(round(p.tick * scale)))
+            ground_anchors.append(
+                _GroundAnchor(tick=p_t, lane=int(p.x), width=max(1, int(p.width)), linkage="SLD")
+            )
 
     def _resolve_air_linkage(tick: int, lane: int, width: int, fallback: str = "TAP") -> str:
         same_cover: list[tuple[int, _GroundAnchor]] = []
@@ -1248,6 +1254,13 @@ def _emit_c2s_from_semantic(
                         x = SlideNote(); x.measure = at // 384; x.tick = at % 384; x.lane = int(a.x); x.width = max(1, int(a.width)); x.length = bt - at; x.end_lane = int(b.x); x.end_width = max(1, int(b.width)); x.is_curve = b.long_attr in (0x03, 0x04, 0x06); notes_out.append(x)
                     slide_start = None
                     active_slides = []
+    if slide_start is not None and len(active_slides) >= 2:
+        for i in range(len(active_slides) - 1):
+            a = active_slides[i]; b = active_slides[i + 1]
+            at = max(0, int(round(a.tick * scale))); bt = max(0, int(round(b.tick * scale)))
+            if bt <= at:
+                continue
+            x = SlideNote(); x.measure = at // 384; x.tick = at % 384; x.lane = int(a.x); x.width = max(1, int(a.width)); x.length = bt - at; x.end_lane = int(b.x); x.end_width = max(1, int(b.width)); x.is_curve = b.long_attr in (0x03, 0x04, 0x06); notes_out.append(x)
 
     def _note_order_key(obj: object) -> int:
         if isinstance(obj, (TapNote, ChargeNote, FlickNote, MineNote)):
@@ -1296,7 +1309,9 @@ def convert_pgko_chart_pick_to_c2s(pick: PgkoChartPick) -> Path:
     return out
 
 
-def convert_pgko_chart_pick_to_c2s_with_backend(pick: PgkoChartPick) -> tuple[Path, str]:
+def convert_pgko_chart_pick_to_c2s_with_backend(
+    pick: PgkoChartPick, *, allow_ugc_experimental: bool = False
+) -> tuple[Path, str]:
     """
     内置转码（第二版）：
     - 支持 mgxc -> c2s（BPM/TAP/HOLD/SLIDE + Air/AirHold 基础映射）
@@ -1306,6 +1321,11 @@ def convert_pgko_chart_pick_to_c2s_with_backend(pick: PgkoChartPick) -> tuple[Pa
     source_ext = pick.ext.lower().strip(".")
 
     if source_ext == "ugc":
+        if not allow_ugc_experimental:
+            raise NotImplementedError(
+                "主流程已禁用 UGC 直转。\n"
+                "请先转为 mgxc；若要使用实验性 UGC 直转，请在“设置”中开启对应实验项。"
+            )
         out = source_path.with_suffix(".c2s")
         meta, events, raw_notes = _parse_ugc(source_path)
         return _emit_c2s_from_semantic(
