@@ -101,6 +101,7 @@ class _MgxcNote:
     tick: int
     timeline: int
     seq: int
+    chain_id: int = 0
 
 
 @dataclass(frozen=True)
@@ -320,6 +321,7 @@ def _parse_mgxc(path: Path) -> tuple[_MgxcMeta, list[_MgxcEvent], list[_MgxcNote
                             tick=tick,
                             timeline=timeline,
                             seq=seq,
+                            chain_id=0,
                         )
                     )
                     seq += 1
@@ -548,6 +550,7 @@ def _parse_ugc(path: Path) -> tuple[_MgxcMeta, list[_MgxcEvent], list[_MgxcNote]
     parent_re = re.compile(r"^#([^:>]+):([^,]+)(?:,(.*))?$")
     child_re = re.compile(r"^#([0-9]+)>(.+)$")
     parent: dict[str, object] | None = None
+    c_chain_id = 1
 
     def add_note(
         typ: int,
@@ -558,6 +561,7 @@ def _parse_ugc(path: Path) -> tuple[_MgxcMeta, list[_MgxcEvent], list[_MgxcNote]
         tick: int,
         height: int = 0,
         ex_attr: int = 0,
+        chain_id: int = 0,
     ) -> None:
         nonlocal seq
         notes.append(
@@ -572,6 +576,7 @@ def _parse_ugc(path: Path) -> tuple[_MgxcMeta, list[_MgxcEvent], list[_MgxcNote]
                 tick=max(0, int(tick)),
                 timeline=int(current_timeline),
                 seq=seq,
+                chain_id=int(chain_id),
             )
         )
         seq += 1
@@ -622,7 +627,7 @@ def _parse_ugc(path: Path) -> tuple[_MgxcMeta, list[_MgxcEvent], list[_MgxcNote]
         return {"UC": 0, "UL": 7, "UR": 8, "DC": 3, "DL": 10, "DR": 9}.get(u, 0)
 
     def flush_parent() -> None:
-        nonlocal parent
+        nonlocal parent, c_chain_id
         if not parent:
             return
         p = parent
@@ -674,7 +679,9 @@ def _parse_ugc(path: Path) -> tuple[_MgxcMeta, list[_MgxcEvent], list[_MgxcNote]
             dir_code = ord(clr) if clr else ord("0")
             # '$' (encoded as -1) is treated as trace-like chain; interval==0 still keeps crash semantics.
             typ = 0x09 if interval < 0 else 0x0A
-            add_note(typ, 0x01, dir_code, x, w, st, height=int(p.get("hh", 0)), ex_attr=interval)
+            cid = c_chain_id
+            c_chain_id += 1
+            add_note(typ, 0x01, dir_code, x, w, st, height=int(p.get("hh", 0)), ex_attr=interval, chain_id=cid)
             for i, (off, ch) in enumerate(children):
                 is_last = i == len(children) - 1
                 ch_t = str(ch.get("t", "c"))
@@ -688,6 +695,7 @@ def _parse_ugc(path: Path) -> tuple[_MgxcMeta, list[_MgxcEvent], list[_MgxcNote]
                     st + int(off),
                     height=int(ch.get("hh", p.get("hh", 0))),
                     ex_attr=interval,
+                    chain_id=cid,
                 )
         parent = None
 
@@ -834,6 +842,7 @@ def _emit_c2s_from_semantic(
                 tick=n.tick + base_shift,
                 timeline=n.timeline,
                 seq=n.seq,
+                chain_id=n.chain_id,
             )
             for n in raw_notes
         ]
@@ -856,6 +865,7 @@ def _emit_c2s_from_semantic(
                 tick=n.tick + shift,
                 timeline=n.timeline,
                 seq=n.seq,
+                chain_id=n.chain_id,
             )
             for n in raw_notes
         ]
@@ -967,6 +977,12 @@ def _emit_c2s_from_semantic(
                 ground_anchors.append(_GroundAnchor(tick=st_t, lane=int(st.x), width=max(1, int(st.width)), linkage="HLD"))
         elif n.typ == 0x06:
             if n.long_attr == 0x01:
+                if slide_started and len(slide_chain) >= 2:
+                    for p in slide_chain[:-1]:
+                        p_t = max(0, int(round(p.tick * scale)))
+                        ground_anchors.append(
+                            _GroundAnchor(tick=p_t, lane=int(p.x), width=max(1, int(p.width)), linkage="SLD")
+                        )
                 slide_chain = [n]
                 slide_started = True
             elif slide_started and n.long_attr in (0x02, 0x03, 0x04, 0x05, 0x06):
@@ -1040,7 +1056,12 @@ def _emit_c2s_from_semantic(
         st_t = max(0, int(round(st.tick * scale)))
         end_t = max(0, int(round(ed.tick * scale)))
         if end_t <= st_t:
-            return
+            # UGC chains can contain very short spans that collapse after tick-scale rounding.
+            # Keep them as 1-tick ALD segments when source ordering is valid.
+            if int(ed.tick) > int(st.tick):
+                end_t = st_t + 1
+            else:
+                return
         x = AldNote()
         x.measure = st_t // 384
         x.tick = st_t % 384
@@ -1146,19 +1167,45 @@ def _emit_c2s_from_semantic(
                 h1 = 5.0
                 is_final = n.long_attr in (0x05, 0x06)
                 prev_is_start = st.long_attr == 0x01
-                x = AsdNote() if is_final else AscNote()
-                x.measure = st_t // 384
-                x.tick = st_t % 384
-                x.lane = int(st.x)
-                x.width = max(1, int(st.width))
-                x.linkage = linkage if prev_is_start else "ASC"
-                x.start_height = h0
-                x.length = end_t - st_t
-                x.end_lane = int(n.x)
-                x.end_width = max(1, int(n.width))
-                x.end_height = h1
-                x.color = "DEF"
-                notes_out.append(x)
+                is_c_trace_chain = int(st.ex_attr) < 0 or int(n.ex_attr) < 0
+                if is_c_trace_chain and n.long_attr in (0x03, 0x04) and st.long_attr in (0x03, 0x04):
+                    x = SxcNote()
+                    x.measure = st_t // 384
+                    x.tick = st_t % 384
+                    x.lane = int(st.x)
+                    x.width = max(1, int(st.width))
+                    x.length = end_t - st_t
+                    x.end_lane = int(n.x)
+                    x.end_width = max(1, int(n.width))
+                    x.slide_tag = "SLD"
+                    x.direction_tag = "UP"
+                    notes_out.append(x)
+                elif is_c_trace_chain and n.long_attr == 0x06:
+                    x = SxdNote()
+                    x.measure = st_t // 384
+                    x.tick = st_t % 384
+                    x.lane = int(st.x)
+                    x.width = max(1, int(st.width))
+                    x.length = end_t - st_t
+                    x.end_lane = int(n.x)
+                    x.end_width = max(1, int(n.width))
+                    x.slide_tag = "SLD"
+                    x.direction_tag = "UP"
+                    notes_out.append(x)
+                else:
+                    x = AsdNote() if is_final else AscNote()
+                    x.measure = st_t // 384
+                    x.tick = st_t % 384
+                    x.lane = int(st.x)
+                    x.width = max(1, int(st.width))
+                    x.linkage = linkage if prev_is_start else "ASC"
+                    x.start_height = h0
+                    x.length = end_t - st_t
+                    x.end_lane = int(n.x)
+                    x.end_width = max(1, int(n.width))
+                    x.end_height = h1
+                    x.color = "DEF"
+                    notes_out.append(x)
                 active_air_holds[-1] = n
                 if n.long_attr in (0x05, 0x06):
                     active_air_holds.pop()
@@ -1183,6 +1230,12 @@ def _emit_c2s_from_semantic(
                 if n.long_attr in (0x05, 0x06): active_air_crash.pop()
         elif n.typ == 0x06:
             if n.long_attr == 0x01:
+                if slide_start is not None and len(active_slides) >= 2:
+                    for i in range(len(active_slides) - 1):
+                        a = active_slides[i]; b = active_slides[i + 1]
+                        at = max(0, int(round(a.tick * scale))); bt = max(0, int(round(b.tick * scale)))
+                        if bt <= at: continue
+                        x = SlideNote(); x.measure = at // 384; x.tick = at % 384; x.lane = int(a.x); x.width = max(1, int(a.width)); x.length = bt - at; x.end_lane = int(b.x); x.end_width = max(1, int(b.width)); x.is_curve = b.long_attr in (0x03, 0x04, 0x06); notes_out.append(x)
                 slide_start = n
                 active_slides = [n]
             elif slide_start is not None and n.long_attr in (0x02, 0x03, 0x04, 0x05, 0x06):
@@ -1197,12 +1250,12 @@ def _emit_c2s_from_semantic(
                     active_slides = []
 
     def _note_order_key(obj: object) -> int:
-        if isinstance(obj, (SxcNote, SxdNote)):
-            return 8
-        if isinstance(obj, (AscNote, AsdNote)):
-            return 9
         if isinstance(obj, (TapNote, ChargeNote, FlickNote, MineNote)):
             return 10
+        if isinstance(obj, (AscNote, AsdNote)):
+            return 11
+        if isinstance(obj, (SxcNote, SxdNote)):
+            return 12
         if isinstance(obj, HoldNote):
             return 20
         if isinstance(obj, SlideNote):
