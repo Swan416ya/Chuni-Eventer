@@ -672,13 +672,15 @@ def _parse_ugc(path: Path) -> tuple[_MgxcMeta, list[_MgxcEvent], list[_MgxcNote]
             interval = int(p.get("interval", 0))
             clr = str(p.get("clr", "0") or "0")[:1].upper()
             dir_code = ord(clr) if clr else ord("0")
-            add_note(0x0A, 0x01, dir_code, x, w, st, height=int(p.get("hh", 0)), ex_attr=interval)
+            # '$' (encoded as -1) is treated as trace-like chain; interval==0 still keeps crash semantics.
+            typ = 0x09 if interval < 0 else 0x0A
+            add_note(typ, 0x01, dir_code, x, w, st, height=int(p.get("hh", 0)), ex_attr=interval)
             for i, (off, ch) in enumerate(children):
                 is_last = i == len(children) - 1
                 ch_t = str(ch.get("t", "c"))
                 la = 0x03 if ch_t == "c" else (0x05 if is_last else 0x02)
                 add_note(
-                    0x0A,
+                    typ,
                     la,
                     dir_code,
                     int(ch.get("x", x)),
@@ -1033,6 +1035,55 @@ def _emit_c2s_from_semantic(
     active_air_crash: list[_MgxcNote] = []
     active_slides: list[_MgxcNote] = []
     slide_start: _MgxcNote | None = None
+
+    def _emit_ald_segment(st: _MgxcNote, ed: _MgxcNote) -> None:
+        st_t = max(0, int(round(st.tick * scale)))
+        end_t = max(0, int(round(ed.tick * scale)))
+        if end_t <= st_t:
+            return
+        x = AldNote()
+        x.measure = st_t // 384
+        x.tick = st_t % 384
+        x.lane = int(st.x)
+        x.width = max(1, int(st.width))
+        x.mode = 0
+        x.start_height = max(1.0, float(int(st.height) / 10.0 if int(st.height) else 1.0))
+        x.length = end_t - st_t
+        x.end_lane = int(ed.x)
+        x.end_width = max(1, int(ed.width))
+        x.end_height = max(1.0, float(int(ed.height) / 10.0 if int(ed.height) else 1.0))
+        clr = chr(int(st.direction)) if int(st.direction) > 0 else "0"
+        x.color = {
+            "0": "DEF",
+            "1": "RED",
+            "2": "ORN",
+            "3": "YEL",
+            "4": "GRN",
+            "5": "CYN",
+            "6": "AQA",
+            "7": "BLU",
+            "8": "VLT",
+            "9": "PPL",
+            "A": "GRY",
+            "Y": "PPL",
+            "B": "AQA",
+            "C": "NON",
+            "D": "BLK",
+            "Z": "NON",
+        }.get(clr.upper(), "DEF")
+        notes_out.append(x)
+        interval = int(st.ex_attr)
+        if interval > 0:
+            for tt in range(st_t + interval, end_t, interval):
+                s = SlaNote()
+                s.measure = tt // 384
+                s.tick = tt % 384
+                s.lane = int(st.x)
+                s.width = max(1, int(st.width))
+                s.a = max(1, int(st.width))
+                s.b = 1
+                s.c = 1
+                notes_out.append(s)
     for n in converted_notes:
         t = max(0, int(round(n.tick * scale)))
         lane = int(n.x)
@@ -1113,54 +1164,21 @@ def _emit_c2s_from_semantic(
                     active_air_holds.pop()
         elif n.typ == 0x0A:
             if n.long_attr == 0x01:
+                if active_air_crash:
+                    prev = active_air_crash[-1]
+                    prev_t = max(0, int(round(prev.tick * scale)))
+                    cur_t = max(0, int(round(n.tick * scale)))
+                    if (
+                        int(prev.x) == int(n.x)
+                        and max(1, int(prev.width)) == max(1, int(n.width))
+                        and 0 < (cur_t - prev_t) <= 384
+                        and int(prev.ex_attr) > 0
+                    ):
+                        _emit_ald_segment(prev, n)
                 active_air_crash.append(n)
             elif n.long_attr in (0x02, 0x03, 0x04, 0x05, 0x06) and active_air_crash:
                 st = active_air_crash[-1]
-                st_t = max(0, int(round(st.tick * scale))); end_t = max(0, int(round(n.tick * scale)))
-                if end_t > st_t:
-                    x = AldNote()
-                    x.measure = st_t // 384
-                    x.tick = st_t % 384
-                    x.lane = int(st.x)
-                    x.width = max(1, int(st.width))
-                    x.mode = 0
-                    x.start_height = max(1.0, float(int(st.height) / 10.0 if int(st.height) else 1.0))
-                    x.length = end_t - st_t
-                    x.end_lane = int(n.x)
-                    x.end_width = max(1, int(n.width))
-                    x.end_height = max(1.0, float(int(n.height) / 10.0 if int(n.height) else 1.0))
-                    clr = chr(int(st.direction)) if int(st.direction) > 0 else "0"
-                    x.color = {
-                        "0": "DEF",
-                        "1": "RED",
-                        "2": "ORN",
-                        "3": "YEL",
-                        "4": "GRN",
-                        "5": "CYN",
-                        "6": "AQA",
-                        "7": "BLU",
-                        "8": "VLT",
-                        "9": "PPL",
-                        "A": "GRY",
-                        "Y": "PPL",
-                        "B": "AQA",
-                        "C": "NON",
-                        "D": "BLK",
-                        "Z": "NON",
-                    }.get(clr.upper(), "DEF")
-                    notes_out.append(x)
-                    interval = int(st.ex_attr)
-                    if interval > 0:
-                        for tt in range(st_t + interval, end_t, interval):
-                            s = SlaNote()
-                            s.measure = tt // 384
-                            s.tick = tt % 384
-                            s.lane = int(st.x)
-                            s.width = max(1, int(st.width))
-                            s.a = max(1, int(st.width))
-                            s.b = 1
-                            s.c = 1
-                            notes_out.append(s)
+                _emit_ald_segment(st, n)
                 active_air_crash[-1] = n
                 if n.long_attr in (0x05, 0x06): active_air_crash.pop()
         elif n.typ == 0x06:
@@ -1179,16 +1197,16 @@ def _emit_c2s_from_semantic(
                     active_slides = []
 
     def _note_order_key(obj: object) -> int:
+        if isinstance(obj, (SxcNote, SxdNote)):
+            return 8
+        if isinstance(obj, (AscNote, AsdNote)):
+            return 9
         if isinstance(obj, (TapNote, ChargeNote, FlickNote, MineNote)):
             return 10
         if isinstance(obj, HoldNote):
             return 20
         if isinstance(obj, SlideNote):
             return 30
-        if isinstance(obj, (SxcNote, SxdNote)):
-            return 35
-        if isinstance(obj, (AscNote, AsdNote)):
-            return 40
         if isinstance(obj, AirNote):
             return 50
         if isinstance(obj, HxdNote):

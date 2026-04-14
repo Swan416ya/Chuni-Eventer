@@ -132,7 +132,18 @@ def main() -> int:
     results = [evaluate_case(name, ugc, ref, out) for name, ugc, ref, out in cases]
     section = [f"## {args.title}", ""]
     for r in results:
-        section.append(format_result_md(r))
+        r2 = EvalResult(
+            name=f"{r.name}（{args.title}）",
+            backend=r.backend,
+            same_bytes=r.same_bytes,
+            seq_similarity_pct=r.seq_similarity_pct,
+            op_similarity_pct=r.op_similarity_pct,
+            out_sha256=r.out_sha256,
+            ref_sha256=r.ref_sha256,
+            top_tag_deltas=r.top_tag_deltas,
+            first_diff=r.first_diff,
+        )
+        section.append(format_result_md(r2))
         section.append("")
     text = "\n".join(section).strip() + "\n"
     print(text)

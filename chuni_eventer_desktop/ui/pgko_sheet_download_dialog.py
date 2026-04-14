@@ -146,14 +146,14 @@ def _margrete_ugc_help_image_path() -> Path:
 
 
 def _enumerate_pgko_cache_bundle_dirs(cache_root: Path) -> list[Path]:
-    """列出 `pgko_downloads` 下「含有任意 .mgxc」的顶层目录；若根目录直接放有 mgxc 则包含根。"""
+    """列出 `pgko_downloads` 下「含有任意 .mgxc 或 .ugc」的顶层目录。"""
     if not cache_root.is_dir():
         return []
     out: list[Path] = []
-    if any(cache_root.glob("*.mgxc")):
+    if any(cache_root.glob("*.mgxc")) or any(cache_root.glob("*.ugc")):
         out.append(cache_root)
     for p in sorted(cache_root.iterdir(), key=lambda x: x.name.lower()):
-        if p.is_dir() and any(p.glob("**/*.mgxc")):
+        if p.is_dir() and (any(p.glob("**/*.mgxc")) or any(p.glob("**/*.ugc"))):
             out.append(p)
     # 去重并保持顺序
     seen: set[str] = set()
@@ -217,6 +217,7 @@ class _PgkoUgcGuideDialog(FluentCaptionDialog):
         self,
         *,
         on_open_bundle: Callable[[Path], None],
+        on_try_experimental_ugc: Callable[[Path], None],
         parent=None,
     ) -> None:
         super().__init__(parent=parent)
@@ -224,6 +225,7 @@ class _PgkoUgcGuideDialog(FluentCaptionDialog):
         self.setModal(True)
         self.resize(800, 660)
         self._on_open_bundle = on_open_bundle
+        self._on_try_experimental_ugc = on_try_experimental_ugc
 
         help_panel = QWidget(self)
         hp = QVBoxLayout(help_panel)
@@ -267,14 +269,14 @@ class _PgkoUgcGuideDialog(FluentCaptionDialog):
 
         hint_below = BodyLabel(
             "下方列表来自本应用缓存目录下的 pgko_downloads（与线上下载解压位置一致）。"
-            "仅显示含有 .mgxc 的文件夹；双击一行将按与「线上下载后转 c2s」相同的流程处理。"
+            "显示含有 .mgxc 或 .ugc 的文件夹；双击一行仍按默认规则（mgxc 优先）处理。"
         )
         hint_below.setWordWrap(True)
 
-        self._table = QTableWidget(0, 5, self)
+        self._table = QTableWidget(0, 6, self)
         apply_fluent_sheet_table(self._table)
         self._table.setHorizontalHeaderLabels(
-            ["缓存文件夹", "曲名（mgxc 元数据）", "艺术家", "谱师", "mgxc 数"]
+            ["缓存文件夹", "曲名（元数据）", "艺术家", "谱师", "mgxc 数", "ugc 数"]
         )
         hh = self._table.horizontalHeader()
         hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
@@ -282,6 +284,7 @@ class _PgkoUgcGuideDialog(FluentCaptionDialog):
         hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         hh.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         hh.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -289,10 +292,13 @@ class _PgkoUgcGuideDialog(FluentCaptionDialog):
 
         refresh = PushButton("刷新列表", self)
         refresh.clicked.connect(self._reload_table)
+        exp = PrimaryPushButton("实验性：仅用 UGC 直转 c2s", self)
+        exp.clicked.connect(self._on_experimental_convert)
         close = PushButton("关闭", self)
         close.clicked.connect(self.reject)
         row = QHBoxLayout()
         row.addWidget(refresh)
+        row.addWidget(exp)
         row.addStretch(1)
         row.addWidget(close)
 
@@ -312,9 +318,11 @@ class _PgkoUgcGuideDialog(FluentCaptionDialog):
         bundles = _enumerate_pgko_cache_bundle_dirs(root)
         for bundle in bundles:
             mgxcs = sorted(bundle.glob("**/*.mgxc")) if bundle.is_dir() else []
+            ugcs = sorted(bundle.glob("**/*.ugc")) if bundle.is_dir() else []
             pick = pick_pgko_chart_for_convert(bundle)
             title = artist = designer = "—"
             n_mg = len(mgxcs)
+            n_ug = len(ugcs)
             if pick is not None:
                 try:
                     meta = read_pgko_meta_for_pick(pick)
@@ -333,6 +341,7 @@ class _PgkoUgcGuideDialog(FluentCaptionDialog):
             self._table.setItem(r, 2, QTableWidgetItem(artist))
             self._table.setItem(r, 3, QTableWidgetItem(designer))
             self._table.setItem(r, 4, QTableWidgetItem(str(n_mg)))
+            self._table.setItem(r, 5, QTableWidgetItem(str(n_ug)))
 
     def _on_row_activated(self, _index) -> None:
         r = self._table.currentRow()
@@ -350,6 +359,34 @@ class _PgkoUgcGuideDialog(FluentCaptionDialog):
             return
         self.accept()
         self._on_open_bundle(folder)
+
+    def _on_experimental_convert(self) -> None:
+        r = self._table.currentRow()
+        if r < 0:
+            fly_warning(self, "未选择", "请先在列表中选择一个缓存文件夹。")
+            return
+        it = self._table.item(r, 0)
+        if it is None:
+            return
+        raw = it.data(Qt.ItemDataRole.UserRole)
+        if not raw:
+            return
+        folder = Path(str(raw))
+        if not folder.is_dir():
+            fly_warning(self, "路径无效", f"不是有效文件夹：\n{folder}")
+            return
+        if not fly_question(
+            self,
+            "实验性功能提示",
+            "将尝试“仅使用 UGC”直转 c2s（不走 mgxc 回退）。\n"
+            "该功能仍在实验阶段，可能失败或结果与官方差异较大。\n\n"
+            "是否继续？",
+            yes_text="继续",
+            no_text="取消",
+        ):
+            return
+        self.accept()
+        self._on_try_experimental_ugc(folder)
 
 
 class PgkoSheetDownloadDialog(FluentCaptionDialog):
@@ -473,7 +510,46 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
         th.start()
 
     def _on_ugc_guide(self) -> None:
-        _PgkoUgcGuideDialog(on_open_bundle=self._try_convert_pgko_to_c2s, parent=self).exec()
+        _PgkoUgcGuideDialog(
+            on_open_bundle=self._try_convert_pgko_to_c2s,
+            on_try_experimental_ugc=self._try_convert_pgko_ugc_experimental,
+            parent=self,
+        ).exec()
+
+    def _try_convert_pgko_ugc_experimental(self, output: Path) -> None:
+        ugc_list: list[Path] = []
+        if output.is_dir():
+            ugc_list = sorted(p for p in output.glob("**/*.ugc") if p.is_file())
+        elif output.is_file() and output.suffix.lower() == ".ugc":
+            ugc_list = [output]
+        if not ugc_list:
+            fly_warning(
+                self,
+                "未找到 UGC",
+                f"在以下位置未找到可用于实验性转换的 UGC 文件：\n{output}",
+            )
+            return
+        src = ugc_list[0]
+        self._status.setText(f"实验性 UGC 转换中：{src.name} ...")
+        try:
+            out, backend = convert_pgko_chart_pick_to_c2s_with_backend(
+                PgkoChartPick(path=src, ext="ugc")
+            )
+        except Exception as e:
+            self._status.setText("实验性 UGC 转换失败。")
+            fly_critical(
+                self,
+                "实验性 UGC 转换失败",
+                f"{type(e).__name__}: {e}",
+            )
+            return
+        self._status.setText(f"实验性 UGC 转换完成：{out.name}（{backend}）")
+        fly_message(
+            self,
+            "实验性 UGC 转换完成",
+            f"输入：{src}\n输出：{out}\n后端：{backend}\n\n"
+            "提示：该结果为实验性输出，不保证可用性与一致性。",
+        )
 
     def _on_refresh(self) -> None:
         if self._thread_running_safe(self._fetch_thread):
