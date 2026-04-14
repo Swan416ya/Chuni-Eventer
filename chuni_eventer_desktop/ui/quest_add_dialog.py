@@ -28,6 +28,7 @@ from qfluentwidgets import (
 from ..acus_scan import CharaItem
 from ..game_data_index import GameDataIndex, merged_chara_items
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
+from .event_add_dialog import append_event_sort, next_custom_event_id
 from .fluent_dialogs import fly_critical
 from .map_add_dialog import RewardRef, load_chara_refs, load_nameplate_refs, load_trophy_refs
 from .name_glyph_preview import wrap_name_input_with_preview
@@ -148,6 +149,16 @@ class QuestAddDialog(FluentCaptionDialog):
         self._name_edit = LineEdit(self)
         self._name_edit.setPlaceholderText("任务显示名（写入 name/str）")
         self._hide_info = CheckBox("隐藏详情（hideInfo，与部分官方任务一致）", self)
+        self._create_event = CheckBox("同时生成 Quest 事件（推荐，确保游戏内可见）", self)
+        self._create_event.setChecked(True)
+        self._event_id_edit = LineEdit(self)
+        self._event_id_edit.setPlaceholderText("留空自动分配 70000+")
+        self._event_title_edit = LineEdit(self)
+        self._event_title_edit.setPlaceholderText("留空自动使用：任务活动{任务名}")
+        self._event_id_edit.setEnabled(True)
+        self._event_title_edit.setEnabled(True)
+        self._create_event.toggled.connect(self._event_id_edit.setEnabled)
+        self._create_event.toggled.connect(self._event_title_edit.setEnabled)
 
         self._chara_list = QListWidget(self)
         self._chara_list.setMinimumHeight(180)
@@ -195,6 +206,9 @@ class QuestAddDialog(FluentCaptionDialog):
         form.addRow("任务 ID", self._id_edit)
         form.addRow("显示名", wrap_name_input_with_preview(self._name_edit, parent=self))
         form.addRow("", self._hide_info)
+        form.addRow("", self._create_event)
+        form.addRow("事件 ID", self._event_id_edit)
+        form.addRow("事件标题", wrap_name_input_with_preview(self._event_title_edit, parent=self))
         info_lay.addLayout(form)
 
         chara_card = CardWidget(self)
@@ -425,7 +439,200 @@ class QuestAddDialog(FluentCaptionDialog):
             out = qdir / "Quest.xml"
             out.write_text(xml, encoding="utf-8")
             append_quest_sort(self._acus_root, qid)
+            if self._create_event.isChecked():
+                self._write_quest_event(
+                    quest_id=qid,
+                    quest_name=title,
+                    event_id=_safe_int(self._event_id_edit.text()),
+                    event_title=(self._event_title_edit.text() or "").strip(),
+                )
         except Exception as e:
             fly_critical(self, "生成失败", str(e))
             return
         self.accept()
+
+    def _write_quest_event(
+        self, *, quest_id: int, quest_name: str, event_id: int | None, event_title: str
+    ) -> None:
+        eid = event_id if event_id is not None else next_custom_event_id(self._acus_root)
+        if eid < 0:
+            raise ValueError("事件 ID 必须为非负整数")
+        qname = _xml_text((quest_name or "").strip() or f"Quest{quest_id}")
+        etitle = _xml_text((event_title or "").strip() or f"任务活动 {quest_name}")
+        edir = self._acus_root / "event" / f"event{eid:08d}"
+        edir.mkdir(parents=True, exist_ok=True)
+        xml = f"""<?xml version='1.0' encoding='utf-8'?>
+<EventData>
+  <dataName>event{eid:08d}</dataName>
+  <netOpenName>
+    <id>2801</id>
+    <str>v2_45 00_1</str>
+    <data />
+  </netOpenName>
+  <name>
+    <id>{eid}</id>
+    <str>{etitle}</str>
+    <data />
+  </name>
+  <text />
+  <ddsBannerName>
+    <id>-1</id>
+    <str>Invalid</str>
+    <data />
+  </ddsBannerName>
+  <periodDispType>1</periodDispType>
+  <alwaysOpen>true</alwaysOpen>
+  <teamOnly>false</teamOnly>
+  <isKop>false</isKop>
+  <priority>0</priority>
+  <substances>
+    <type>8</type>
+    <flag>
+      <value>0</value>
+    </flag>
+    <information>
+      <informationType>0</informationType>
+      <informationDispType>0</informationDispType>
+      <mapFilterID>
+        <id>-1</id>
+        <str>Invalid</str>
+        <data />
+      </mapFilterID>
+      <courseNames>
+        <list />
+      </courseNames>
+      <text />
+      <image>
+        <path />
+      </image>
+      <movieName>
+        <id>-1</id>
+        <str>Invalid</str>
+        <data />
+      </movieName>
+      <presentNames>
+        <list />
+      </presentNames>
+    </information>
+    <map>
+      <tagText />
+      <mapName>
+        <id>-1</id>
+        <str>Invalid</str>
+        <data />
+      </mapName>
+      <musicNames>
+        <list />
+      </musicNames>
+    </map>
+    <music>
+      <musicType>0</musicType>
+      <musicNames>
+        <list />
+      </musicNames>
+    </music>
+    <advertiseMovie>
+      <firstMovieName>
+        <id>-1</id>
+        <str>Invalid</str>
+        <data />
+      </firstMovieName>
+      <secondMovieName>
+        <id>-1</id>
+        <str>Invalid</str>
+        <data />
+      </secondMovieName>
+    </advertiseMovie>
+    <recommendMusic>
+      <musicNames>
+        <list />
+      </musicNames>
+    </recommendMusic>
+    <release>
+      <value>0</value>
+    </release>
+    <course>
+      <courseNames>
+        <list />
+      </courseNames>
+    </course>
+    <quest>
+      <questNames>
+        <list>
+          <StringID>
+            <id>{quest_id}</id>
+            <str>{qname}</str>
+            <data />
+          </StringID>
+        </list>
+      </questNames>
+    </quest>
+    <duel>
+      <duelName>
+        <id>-1</id>
+        <str>Invalid</str>
+        <data />
+      </duelName>
+    </duel>
+    <cmission>
+      <cmissionName>
+        <id>-1</id>
+        <str>Invalid</str>
+        <data />
+      </cmissionName>
+    </cmission>
+    <changeSurfBoardUI>
+      <value>0</value>
+    </changeSurfBoardUI>
+    <avatarAccessoryGacha>
+      <avatarAccessoryGachaName>
+        <id>-1</id>
+        <str>Invalid</str>
+        <data />
+      </avatarAccessoryGachaName>
+    </avatarAccessoryGacha>
+    <rightsInfo>
+      <rightsNames>
+        <list />
+      </rightsNames>
+    </rightsInfo>
+    <playRewardSet>
+      <playRewardSetName>
+        <id>-1</id>
+        <str>Invalid</str>
+        <data />
+      </playRewardSetName>
+    </playRewardSet>
+    <dailyBonusPreset>
+      <dailyBonusPresetName>
+        <id>-1</id>
+        <str>Invalid</str>
+        <data />
+      </dailyBonusPresetName>
+    </dailyBonusPreset>
+    <matchingBonus>
+      <timeTableName>
+        <id>-1</id>
+        <str>Invalid</str>
+        <data />
+      </timeTableName>
+    </matchingBonus>
+    <unlockChallenge>
+      <unlockChallengeName>
+        <id>-1</id>
+        <str>Invalid</str>
+        <data />
+      </unlockChallengeName>
+    </unlockChallenge>
+    <linkedVerse>
+      <linkedVerseName>
+        <id>-1</id>
+        <str>Invalid</str>
+        <data />
+      </linkedVerseName>
+    </linkedVerse>
+  </substances>
+</EventData>
+"""
+        (edir / "Event.xml").write_text(xml, encoding="utf-8", newline="\n")
+        append_event_sort(self._acus_root, eid)
