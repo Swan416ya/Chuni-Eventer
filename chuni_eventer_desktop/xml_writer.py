@@ -3,10 +3,9 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-# 仅影响写入 Chara.xml / CharaWorks.xml 的 releaseTagName（不再默认 -1 / Invalid）。
-# id/str 与官方 option 底包里常见的「初版带」一致（如 0 / v1 1.00.00）；不在 ACUS 内追加 ReleaseTag 主数据。
-CHARA_DEFAULT_RELEASE_TAG_ID = 0
-CHARA_DEFAULT_RELEASE_TAG_STR = "v1 1.00.00"
+# 默认写 Invalid，避免与本地 ACUS/releaseTag 中不存在的条目发生不一致。
+CHARA_DEFAULT_RELEASE_TAG_ID = -1
+CHARA_DEFAULT_RELEASE_TAG_STR = "Invalid"
 
 # 与 XVERSE `data/A000/chara` 官方样本一致（如 chara000780、chara024680）；曾用 2801/00_1 时易出现与底包解禁轴不一致。
 CHARA_DEFAULT_NET_OPEN_ID = 2800
