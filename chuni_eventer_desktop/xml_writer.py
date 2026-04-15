@@ -95,6 +95,69 @@ CHARA_DEFAULT_RANKS_XML = """  <ranks>
     </CharaRankData>
   </ranks>"""
 
+def _works_sort_seed_path(acus_root: Path, filename: str) -> Path | None:
+    local_a000 = acus_root.parent / "A000" / "charaWorks" / filename
+    if local_a000.is_file():
+        return local_a000
+    # 兼容用户当前环境给出的 A000 绝对路径
+    if filename == "WorksSort.xml":
+        cand = Path("D:/Chunithm_XVerseX/data/A000/charaWorks/WorksSort.xml")
+        return cand if cand.is_file() else None
+    cand = Path("D:/Chunithm_XVerseX/data/A000/charaWorks/WorksNameSort.xml")
+    return cand if cand.is_file() else None
+
+
+def _append_sort_string_id(sort_xml: Path, works_id: int) -> None:
+    root = ET.parse(sort_xml).getroot()
+    # ElementTree 不会保留 xmlns 声明为普通属性；写回前补齐，避免格式与官方样本偏差。
+    root.set("xmlns:xsd", "http://www.w3.org/2001/XMLSchema")
+    root.set("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance")
+    dn = root.find("dataName")
+    if dn is None:
+        dn = ET.SubElement(root, "dataName")
+    if not (dn.text or "").strip():
+        dn.text = "charaWorks"
+    sl = root.find("SortList")
+    if sl is None:
+        sl = ET.SubElement(root, "SortList")
+    for n in sl.findall("StringID/id"):
+        try:
+            if int((n.text or "").strip()) == int(works_id):
+                ET.indent(root, space="  ")
+                ET.ElementTree(root).write(sort_xml, encoding="utf-8", xml_declaration=True)
+                return
+        except ValueError:
+            continue
+    s = ET.SubElement(sl, "StringID")
+    ET.SubElement(s, "id").text = str(int(works_id))
+    ET.SubElement(s, "str")
+    ET.SubElement(s, "data")
+    ET.indent(root, space="  ")
+    ET.ElementTree(root).write(sort_xml, encoding="utf-8", xml_declaration=True)
+
+
+def ensure_chara_works_sorts(*, acus_root: Path, works_id: int) -> None:
+    works_root = acus_root / "charaWorks"
+    works_root.mkdir(parents=True, exist_ok=True)
+    for fn in ("WorksSort.xml", "WorksNameSort.xml"):
+        dst = works_root / fn
+        if not dst.exists():
+            seed = _works_sort_seed_path(acus_root, fn)
+            if seed is not None:
+                dst.write_text(seed.read_text(encoding="utf-8"), encoding="utf-8")
+            else:
+                dst.write_text(
+                    """<?xml version="1.0" encoding="utf-8"?>
+<SerializeSortData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dataName>charaWorks</dataName>
+  <SortList>
+  </SortList>
+</SerializeSortData>
+""",
+                    encoding="utf-8",
+                )
+        _append_sort_string_id(dst, works_id)
+
 
 def write_ddsimage_xml(
     *,
@@ -219,6 +282,7 @@ def write_chara_works_xml(
 </CharaWorksData>
 """
     xml_path.write_text(xml, encoding="utf-8")
+    ensure_chara_works_sorts(acus_root=out_dir, works_id=wid)
     return xml_path
 
 

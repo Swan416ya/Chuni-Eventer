@@ -57,6 +57,46 @@ def _seed_acus_from_bundled(acus_root: Path) -> None:
             continue
 
 
+def _ensure_chara_works_sort_seed(acus_root: Path) -> None:
+    """
+    首次初始化 ACUS 时补齐 charaWorks 的两个排序文件。
+    优先使用用户给定的 A000 样本路径；若不存在则尝试仓库同级 A000。
+    """
+    works_root = acus_root / "charaWorks"
+    works_root.mkdir(parents=True, exist_ok=True)
+    seed_candidates = (
+        Path("D:/Chunithm_XVerseX/data/A000/charaWorks"),
+        app_root_dir() / "A000" / "charaWorks",
+    )
+    for fn in ("WorksSort.xml", "WorksNameSort.xml"):
+        dst = works_root / fn
+        if dst.exists():
+            continue
+        copied = False
+        for base in seed_candidates:
+            src = base / fn
+            if src.is_file():
+                try:
+                    shutil.copy2(src, dst)
+                    copied = True
+                    break
+                except OSError:
+                    continue
+        if copied:
+            continue
+        # 最后兜底：空 Sort 壳子，避免游戏端读取不到文件
+        dst.write_text(
+            """<?xml version="1.0" encoding="utf-8"?>
+<SerializeSortData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dataName>charaWorks</dataName>
+  <SortList>
+  </SortList>
+</SerializeSortData>
+""",
+            encoding="utf-8",
+        )
+
+
 def ensure_acus_layout() -> Path:
     """
     Create ACUS folder and core subfolders (A001-like roots we care about).
@@ -84,6 +124,7 @@ def ensure_acus_layout() -> Path:
     ]:
         (root / d).mkdir(parents=True, exist_ok=True)
     _seed_acus_from_bundled(root)
+    _ensure_chara_works_sort_seed(root)
     # 缓存不再放在 ACUS 内，统一放应用根 .cache
     (app_cache_dir() / "dds_preview").mkdir(parents=True, exist_ok=True)
     return root
