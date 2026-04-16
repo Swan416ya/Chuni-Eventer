@@ -1208,6 +1208,7 @@ class RewardCreateDialog(FluentCaptionDialog):
         *,
         default_id: int,
         music_refs: list[MusicRef],
+        acus_music_refs: list[MusicRef] | None = None,
         chara_refs: list[RewardRef],
         trophy_refs: list[RewardRef],
         nameplate_refs: list[RewardRef],
@@ -1219,6 +1220,7 @@ class RewardCreateDialog(FluentCaptionDialog):
         self.setModal(True)
         self.result_cell: CellData | None = None
         self._music_refs = music_refs
+        self._acus_music_refs = acus_music_refs if acus_music_refs is not None else music_refs
         self._chara_refs = chara_refs
         self._trophy_refs = trophy_refs
         self._nameplate_refs = nameplate_refs
@@ -1253,11 +1255,21 @@ class RewardCreateDialog(FluentCaptionDialog):
 
         self.has_music = CheckBox("有课题曲")
         self.music_mode = FluentComboBox()
-        self.music_mode.addItems(["不配置乐曲", "选择乐曲"])
+        self.music_mode.addItems(["从 ACUS 选择", "手动填写"])
         self.music_pick = FluentComboBox()
         self.music_pick.addItem("(请选择)", None, None)
-        for m in music_refs:
+        for m in self._acus_music_refs:
             self.music_pick.addItem(f"{m.id} | {m.name}", None, m.id)
+        self.music_id_manual = LineEdit()
+        self.music_id_manual.setPlaceholderText("musicName.id（整数）")
+        self.music_name_manual = LineEdit()
+        self.music_name_manual.setPlaceholderText("musicName.str（可空，默认 Music{id}）")
+        self.music_manual_row = QWidget()
+        self.music_manual_row_l = QHBoxLayout(self.music_manual_row)
+        self.music_manual_row_l.setContentsMargins(0, 0, 0, 0)
+        self.music_manual_row_l.setSpacing(8)
+        self.music_manual_row_l.addWidget(self.music_id_manual)
+        self.music_manual_row_l.addWidget(self.music_name_manual)
         self.has_music.toggled.connect(self._sync)
         self.music_mode.currentTextChanged.connect(self._sync)
         self.music_pick.activated.connect(self._on_music_pick_activated)
@@ -1271,6 +1283,7 @@ class RewardCreateDialog(FluentCaptionDialog):
         form.addRow("", self.has_music)
         form.addRow("课题曲", self.music_mode)
         form.addRow("乐曲", self.music_pick)
+        form.addRow("手动课题曲", self.music_manual_row)
 
         ok = PrimaryPushButton("创建")
         ok.clicked.connect(self._on_ok)
@@ -1411,9 +1424,13 @@ class RewardCreateDialog(FluentCaptionDialog):
 
         on = self.has_music.isChecked()
         self.music_mode.setEnabled(on)
-        pick_on = on and self.music_mode.currentText() == "选择乐曲"
+        pick_on = on and self.music_mode.currentText() == "从 ACUS 选择"
+        manual_on = on and self.music_mode.currentText() == "手动填写"
+        self.music_pick.setVisible(pick_on)
         self.music_pick.setEnabled(pick_on)
-        if not on:
+        self.music_manual_row.setVisible(manual_on)
+        self.music_manual_row.setEnabled(manual_on)
+        if not pick_on:
             self.music_pick.setCurrentIndex(0)
         self._apply_auto_reward_name()
 
@@ -1442,9 +1459,7 @@ class RewardCreateDialog(FluentCaptionDialog):
             inner = refs[pick - 1].id
         c = CellData(reward_id=rid, reward_name=name, reward_kind=kind, reward_inner_id=inner)
         if self.has_music.isChecked():
-            if self.music_mode.currentText() != "选择乐曲":
-                pass
-            else:
+            if self.music_mode.currentText() == "从 ACUS 选择":
                 mid = _combo_pick_id(self.music_pick)
                 if mid is None:
                     fly_critical(self, "错误", "请选择乐曲")
@@ -1454,6 +1469,13 @@ class RewardCreateDialog(FluentCaptionDialog):
                 c.music_name = (
                     txt.split("|", 1)[1].strip() if "|" in txt else f"Music{mid}"
                 )
+            else:
+                mid = _safe_int(self.music_id_manual.text())
+                if mid is None:
+                    fly_critical(self, "错误", "手动课题曲的 musicName.id 必须是整数")
+                    return
+                c.music_id = mid
+                c.music_name = (self.music_name_manual.text() or "").strip() or f"Music{mid}"
         self.result_cell = c
         self.accept()
 
@@ -3337,6 +3359,7 @@ class MapAddDialog(FluentCaptionDialog):
             rd = RewardCreateDialog(
                 default_id=next_custom_reward_id(self._acus_root),
                 music_refs=self._music_refs,
+                acus_music_refs=self._acus_music_refs,
                 chara_refs=self._chara_refs,
                 trophy_refs=self._trophy_refs,
                 nameplate_refs=self._nameplate_refs,
