@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 import shutil
+import time
+import traceback
 import xml.etree.ElementTree as ET
 
 from PyQt6.QtCore import QPoint, Qt, QModelIndex, QSortFilterProxyModel, QTimer
@@ -354,6 +356,7 @@ class ManagerWidget(QWidget):
 
         self._selected_chara: CharaItem | None = None
         self._chara_variant_map: dict[int, int] = {}
+        self._music_stage_dialog: MusicStageSelectDialog | None = None
 
         # right panel：上 DDS（有则显示），下属性表
         right_card = CardWidget()
@@ -1033,15 +1036,43 @@ class ManagerWidget(QWidget):
     def _on_music_stage_change_requested(self, it: object) -> None:
         if not isinstance(it, MusicItem):
             return
+        print(
+            f"[stage-debug] request received ts={time.time():.3f} music_id={it.name.id} xml={it.xml_path} "
+            f"widgetVisible={self.isVisible()} enabled={self.isEnabled()}"
+        )
         cur_id = it.stage.id if it.stage is not None else None
+        if self._music_stage_dialog is not None:
+            print("[stage-debug] closing previous stage dialog")
+            self._music_stage_dialog.close()
+            self._music_stage_dialog.deleteLater()
+            self._music_stage_dialog = None
         dlg = MusicStageSelectDialog(acus_root=self._acus_root, current_stage_id=cur_id, parent=self.window())
-        if dlg.exec() != QDialog.DialogCode.Accepted:
+        print(f"[stage-debug] dialog created ts={time.time():.3f} current_stage_id={cur_id}")
+        self._music_stage_dialog = dlg
+        dlg.finished.connect(lambda code, d=dlg, m=it: self._on_music_stage_dialog_finished(code, d, m))
+        print("[stage-debug] dialog open()")
+        dlg.open()
+
+    def _on_music_stage_dialog_finished(self, code: int, dlg: MusicStageSelectDialog, it: MusicItem) -> None:
+        print(
+            f"[stage-debug] dialog finished ts={time.time():.3f} code={code} "
+            f"accepted={int(QDialog.DialogCode.Accepted)}"
+        )
+        if self._music_stage_dialog is dlg:
+            self._music_stage_dialog = None
+        if code != int(QDialog.DialogCode.Accepted):
+            print("[stage-debug] dialog not accepted, exit")
+            dlg.deleteLater()
             return
         sid = dlg.selected_stage_id
         if sid is None:
+            print("[stage-debug] accepted but selected_stage_id is None")
+            dlg.deleteLater()
             return
         sstr = dlg.selected_stage_str or f"Stage{sid}"
+        print(f"[stage-debug] selected sid={sid} sstr={sstr!r}")
         try:
+            print(f"[stage-debug] parsing xml {it.xml_path}")
             tree = ET.parse(it.xml_path)
             root = tree.getroot()
             st = root.find("stageName")
@@ -1061,12 +1092,35 @@ class ManagerWidget(QWidget):
             if data_el.text is None:
                 data_el.text = ""
             ET.indent(root)  # type: ignore[attr-defined]
+            print("[stage-debug] writing xml")
             tree.write(it.xml_path, encoding="utf-8", xml_declaration=True)
+            print("[stage-debug] xml write done")
         except Exception as e:
+            print(f"[stage-debug] xml update failed: {e}")
+            print(traceback.format_exc())
             fly_critical(self.window(), "修改背景失败", str(e))
+            dlg.deleteLater()
             return
-        fly_message(self.window(), "已更新", f"已将乐曲 {it.name.id} 的 Stage 设置为 {sid} · {sstr}")
+        print("[stage-debug] calling reload()")
+        t0 = time.time()
         self.reload()
+        print(f"[stage-debug] reload() done in {(time.time() - t0):.3f}s, finalize old dialog")
+        try:
+            dlg.setModal(False)
+            dlg.hide()
+        except Exception:
+            pass
+        dlg.deleteLater()
+        print("[stage-debug] old dialog deleteLater posted")
+
+        # NOTE: MessageBox after this flow can lock interaction in some environments.
+        # Keep stage update silent (log only) to avoid UI freeze.
+        print(
+            f"[stage-debug] stage update done without popup music_id={it.name.id} sid={sid} sstr={sstr!r}"
+        )
+        QTimer.singleShot(100, lambda: print(f"[stage-debug] heartbeat +100ms ts={time.time():.3f}"))
+        QTimer.singleShot(500, lambda: print(f"[stage-debug] heartbeat +500ms ts={time.time():.3f}"))
+        QTimer.singleShot(1500, lambda: print(f"[stage-debug] heartbeat +1500ms ts={time.time():.3f}"))
 
     def _on_music_delete_requested(self, it: object) -> None:
         if not isinstance(it, MusicItem):
