@@ -20,18 +20,20 @@ class StageAfbResult:
 
 
 def _candidate_mua_paths() -> list[Path]:
-    out: list[Path] = []
+    root = app_root_dir()
+    out: list[Path] = [
+        # 打包后的固定位置
+        root / ".tools" / "PenguinTools" / "mua.exe",
+        root / ".tools" / "mua" / "mua.exe",
+        root / ".tools" / "muautils" / "mua.exe",
+        # 源码运行固定位置
+        root / "tools" / "PenguinTools" / "mua.exe",
+        root / "tools" / "mua" / "mua.exe",
+    ]
+    # 兼容：允许高级用户用环境变量覆盖
     env = (os.environ.get("CHUNI_MUA_PATH") or "").strip()
     if env:
-        out.append(Path(env).expanduser())
-    root = app_root_dir()
-    out.extend(
-        [
-            root / ".tools" / "mua" / "mua.exe",
-            root / ".tools" / "muautils" / "mua.exe",
-            root / ".tools" / "PenguinTools" / "mua.exe",
-        ]
-    )
+        out.insert(0, Path(env).expanduser())
     return out
 
 
@@ -45,8 +47,9 @@ def resolve_mua_path() -> Path:
             return rp
     raise StageAfbToolError(
         "未找到 `mua` 可执行文件。\n"
-        "请设置环境变量 `CHUNI_MUA_PATH` 指向 mua.exe，"
-        "或放到应用目录下 `.tools/mua/mua.exe`。"
+        "请把 `mua.exe` 放到以下固定路径之一：\n"
+        "1) `<项目根>/tools/PenguinTools/mua.exe`\n"
+        "2) `<项目根>/.tools/PenguinTools/mua.exe`（打包后推荐）"
     )
 
 
@@ -56,6 +59,10 @@ def _candidate_templates(game_root: str | None) -> list[tuple[Path, Path]]:
     # 1) 若你后续把模板打包进项目，优先读取这里
     pairs.extend(
         [
+            (
+                root / "tools" / "PenguinTools" / "Resources" / "nf_dummy.afb",
+                root / "tools" / "PenguinTools" / "Resources" / "st_dummy.afb",
+            ),
             (
                 root / ".tools" / "PenguinTools" / "Resources" / "nf_dummy.afb",
                 root / ".tools" / "PenguinTools" / "Resources" / "st_dummy.afb",
@@ -89,12 +96,18 @@ def _candidate_templates(game_root: str | None) -> list[tuple[Path, Path]]:
 
 
 def resolve_stage_templates(game_root: str | None) -> tuple[Path, Path]:
+    tried: list[str] = []
     for nf, st in _candidate_templates(game_root):
+        tried.append(f"nf={nf} | st={st}")
         if nf.is_file() and st.is_file():
             return nf, st
     raise StageAfbToolError(
         "未找到 Stage 模板 afb（nf/st）。\n"
-        "请确保游戏目录存在 `A001/stage/.../*.afb`，或把模板放到 `.tools/PenguinTools/Resources/`。"
+        "你可以把模板放在：\n"
+        "1) `<项目根>/.tools/PenguinTools/Resources/nf_dummy.afb` 与 `st_dummy.afb`\n"
+        "2) `<项目根>/A001/stage/stage000011/nf_00011.afb` 与 `st_00011.afb`\n"
+        "3) 游戏目录（设置里的 game_root）下的 `bin/option/A001/stage/...`。\n\n"
+        "已尝试路径：\n" + "\n".join(tried)
     )
 
 

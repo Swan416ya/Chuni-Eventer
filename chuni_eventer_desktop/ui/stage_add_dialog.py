@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 from PyQt6.QtWidgets import QFileDialog, QFormLayout, QHBoxLayout, QLineEdit, QVBoxLayout, QWidget
 from qfluentwidgets import BodyLabel, CardWidget, LineEdit, PrimaryPushButton, PushButton
@@ -16,6 +17,24 @@ def _safe_int(text: str) -> int | None:
         return int(text.strip())
     except Exception:
         return None
+
+
+def _next_stage_id(acus_root: Path, start: int = 70000) -> int:
+    used: set[int] = set()
+    sroot = acus_root / "stage"
+    if not sroot.is_dir():
+        return start
+    for xp in sroot.glob("stage*/Stage.xml"):
+        try:
+            rid = int((ET.parse(xp).getroot().findtext("name/id") or "").strip())
+            if rid > 0:
+                used.add(rid)
+        except Exception:
+            continue
+    cand = max(1, int(start))
+    while cand in used:
+        cand += 1
+    return cand
 
 
 class StageAddDialog(FluentCaptionDialog):
@@ -37,10 +56,11 @@ class StageAddDialog(FluentCaptionDialog):
 
         self.id_edit = LineEdit(self)
         self.id_edit.setPlaceholderText("例如 27201")
+        self.id_edit.setText(str(_next_stage_id(self._acus_root, start=70000)))
         self.name_edit = LineEdit(self)
         self.name_edit.setPlaceholderText("例如 メダリスト")
         self.image_edit = LineEdit(self)
-        self.image_edit.setPlaceholderText("选择图片或 DDS（DDS 必须 BC3）")
+        self.image_edit.setPlaceholderText("必须选择 1920x1080 的背景图（游戏内最终显示）")
         self.line_id_edit = LineEdit(self)
         self.line_id_edit.setText("8")
         self.line_str_edit = LineEdit(self)
@@ -52,12 +72,12 @@ class StageAddDialog(FluentCaptionDialog):
         cly = QVBoxLayout(card)
         cly.setContentsMargins(16, 14, 16, 14)
         cly.setSpacing(10)
-        cly.addWidget(BodyLabel("根据图片生成 Stage.xml 与预览 DDS"))
+        cly.addWidget(BodyLabel("根据 1920x1080 背景图生成 Stage（AFB + 预览DDS）"))
 
         form = QFormLayout()
         form.addRow("Stage ID", self.id_edit)
         form.addRow("显示名", self.name_edit)
-        form.addRow("预览图", self._file_row(self.image_edit, "选择背景图"))
+        form.addRow("背景图", self._file_row(self.image_edit, "选择背景图"))
         form.addRow("判定线 ID", self.line_id_edit)
         form.addRow("判定线 str", self.line_str_edit)
         form.addRow("notesFieldFile", self.notes_afb_edit)
@@ -65,8 +85,9 @@ class StageAddDialog(FluentCaptionDialog):
         cly.addLayout(form)
 
         hint = BodyLabel(
-            "说明：会在 ACUS/stage/stageXXXXXX 下创建 Stage.xml；若提供图片则写入 "
-            "CHU_UI_Stage_xxxxx.dds 并填到 image/path。"
+            "规则：输入背景图必须是 1920x1080；\n"
+            "1) AFB 生成会直接使用原始 1920x1080 图走外部 convert_stage 工具链；\n"
+            "2) 背景图会按 960x540 + 顶部 450 裁切覆盖 + 轨道半透明图叠加后，再转 BC3 DDS。"
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#6b7280;")
@@ -100,7 +121,12 @@ class StageAddDialog(FluentCaptionDialog):
         return w
 
     def _pick_into(self, edit: QLineEdit, title: str) -> None:
-        p, _ = QFileDialog.getOpenFileName(self, title)
+        p, _ = QFileDialog.getOpenFileName(
+            self,
+            title,
+            "",
+            "图片 (*.png *.jpg *.jpeg *.webp *.bmp *.tif *.tiff);;所有文件 (*.*)",
+        )
         if p:
             edit.setText(p)
 
@@ -113,7 +139,9 @@ class StageAddDialog(FluentCaptionDialog):
             img_text = self.image_edit.text().strip()
             image_source = Path(img_text).expanduser().resolve() if img_text else None
             if image_source is not None and not image_source.is_file():
-                raise ValueError("预览图文件不存在。")
+                raise ValueError("背景图文件不存在。")
+            if image_source is None:
+                raise ValueError("请提供 1920x1080 背景图。")
             line_id = _safe_int(self.line_id_edit.text())
             if line_id is None:
                 raise ValueError("判定线 ID 必须为整数。")

@@ -1,14 +1,61 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import tempfile
 from pathlib import Path
 
 from .dds_convert import ingest_to_bc3_dds
 from .stage_afb_convert import StageAfbToolError, build_stage_afb_from_image
+from PIL import Image, UnidentifiedImageError
 
 
 def _xml_text(s: str) -> str:
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _stage_overlay_png_path() -> Path:
+    return Path(__file__).resolve().parent / "static" / "tool" / "stage.png"
+
+
+def _prepare_stage_preview_png(source: Path) -> Path:
+    """
+    预览 DDS 生成规则（按需求）：
+    1) 输入必须是 1920x1080
+    2) 缩小到 960x540
+    3) 裁切最上方 960x450
+    4) 把该 960x450 覆盖到 960x540 底图顶部
+    5) 叠加半透明轨道指示图 `static/tool/stage.png`
+    6) 输出临时 PNG，供 BC3 DDS 编码
+    """
+    try:
+        with Image.open(source) as im0:
+            src = im0.convert("RGBA").copy()
+    except UnidentifiedImageError as e:
+        raise ValueError(f"无法识别图片格式：{source}") from e
+    except OSError as e:
+        raise ValueError(f"无法读取图片文件：{source}\n{e}") from e
+
+    if src.size != (1920, 1080):
+        raise ValueError(f"背景图尺寸必须是 1920x1080，当前为 {src.size[0]}x{src.size[1]}。")
+
+    half = src.resize((960, 540), Image.Resampling.LANCZOS)
+    top_crop = half.crop((0, 0, 960, 450))
+    composed = half.copy()
+    composed.paste(top_crop, (0, 0))
+
+    overlay_path = _stage_overlay_png_path()
+    if not overlay_path.is_file():
+        raise FileNotFoundError(f"缺少轨道覆盖图：{overlay_path}")
+    with Image.open(overlay_path) as ov0:
+        overlay = ov0.convert("RGBA").copy()
+    if overlay.size != (960, 540):
+        overlay = overlay.resize((960, 540), Image.Resampling.LANCZOS)
+    composed.alpha_composite(overlay)
+
+    with tempfile.NamedTemporaryFile(prefix="stage_preview_", suffix=".png", delete=False) as tf:
+        out = Path(tf.name)
+    composed.save(out, "PNG")
+    return out
 
 
 @dataclass(frozen=True)
@@ -70,16 +117,22 @@ def create_stage_from_image(
     sdir.mkdir(parents=True, exist_ok=False)
 
     image_name = ""
+    tmp_preview_png: Path | None = None
     if opts.image_source is not None:
         src = opts.image_source.expanduser().resolve()
         if not src.is_file():
             raise FileNotFoundError(f"图片文件不存在：{src}")
+        # 外部 convert_stage 与预览贴图都统一要求输入是 1920x1080
+        tmp_preview_png = _prepare_stage_preview_png(src)
         image_name = opts.default_image_name()
-        ingest_to_bc3_dds(
-            tool_path=tool_path,
-            input_path=src,
-            output_dds=sdir / image_name,
-        )
+        try:
+            ingest_to_bc3_dds(
+                tool_path=tool_path,
+                input_path=tmp_preview_png,
+                output_dds=sdir / image_name,
+            )
+        finally:
+            tmp_preview_png.unlink(missing_ok=True)
 
     notes_field_file = (opts.notes_field_file or "").strip() or opts.default_notes_field_file()
     base_file = (opts.base_file or "").strip() or opts.default_base_file()

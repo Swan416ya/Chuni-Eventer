@@ -124,6 +124,21 @@ if (-not $SkipCompressonator) {
     Copy-CompressonatorBundle $DistToolsRoot
 }
 
+# Bundle PenguinTools resources (stage templates / optional mua.exe) if present.
+function Copy-PenguinToolsBundle([string]$toolsParent) {
+    $src = Join-Path $Root "tools\PenguinTools"
+    if (-not (Test-Path $src)) { return }
+    $dest = Join-Path $toolsParent "PenguinTools"
+    if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+    New-Item -ItemType Directory -Path $dest -Force | Out-Null
+    Copy-Item -Path (Join-Path $src "*") -Destination $dest -Recurse -Force
+}
+
+$OutTools2 = Join-Path $OutDir ".tools"
+$DistToolsRoot2 = Join-Path $Root "dist\.tools"
+Copy-PenguinToolsBundle $OutTools2
+Copy-PenguinToolsBundle $DistToolsRoot2
+
 $ThirdParty = Join-Path $Root "packaging\THIRD_PARTY_COMPRESSONATOR.txt"
 if (Test-Path $ThirdParty) {
     Copy-Item $ThirdParty (Join-Path $OutDir "THIRD_PARTY_COMPRESSONATOR.txt") -Force
