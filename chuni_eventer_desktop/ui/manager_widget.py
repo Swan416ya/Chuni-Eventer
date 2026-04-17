@@ -86,7 +86,6 @@ _KIND_DEFS: tuple[tuple[str, str], ...] = (
     ("任务", "Quest"),
     ("地图", "Map"),
     ("歌曲", "Music"),
-    ("背景", "Stage"),
     ("角色", "Chara"),
     ("称号", "Trophy"),
     ("名牌", "NamePlate"),
