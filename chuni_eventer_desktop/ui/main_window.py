@@ -35,6 +35,7 @@ from .save_patch_dialog import SavePatchDialog
 from .event_add_dialog import EventAddDialog
 from .quest_add_dialog import QuestAddDialog
 from .mapbonus_dialogs import MapBonusEditDialog
+from .stage_add_dialog import StageAddDialog
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
 from .nav_icons import (
     SVG_STAGE_BG,
@@ -354,11 +355,14 @@ class MainWindow(MSFluentWindow):
             return
 
         if kind == "Stage":
-            fly_warning(
-                self,
-                "暂未实现新增",
-                "背景（Stage）页已支持浏览与检索当前 ACUS 内全部 Stage；新增/编辑将在后续版本提供。",
+            dlg = StageAddDialog(
+                acus_root=self._acus_root,
+                tool_path=self._get_tool_path_or_none(),
+                game_root=self._cfg.game_root or "",
+                parent=self,
             )
+            if dlg.exec() == dlg.DialogCode.Accepted:
+                self._on_refresh()
             return
 
         tool = self._get_tool_path_or_none()
