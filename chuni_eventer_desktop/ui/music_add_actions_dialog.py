@@ -26,7 +26,7 @@ _BTN_W = int(round(_BTN_H * 2.5))
 
 class MusicSheetChannelsDialog(QDialog):
     """
-    乐曲页「新增」：选择自制谱下载渠道（Swan / pgko）。
+    乐曲页「新增」：选择自制谱下载渠道（Swan / SwanClub / pgko）。
     """
 
     def __init__(self, *, parent=None) -> None:
@@ -76,7 +76,38 @@ class MusicSheetChannelsDialog(QDialog):
                 b.clicked.connect(lambda _=False, a=act: self._pick(a))
             return b
 
+        def mk_text(title: str, subtitle: str, tip: str, *, enabled: bool, act: str) -> QToolButton:
+            b = QToolButton(card)
+            b.setToolTip(tip)
+            b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+            b.setText(f"{title}\n{subtitle}")
+            b.setIconSize(icon_sz)
+            b.setFixedSize(_BTN_W, _BTN_H)
+            b.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            b.setEnabled(enabled)
+            b.setStyleSheet(
+                "QToolButton{"
+                "font-size:11px;"
+                "font-weight:600;"
+                "line-height:1.15;"
+                "padding:2px 6px;"
+                "text-align:center;"
+                "}"
+            )
+            if enabled:
+                b.clicked.connect(lambda _=False, a=act: self._pick(a))
+            return b
+
         row.addWidget(mk("SwanSite.png", "从 Swan 站获取自制谱", enabled=True, act="swan"))
+        row.addWidget(
+            mk_text(
+                "SwanClub",
+                "自制谱opt分享平台",
+                "从 SwanClub 下载/上传社区谱面",
+                enabled=True,
+                act="swanclub",
+            )
+        )
         row.addWidget(
             mk(
                 "pgko.jpg",
@@ -115,7 +146,7 @@ class MusicSheetChannelsDialog(QDialog):
         root.setSpacing(12)
         root.addWidget(card, stretch=1)
 
-        min_w = _BTN_W * 2 + 12 * 1 + 48
+        min_w = _BTN_W * 3 + 12 * 2 + 48
         card.setMinimumWidth(min_w)
 
     def showEvent(self, event) -> None:

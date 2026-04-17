@@ -82,6 +82,7 @@ class FlipMusicCard(QFrame):
     deleteRequested = pyqtSignal(object)
     trophyRequested = pyqtSignal(object)
     jacketReplaceRequested = pyqtSignal(object)
+    githubUploadRequested = pyqtSignal(object)
 
     def __init__(
         self,
@@ -143,6 +144,7 @@ class FlipMusicCard(QFrame):
 
         act_jacket = Action(FIF.PHOTO, "更换封面…", self)
         act_trophy = Action(FIF.TAG, "生成课题称号…", self)
+        act_gh = Action(FIF.SYNC, "上传到 GitHub 社区谱面…", self)
         act_del = Action(FIF.DELETE, "删除乐曲…", self)
         act_jacket.triggered.connect(
             lambda: self.jacketReplaceRequested.emit(self._item)
@@ -150,9 +152,11 @@ class FlipMusicCard(QFrame):
         act_trophy.triggered.connect(
             lambda: self.trophyRequested.emit(self._item)
         )
+        act_gh.triggered.connect(lambda: self.githubUploadRequested.emit(self._item))
         act_del.triggered.connect(lambda: self.deleteRequested.emit(self._item))
         menu.addAction(act_jacket)
         menu.addAction(act_trophy)
+        menu.addAction(act_gh)
         menu.addAction(act_del)
         menu.exec(
             event.globalPos(),
@@ -421,6 +425,7 @@ class MusicCardsView(QWidget):
     musicDeleteRequested = pyqtSignal(object)
     musicTrophyRequested = pyqtSignal(object)
     musicJacketReplaceRequested = pyqtSignal(object)
+    musicGithubUploadRequested = pyqtSignal(object)
 
     def __init__(
         self,
@@ -554,6 +559,7 @@ class MusicCardsView(QWidget):
             card.deleteRequested.connect(self.musicDeleteRequested.emit)
             card.trophyRequested.connect(self.musicTrophyRequested.emit)
             card.jacketReplaceRequested.connect(self.musicJacketReplaceRequested.emit)
+            card.githubUploadRequested.connect(self.musicGithubUploadRequested.emit)
             self._cards.append(card)
             row, col = divmod(idx, cols)
             self._grid.addWidget(
