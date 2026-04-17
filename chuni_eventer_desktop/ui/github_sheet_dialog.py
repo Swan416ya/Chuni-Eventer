@@ -6,8 +6,6 @@ import shutil
 import tempfile
 import zipfile
 import xml.etree.ElementTree as ET
-
-from PyQt6.QtWidgets import QInputDialog
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -16,7 +14,7 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem,
     QVBoxLayout,
 )
-from qfluentwidgets import BodyLabel, CardWidget, PrimaryPushButton, PushButton
+from qfluentwidgets import BodyLabel, CardWidget, LineEdit, PrimaryPushButton, PushButton
 
 from ..acus_workspace import app_cache_dir
 from ..acus_scan import MusicItem
@@ -26,7 +24,7 @@ from ..backend_upload_client import (
     upload_to_backend,
 )
 from ..music_delete import plan_music_deletion
-from ..sheet_install import install_zip_to_acus
+from ..sheet_install import _mapper_for_paths, install_zip_to_acus
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message, fly_question, fly_warning
 from .fluent_table import apply_fluent_sheet_table
@@ -113,6 +111,123 @@ def _replace_music_id_in_xml(xml_path: Path, new_music_id: int) -> int:
     return changed
 
 
+def _rewrite_music_related_ids_in_xml(xml_path: Path, old_music_id: int, new_music_id: int) -> int:
+    """
+    在“music 相关”节点中把 old_music_id 改为 new_music_id。
+    规则：当前/父/祖父标签名包含 music，且文本值等于 old_music_id。
+    """
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+    old_s = str(old_music_id)
+    new_s = str(new_music_id)
+    changed = 0
+
+    def walk(node: ET.Element, parent_tag: str, grand_tag: str) -> None:
+        nonlocal changed
+        tag = (node.tag or "").strip().lower()
+        txt = (node.text or "").strip()
+        ctx = f"{tag}|{parent_tag}|{grand_tag}"
+        if txt == old_s and ("music" in ctx):
+            node.text = new_s
+            changed += 1
+        for ch in list(node):
+            walk(ch, tag, parent_tag)
+
+    walk(root, "", "")
+    if changed > 0:
+        tree.write(xml_path, encoding="utf-8", xml_declaration=True)
+    return changed
+
+
+def _rewrite_all_id_fields_in_xml(xml_path: Path, old_music_id: int, new_music_id: int) -> int:
+    """
+    将 XML 内所有 <id>old_music_id</id> 改为 new_music_id。
+    """
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+    old_s = str(old_music_id)
+    new_s = str(new_music_id)
+    changed = 0
+    for id_el in root.findall(".//id"):
+        txt = (id_el.text or "").strip()
+        if txt == old_s:
+            id_el.text = new_s
+            changed += 1
+    if changed > 0:
+        tree.write(xml_path, encoding="utf-8", xml_declaration=True)
+    return changed
+
+
+def _map_related_numeric_id(old_id: int, old_music_id: int, new_music_id: int) -> int:
+    old6 = f"{old_music_id:06d}"
+    new6 = f"{new_music_id:06d}"
+    old_plain = str(old_music_id)
+    new_plain = str(new_music_id)
+    text = str(old_id)
+    mapped = text.replace(old6, new6).replace(old_plain, new_plain)
+    if mapped.isdigit():
+        return int(mapped)
+    if old_id == old_music_id:
+        return new_music_id
+    return old_id
+
+
+def _rewrite_primary_name_id(xml_path: Path, new_id: int) -> int:
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+    name_id = root.find("name/id")
+    if name_id is None:
+        return 0
+    old = (name_id.text or "").strip()
+    if old.isdigit() and int(old) == new_id:
+        return 0
+    name_id.text = str(new_id)
+    tree.write(xml_path, encoding="utf-8", xml_declaration=True)
+    return 1
+
+
+def _rewrite_event_and_cue_structures(root: Path, old_music_id: int, new_music_id: int) -> int:
+    rename_count = 0
+    event_root = root / "event"
+    if event_root.is_dir():
+        for ev_dir in sorted([p for p in event_root.iterdir() if p.is_dir()]):
+            m = re.fullmatch(r"event(\d+)", ev_dir.name, flags=re.IGNORECASE)
+            if m is None:
+                continue
+            old_event_id = int(m.group(1))
+            new_event_id = _map_related_numeric_id(old_event_id, old_music_id, new_music_id)
+            target_dir = ev_dir
+            if new_event_id != old_event_id:
+                cand = event_root / f"event{new_event_id:06d}"
+                if cand != ev_dir and not cand.exists():
+                    ev_dir.rename(cand)
+                    target_dir = cand
+                    rename_count += 1
+            ev_xml = target_dir / "Event.xml"
+            if ev_xml.is_file():
+                _rewrite_primary_name_id(ev_xml, new_event_id)
+
+    cue_root = root / "cueFile"
+    if cue_root.is_dir():
+        for cue_dir in sorted([p for p in cue_root.iterdir() if p.is_dir()]):
+            m = re.fullmatch(r"cuefile(\d+)", cue_dir.name, flags=re.IGNORECASE)
+            if m is None:
+                continue
+            old_cue_id = int(m.group(1))
+            new_cue_id = _map_related_numeric_id(old_cue_id, old_music_id, new_music_id)
+            target_dir = cue_dir
+            if new_cue_id != old_cue_id:
+                cand = cue_root / f"cueFile{new_cue_id:06d}"
+                if cand != cue_dir and not cand.exists():
+                    cue_dir.rename(cand)
+                    target_dir = cand
+                    rename_count += 1
+            cue_xml = target_dir / "CueFile.xml"
+            if cue_xml.is_file():
+                _rewrite_primary_name_id(cue_xml, new_cue_id)
+    return rename_count
+
+
 def _rename_contains_token(p: Path, old_token: str, new_token: str) -> Path:
     if old_token not in p.name:
         return p
@@ -139,8 +254,16 @@ def _rewrite_package_music_id(src_zip: Path, new_music_id: int, out_zip: Path) -
             shutil.copy2(src_zip, out_zip)
             return old_music_id, 0
         _replace_music_id_in_xml(music_xml, new_music_id)
+        rename_count += _rewrite_event_and_cue_structures(root, old_music_id, new_music_id)
+        for xp in root.rglob("*.xml"):
+            if xp == music_xml:
+                continue
+            _rewrite_all_id_fields_in_xml(xp, old_music_id, new_music_id)
+            _rewrite_music_related_ids_in_xml(xp, old_music_id, new_music_id)
         old6 = f"{old_music_id:06d}"
         new6 = f"{new_music_id:06d}"
+        old_plain = str(old_music_id)
+        new_plain = str(new_music_id)
         music_dir_old = root / "music" / f"music{old6}"
         music_dir_new = root / "music" / f"music{new6}"
         if music_dir_old.is_dir():
@@ -150,6 +273,8 @@ def _rewrite_package_music_id(src_zip: Path, new_music_id: int, out_zip: Path) -
             if p == music_xml:
                 continue
             renamed = _rename_contains_token(p, old6, new6)
+            if renamed == p:
+                renamed = _rename_contains_token(p, old_plain, new_plain)
             if renamed != p:
                 rename_count += 1
         with zipfile.ZipFile(out_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -158,6 +283,75 @@ def _rewrite_package_music_id(src_zip: Path, new_music_id: int, out_zip: Path) -
                     continue
                 zf.write(p, arcname=p.relative_to(root).as_posix())
     return old_music_id, rename_count
+
+
+def _preview_install_targets(zip_path: Path, limit: int = 120) -> tuple[int, list[str]]:
+    """
+    预览 install_zip_to_acus 将要写入的 ACUS 相对路径（不落盘）。
+    """
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        names = zf.namelist()
+        mapper = _mapper_for_paths(names)
+        out: list[str] = []
+        for n in names:
+            if n.endswith("/"):
+                continue
+            rel = mapper(n).as_posix()
+            if rel in ("", "."):
+                continue
+            out.append(rel)
+    out = sorted(dict.fromkeys(out))
+    return len(out), out[:limit]
+
+
+class MusicIdInputDialog(FluentCaptionDialog):
+    def __init__(self, *, current_id: int, parent=None) -> None:
+        super().__init__(parent=parent)
+        self.setWindowTitle("导入前修改 ID")
+        self.setModal(True)
+        self.resize(520, 220)
+        self._value: str = ""
+
+        card = CardWidget(self)
+        cly = QVBoxLayout(card)
+        cly.setContentsMargins(16, 16, 16, 16)
+        cly.setSpacing(10)
+        hint = BodyLabel("请输入新的乐曲 ID（留空或保持原值则不修改）")
+        hint.setWordWrap(True)
+        self._edit = LineEdit(self)
+        self._edit.setPlaceholderText("例如 123456")
+        self._edit.setText(str(current_id if current_id > 0 else ""))
+        cly.addWidget(hint)
+        cly.addWidget(self._edit)
+
+        ok = PrimaryPushButton("确定", self)
+        cancel = PushButton("取消", self)
+        ok.clicked.connect(self._on_ok)
+        cancel.clicked.connect(self.reject)
+        btns = QHBoxLayout()
+        btns.addStretch(1)
+        btns.addWidget(cancel)
+        btns.addWidget(ok)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(*fluent_caption_content_margins())
+        lay.setSpacing(12)
+        lay.addWidget(card, stretch=1)
+        lay.addLayout(btns)
+
+    def _on_ok(self) -> None:
+        txt = self._edit.text().strip()
+        if txt and not re.fullmatch(r"\d+", txt):
+            fly_warning(self, "输入不合法", "ID 只能是正整数。")
+            return
+        if txt and int(txt) <= 0:
+            fly_warning(self, "输入不合法", "ID 必须大于 0。")
+            return
+        self._value = txt
+        self.accept()
+
+    def value(self) -> str:
+        return self._value
 
 
 class GithubSheetDialog(FluentCaptionDialog):
@@ -308,15 +502,11 @@ class GithubSheetDialog(FluentCaptionDialog):
         ):
             try:
                 default_id = int(e.get("music_id") or 0)
-                txt, ok = QInputDialog.getText(
-                    self,
-                    "导入前修改 ID",
-                    "请输入新的乐曲 ID（留空/原值表示不修改）:",
-                    text=str(default_id if default_id > 0 else ""),
-                )
+                id_dlg = MusicIdInputDialog(current_id=default_id, parent=self)
+                ok = id_dlg.exec() == id_dlg.DialogCode.Accepted
                 to_install = package_file
                 if ok:
-                    new_text = txt.strip()
+                    new_text = id_dlg.value().strip()
                     if new_text and re.fullmatch(r"\d+", new_text):
                         new_id = int(new_text)
                         if new_id <= 0:
@@ -330,13 +520,33 @@ class GithubSheetDialog(FluentCaptionDialog):
                                 "ID 已修改",
                                 f"已将乐曲 ID 从 {old_id} 改为 {new_id}，并处理相关目录/文件重命名 {renamed} 处。",
                             )
+                total_preview, preview_paths = _preview_install_targets(to_install)
+                preview_text = "\n".join(preview_paths)
+                if total_preview > len(preview_paths):
+                    preview_text += f"\n...（其余 {total_preview - len(preview_paths)} 项省略）"
+                if not fly_question(
+                    self,
+                    "导入预览",
+                    f"将写入 ACUS：{self._acus_root}\n"
+                    f"预计写入文件：{total_preview}\n\n"
+                    f"{preview_text or '（无可写入项）'}\n\n"
+                    "确认继续导入吗？",
+                    yes_text="确认导入",
+                    no_text="取消",
+                ):
+                    fly_message(self, "已取消", "你已取消本次导入。")
+                    return
                 total = len(install_zip_to_acus(to_install, self._acus_root))
-                fly_message(self, "导入完成", f"已累计写入 {total} 个文件到 ACUS。")
+                fly_message(
+                    self,
+                    "导入完成",
+                    f"已累计写入 {total} 个文件到 ACUS。\n\n目标目录：\n{self._acus_root}",
+                )
                 return
             except Exception as ex:
                 fly_critical(self, "导入失败", str(ex))
                 return
-        fly_message(self, "下载完成", "文件已保存到缓存目录 .cache/github_charts。")
+        fly_message(self, "下载完成", f"文件已保存到：\n{package_file}")
 
     def _on_upload(self) -> None:
         fly_message(self, "提示", "请在“乐曲页面 -> 卡片右键 -> 上传”执行上传。")

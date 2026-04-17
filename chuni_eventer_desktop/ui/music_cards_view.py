@@ -155,7 +155,9 @@ class FlipMusicCard(QFrame):
         # Delay emit to next event loop tick so menu closes first.
         # Otherwise opening a modal dialog immediately here may appear unclickable.
         act_gh.triggered.connect(lambda: QTimer.singleShot(0, lambda: self.githubUploadRequested.emit(self._item)))
-        act_del.triggered.connect(lambda: self.deleteRequested.emit(self._item))
+        # Delay emit to next event loop tick so menu closes first.
+        # Otherwise opening a modal dialog immediately here may appear unclickable.
+        act_del.triggered.connect(lambda: QTimer.singleShot(0, lambda: self.deleteRequested.emit(self._item)))
         menu.addAction(act_jacket)
         menu.addAction(act_trophy)
         menu.addAction(act_gh)

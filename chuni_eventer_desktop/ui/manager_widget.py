@@ -5,7 +5,7 @@ from pathlib import Path
 import shutil
 import xml.etree.ElementTree as ET
 
-from PyQt6.QtCore import QPoint, Qt, QModelIndex, QSortFilterProxyModel
+from PyQt6.QtCore import QPoint, Qt, QModelIndex, QSortFilterProxyModel, QTimer
 from PyQt6.QtGui import QColor, QPixmap, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -1037,7 +1037,9 @@ class ManagerWidget(QWidget):
             if not isinstance(payload, CharaItem):
                 return
             act_del = Action(FIF.DELETE, "删除角色…", self.table)
-            act_del.triggered.connect(lambda checked=False, p=payload: self._delete_chara_item(p))
+            act_del.triggered.connect(
+                lambda checked=False, p=payload: QTimer.singleShot(0, lambda: self._delete_chara_item(p))
+            )
             menu.addAction(act_del)
             menu.exec(gpos, ani=True, aniType=MenuAnimationType.DROP_DOWN)
             return
@@ -1047,7 +1049,9 @@ class ManagerWidget(QWidget):
                 return
             act_trophy_only = Action(FIF.DELETE, "删除称号…", self.table)
             act_trophy_only.triggered.connect(
-                lambda checked=False, p=payload: self._delete_trophy_item(p, with_chara=False)
+                lambda checked=False, p=payload: QTimer.singleShot(
+                    0, lambda: self._delete_trophy_item(p, with_chara=False)
+                )
             )
             menu.addAction(act_trophy_only)
             try:
@@ -1059,7 +1063,9 @@ class ManagerWidget(QWidget):
             if plan_preview is not None and plan_preview.linked_chara_ids:
                 act_both = Action(FIF.PEOPLE, "删除称号并删除关联角色…", self.table)
                 act_both.triggered.connect(
-                    lambda checked=False, p=payload: self._delete_trophy_item(p, with_chara=True)
+                    lambda checked=False, p=payload: QTimer.singleShot(
+                        0, lambda: self._delete_trophy_item(p, with_chara=True)
+                    )
                 )
                 menu.addAction(act_both)
             menu.exec(gpos, ani=True, aniType=MenuAnimationType.DROP_DOWN)
@@ -1069,7 +1075,9 @@ class ManagerWidget(QWidget):
             if not isinstance(payload, QuestItem):
                 return
             act_del_q = Action(FIF.DELETE, "删除任务…", self.table)
-            act_del_q.triggered.connect(lambda checked=False, p=payload: self._delete_quest_item(p))
+            act_del_q.triggered.connect(
+                lambda checked=False, p=payload: QTimer.singleShot(0, lambda: self._delete_quest_item(p))
+            )
             menu.addAction(act_del_q)
             menu.exec(gpos, ani=True, aniType=MenuAnimationType.DROP_DOWN)
 
@@ -1288,11 +1296,13 @@ class ManagerWidget(QWidget):
         menu.view.setFont(vf)
         gpos = self.chara_variant_tabs.tabBar.view.mapToGlobal(pos)
         act_edit = Action(FIF.EDIT, "编辑此变体…", self.chara_variant_tabs)
-        act_edit.triggered.connect(lambda _=False, sl=slot: self._open_chara_variant_editor(sl))
+        act_edit.triggered.connect(lambda _=False, sl=slot: QTimer.singleShot(0, lambda: self._open_chara_variant_editor(sl)))
         menu.addAction(act_edit)
         if slot >= 1:
             act_del = Action(FIF.DELETE, "删除此变体…", self.chara_variant_tabs)
-            act_del.triggered.connect(lambda _=False, sl=slot: self._delete_chara_variant_from_tab(sl))
+            act_del.triggered.connect(
+                lambda _=False, sl=slot: QTimer.singleShot(0, lambda: self._delete_chara_variant_from_tab(sl))
+            )
             menu.addAction(act_del)
         menu.exec(gpos, ani=True, aniType=MenuAnimationType.DROP_DOWN)
 
@@ -1449,7 +1459,8 @@ class ManagerWidget(QWidget):
             prev = max(0, idx - 1)
             self.chara_variant_tabs.setCurrentIndex(prev)
             self.chara_variant_tabs.blockSignals(False)
-            self._open_chara_variant_add_dialog()
+            # Delay modal dialog opening so tab bar interaction fully settles first.
+            QTimer.singleShot(0, self._open_chara_variant_add_dialog)
             return
         self._update_chara_variant_preview()
 
