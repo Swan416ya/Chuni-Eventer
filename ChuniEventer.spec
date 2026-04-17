@@ -6,6 +6,8 @@ from pathlib import Path
 from PyInstaller.utils.hooks import collect_all
 
 ROOT = Path(SPECPATH).resolve()
+icon_file = ROOT / "assets" / "icon.ico"
+icon_path = str(icon_file) if icon_file.exists() else None
 
 block_cipher = None
 
@@ -75,4 +77,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=icon_path,
 )

@@ -1,3 +1,2 @@
 E:\Python Project\Chuni-Eventer\tools\PenguinBridge\bin\Release\net8.0\win-x64\publish\PenguinBridge.pdb
-E:\Python Project\Chuni-Eventer\tools\PenguinBridge\bin\Release\net8.0\win-x64\publish\assets.json
 E:\Python Project\Chuni-Eventer\tools\PenguinBridge\bin\Release\net8.0\win-x64\publish\PenguinBridge.exe
