@@ -4,7 +4,8 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 
 from PyQt6.QtWidgets import QFileDialog, QFormLayout, QHBoxLayout, QLineEdit, QVBoxLayout, QWidget
-from qfluentwidgets import BodyLabel, CardWidget, LineEdit, PrimaryPushButton, PushButton
+from PyQt6.QtGui import QColor, QIcon, QPixmap
+from qfluentwidgets import BodyLabel, CardWidget, ComboBox as FluentComboBox, LineEdit, PrimaryPushButton, PushButton
 
 from ..dds_convert import DdsToolError
 from ..stage_from_image import StageAfbToolError, StageCreateOptions, create_stage_from_image
@@ -37,6 +38,25 @@ def _next_stage_id(acus_root: Path, start: int = 70000) -> int:
     return cand
 
 
+_FIELD_LINE_CHOICES: tuple[tuple[int, str, str, str], ...] = (
+    (0, "Orange", "橙色", "#F59E0B"),
+    (1, "Blue", "蓝色", "#3B82F6"),
+    (2, "Green", "绿色", "#22C55E"),
+    (3, "Navy", "海军蓝", "#1E3A8A"),
+    (4, "Olive", "橄榄绿", "#6B8E23"),
+    (5, "Purple", "紫色", "#8B5CF6"),
+    (6, "Red", "红色", "#EF4444"),
+    (7, "SkyBlue", "天蓝", "#38BDF8"),
+    (8, "White", "白色", "#F3F4F6"),
+    (9, "Yellow", "黄色", "#FACC15"),
+)
+
+def _color_swatch_icon(hex_color: str) -> QIcon:
+    pm = QPixmap(14, 14)
+    pm.fill(QColor(hex_color))
+    return QIcon(pm)
+
+
 class StageAddDialog(FluentCaptionDialog):
     def __init__(
         self,
@@ -61,10 +81,10 @@ class StageAddDialog(FluentCaptionDialog):
         self.name_edit.setPlaceholderText("例如 メダリスト")
         self.image_edit = LineEdit(self)
         self.image_edit.setPlaceholderText("必须选择 1920x1080 的背景图（游戏内最终显示）")
-        self.line_id_edit = LineEdit(self)
-        self.line_id_edit.setText("8")
-        self.line_str_edit = LineEdit(self)
-        self.line_str_edit.setText("White")
+        self.line_combo = FluentComboBox(self)
+        for lid, lstr, lzh, lhex in _FIELD_LINE_CHOICES:
+            self.line_combo.addItem(f"{lstr}（{lzh}）", _color_swatch_icon(lhex), lid)
+        self.line_combo.setCurrentIndex(8)
         self.notes_afb_edit = LineEdit(self)
         self.base_afb_edit = LineEdit(self)
 
@@ -78,8 +98,7 @@ class StageAddDialog(FluentCaptionDialog):
         form.addRow("Stage ID", self.id_edit)
         form.addRow("显示名", self.name_edit)
         form.addRow("背景图", self._file_row(self.image_edit, "选择背景图"))
-        form.addRow("判定线 ID", self.line_id_edit)
-        form.addRow("判定线 str", self.line_str_edit)
+        form.addRow("判定线颜色", self.line_combo)
         form.addRow("notesFieldFile", self.notes_afb_edit)
         form.addRow("baseFile", self.base_afb_edit)
         cly.addLayout(form)
@@ -142,16 +161,17 @@ class StageAddDialog(FluentCaptionDialog):
                 raise ValueError("背景图文件不存在。")
             if image_source is None:
                 raise ValueError("请提供 1920x1080 背景图。")
-            line_id = _safe_int(self.line_id_edit.text())
-            if line_id is None:
-                raise ValueError("判定线 ID 必须为整数。")
-            line_str = self.line_str_edit.text().strip() or "White"
+            combo_idx = self.line_combo.currentIndex()
+            if combo_idx < 0 or combo_idx >= len(_FIELD_LINE_CHOICES):
+                raise ValueError("请选择判定线颜色。")
+            line_id, line_str, line_zh, _line_hex = _FIELD_LINE_CHOICES[combo_idx]
             opts = StageCreateOptions(
                 stage_id=sid,
                 stage_name=name,
                 image_source=image_source,
                 notes_field_line_id=line_id,
                 notes_field_line_str=line_str,
+                notes_field_line_data=line_zh,
                 notes_field_file=(self.notes_afb_edit.text().strip() or None),
                 base_file=(self.base_afb_edit.text().strip() or None),
             )
