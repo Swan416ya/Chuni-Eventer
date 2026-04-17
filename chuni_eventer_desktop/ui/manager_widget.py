@@ -44,6 +44,7 @@ from .chara_add_dialog import (
 )
 from .fluent_dialogs import fly_critical, fly_message, fly_question
 from .music_cards_view import MusicCardsView
+from .music_stage_dialog import MusicStageSelectDialog
 from .github_sheet_dialog import GithubSheetDialog
 
 from ..chara_delete import delete_chara_from_acus
@@ -378,6 +379,9 @@ class ManagerWidget(QWidget):
         )
         self.music_cards_view.musicGithubUploadRequested.connect(
             self._on_music_github_upload_requested
+        )
+        self.music_cards_view.musicStageChangeRequested.connect(
+            self._on_music_stage_change_requested
         )
 
         self._main_stack = QStackedWidget()
@@ -1025,6 +1029,44 @@ class ManagerWidget(QWidget):
             acus_root=self._acus_root,
             item=it,
         )
+
+    def _on_music_stage_change_requested(self, it: object) -> None:
+        if not isinstance(it, MusicItem):
+            return
+        cur_id = it.stage.id if it.stage is not None else None
+        dlg = MusicStageSelectDialog(acus_root=self._acus_root, current_stage_id=cur_id, parent=self.window())
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        sid = dlg.selected_stage_id
+        if sid is None:
+            return
+        sstr = dlg.selected_stage_str or f"Stage{sid}"
+        try:
+            tree = ET.parse(it.xml_path)
+            root = tree.getroot()
+            st = root.find("stageName")
+            if st is None:
+                st = ET.SubElement(root, "stageName")
+            id_el = st.find("id")
+            if id_el is None:
+                id_el = ET.SubElement(st, "id")
+            id_el.text = str(sid)
+            str_el = st.find("str")
+            if str_el is None:
+                str_el = ET.SubElement(st, "str")
+            str_el.text = sstr
+            data_el = st.find("data")
+            if data_el is None:
+                data_el = ET.SubElement(st, "data")
+            if data_el.text is None:
+                data_el.text = ""
+            ET.indent(root)  # type: ignore[attr-defined]
+            tree.write(it.xml_path, encoding="utf-8", xml_declaration=True)
+        except Exception as e:
+            fly_critical(self.window(), "修改背景失败", str(e))
+            return
+        fly_message(self.window(), "已更新", f"已将乐曲 {it.name.id} 的 Stage 设置为 {sid} · {sstr}")
+        self.reload()
 
     def _on_music_delete_requested(self, it: object) -> None:
         if not isinstance(it, MusicItem):
