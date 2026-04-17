@@ -75,8 +75,6 @@ class StageCreateOptions:
     enable_plate: bool = False
     sort_name: str = ""
     priority: int = 0
-    notes_field_file: str | None = None
-    base_file: str | None = None
     object_file: str = ""
 
     def stage_dir_name(self) -> str:
@@ -84,13 +82,6 @@ class StageCreateOptions:
 
     def default_image_name(self) -> str:
         return f"CHU_UI_Stage_{self.stage_id:05d}.dds"
-
-    def default_notes_field_file(self) -> str:
-        return f"nf_{self.stage_id:05d}.afb"
-
-    def default_base_file(self) -> str:
-        return f"st_{self.stage_id:05d}.afb"
-
 
 def create_stage_from_image(
     *,
@@ -134,17 +125,13 @@ def create_stage_from_image(
         finally:
             tmp_preview_png.unlink(missing_ok=True)
 
-    notes_field_file = (opts.notes_field_file or "").strip() or opts.default_notes_field_file()
-    base_file = (opts.base_file or "").strip() or opts.default_base_file()
     if use_external_afb and opts.image_source is not None:
-        afb = build_stage_afb_from_image(
+        build_stage_afb_from_image(
             stage_dir=sdir,
             stage_id=opts.stage_id,
             background_image=opts.image_source.expanduser().resolve(),
             game_root=game_root,
         )
-        notes_field_file = afb.notes_field_file
-        base_file = afb.base_file
     object_file = (opts.object_file or "").strip()
     stage_name = (opts.stage_name or "").strip() or f"Stage{opts.stage_id}"
     sort_name = (opts.sort_name or "").strip()
@@ -173,12 +160,6 @@ def create_stage_from_image(
     <str>{_xml_text(opts.notes_field_line_str)}</str>
     <data>{_xml_text(opts.notes_field_line_data)}</data>
   </notesFieldLine>
-  <notesFieldFile>
-    <path>{_xml_text(notes_field_file)}</path>
-  </notesFieldFile>
-  <baseFile>
-    <path>{_xml_text(base_file)}</path>
-  </baseFile>
   <objectFile>
     <path>{_xml_text(object_file)}</path>
   </objectFile>

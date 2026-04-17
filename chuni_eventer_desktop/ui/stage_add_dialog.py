@@ -85,8 +85,6 @@ class StageAddDialog(FluentCaptionDialog):
         for lid, lstr, lzh, lhex in _FIELD_LINE_CHOICES:
             self.line_combo.addItem(f"{lstr}（{lzh}）", _color_swatch_icon(lhex), lid)
         self.line_combo.setCurrentIndex(8)
-        self.notes_afb_edit = LineEdit(self)
-        self.base_afb_edit = LineEdit(self)
 
         card = CardWidget(self)
         cly = QVBoxLayout(card)
@@ -99,8 +97,6 @@ class StageAddDialog(FluentCaptionDialog):
         form.addRow("显示名", self.name_edit)
         form.addRow("背景图", self._file_row(self.image_edit, "选择背景图"))
         form.addRow("判定线颜色", self.line_combo)
-        form.addRow("notesFieldFile", self.notes_afb_edit)
-        form.addRow("baseFile", self.base_afb_edit)
         cly.addLayout(form)
 
         hint = BodyLabel(
@@ -172,8 +168,6 @@ class StageAddDialog(FluentCaptionDialog):
                 notes_field_line_id=line_id,
                 notes_field_line_str=line_str,
                 notes_field_line_data=line_zh,
-                notes_field_file=(self.notes_afb_edit.text().strip() or None),
-                base_file=(self.base_afb_edit.text().strip() or None),
             )
             out = create_stage_from_image(
                 acus_root=self._acus_root,
