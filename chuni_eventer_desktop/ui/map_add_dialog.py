@@ -228,6 +228,8 @@ def _target_id_field_label(*, reward_mode: str, reward_kind: str) -> str:
             return "称号ID"
         if k == "姓名牌装饰(NamePlate)":
             return "姓名牌ID"
+        if k == "场景(Stage)":
+            return "场景ID"
     return "目标ID"
 
 
@@ -543,7 +545,9 @@ class CellEditDialog(FluentCaptionDialog):
         self.reward_name.setPlaceholderText("显示名（可不填）")
 
         self.reward_kind = FluentComboBox()
-        self.reward_kind.addItems(["外部奖励ID", "角色", "称号(Trophy)", "姓名牌装饰(NamePlate)"])
+        self.reward_kind.addItems(
+            ["外部奖励ID", "角色", "称号(Trophy)", "姓名牌装饰(NamePlate)", "场景(Stage)"]
+        )
         self.reward_kind.currentTextChanged.connect(self._sync_state)
         self.reward_inner_id = LineEdit()
         self.reward_inner_id.setPlaceholderText("目标ID")
@@ -725,6 +729,8 @@ class CellEditDialog(FluentCaptionDialog):
                 self.reward_inner_id.setPlaceholderText("填写称号 ID（TrophyData.name.id）")
             elif rk == "姓名牌装饰(NamePlate)":
                 self.reward_inner_id.setPlaceholderText("填写姓名牌 ID（NamePlateData.name.id）")
+            elif rk == "场景(Stage)":
+                self.reward_inner_id.setPlaceholderText("填写场景 ID（StageData.name.id）")
             else:
                 self.reward_inner_id.setPlaceholderText("手填模式下选「外部奖励」时无需填写此项")
         else:
@@ -1945,6 +1951,8 @@ class MapAddDialog(FluentCaptionDialog):
         self._trophy_rare_type_by_id = self._scan_trophy_rare_type_by_id(acus_root)
         self._penguin_ui_dir = self._static_ui_root / "penguin"
         self._nameplate_img_path_by_id = self._scan_nameplate_image_paths(acus_root)
+        self._stage_img_path_by_id = self._scan_stage_image_paths(acus_root)
+        self._stage_pm_cache: dict[int, QPixmap] = {}
         self._area_cells: list[list[CellData]] = []
         self._area_ids: list[int] = []
         self._area_names: list[str] = []
@@ -2076,6 +2084,24 @@ class MapAddDialog(FluentCaptionDialog):
                 continue
         return out
 
+    @staticmethod
+    def _scan_stage_image_paths(acus_root: Path) -> dict[int, Path]:
+        """stage/**/Stage.xml -> stageId -> image/path 绝对路径。"""
+        out: dict[int, Path] = {}
+        for p in acus_root.glob("stage/**/Stage.xml"):
+            try:
+                r = ET.parse(p).getroot()
+                sid = _safe_int(r.findtext("name/id") or "")
+                if sid is None:
+                    continue
+                img_rel = (r.findtext("image/path") or "").strip()
+                if not img_rel:
+                    continue
+                out[sid] = p.parent / img_rel
+            except Exception:
+                continue
+        return out
+
     def _get_nameplate_pixmap(self, nid: int) -> QPixmap | None:
         if nid in self._nameplate_pm_cache:
             pm = self._nameplate_pm_cache.get(nid)
@@ -2113,6 +2139,32 @@ class MapAddDialog(FluentCaptionDialog):
             return None
 
         self._nameplate_pm_cache[nid] = pm
+        return pm
+
+    def _get_stage_pixmap(self, sid: int) -> QPixmap | None:
+        if sid in self._stage_pm_cache:
+            pm = self._stage_pm_cache.get(sid)
+            return None if pm is None or pm.isNull() else pm
+
+        p = self._stage_img_path_by_id.get(sid)
+        if p is None or not p.is_file():
+            self._stage_pm_cache[sid] = QPixmap()
+            return None
+        try:
+            pm = dds_to_pixmap(
+                acus_root=self._acus_root,
+                compressonatorcli_path=self._tool,
+                dds_path=p,
+                max_w=320,
+                max_h=220,
+                restrict=True,
+            )
+        except Exception:
+            pm = None
+        if pm is None or pm.isNull():
+            self._stage_pm_cache[sid] = QPixmap()
+            return None
+        self._stage_pm_cache[sid] = pm
         return pm
 
     def _candidate_ddsmap_dds_files(self, dds_map_id: int) -> list[Path]:
@@ -2652,6 +2704,18 @@ class MapAddDialog(FluentCaptionDialog):
                                 img_lbl.setPixmap(img_pm)
                                 img_lbl.show()
                                 thumb_shown = True
+                    elif c.reward_kind == "场景(Stage)" and c.reward_inner_id is not None:
+                        pm = self._get_stage_pixmap(c.reward_inner_id)
+                        if pm is not None and not pm.isNull():
+                            img_pm = pm.scaled(
+                                tile_size,
+                                img_h,
+                                Qt.AspectRatioMode.KeepAspectRatio,
+                                Qt.TransformationMode.SmoothTransformation,
+                            )
+                            img_lbl.setPixmap(img_pm)
+                            img_lbl.show()
+                            thumb_shown = True
 
                     if not thumb_shown:
                         # 如果该类型没有对应缩略图资源，则显示名称（优先 reward_name）。
