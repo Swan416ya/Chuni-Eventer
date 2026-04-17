@@ -1,7 +1,8 @@
-"""Fluent QTableWidget：在 TABLE_VIEW 基础上修正选中行前景/背景对比度。"""
+"""Fluent QTableWidget：统一为主页管理资源表格风格。"""
 
 from __future__ import annotations
 
+from PyQt6.QtWidgets import QAbstractItemView
 from PyQt6.QtWidgets import QTableWidget
 
 from qfluentwidgets import FluentStyleSheet, setCustomStyleSheet
@@ -30,3 +31,11 @@ def apply_fluent_sheet_table(table: QTableWidget) -> None:
     table.setObjectName("FluentSheetTable")
     FluentStyleSheet.TABLE_VIEW.apply(table)
     setCustomStyleSheet(table, _LIGHT_SELECTION_QSS, _DARK_SELECTION_QSS)
+    # Align with manager_widget TableView visual style.
+    table.setAlternatingRowColors(True)
+    table.setShowGrid(False)
+    table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+    table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+    table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+    table.verticalHeader().setVisible(False)
+    table.horizontalHeader().setStretchLastSection(True)
