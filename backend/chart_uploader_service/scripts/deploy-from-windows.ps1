@@ -1,8 +1,8 @@
 param(
-    [string]$ServerIp = "107.173.111.32",
+    [string]$ServerIp = "YOUR_SERVER_IP",
     [string]$ServerUser = "root",
     [string]$RemoteRoot = "/opt/chuni-chart-uploader",
-    [string]$SshKeyPath = "$HOME\.ssh\swansite_ed25519"
+    [string]$SshKeyPath = "$HOME\.ssh\id_ed25519"
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,7 +18,7 @@ function Ask-Value([string]$Prompt, [string]$Default = "") {
 
 Write-Host "=== Chuni Chart Uploader Windows Deploy ===" -ForegroundColor Cyan
 
-$uploaderDomain = Ask-Value "Uploader domain (e.g. uploader.swan416.top)"
+$uploaderDomain = Ask-Value "Uploader domain (e.g. uploader.example.com)"
 $uploadApiKey = Ask-Value "Upload API key (long random string)"
 $storageRoot = Ask-Value "Storage root" "/data/chuni-charts"
 $maxUploadMb = Ask-Value "Max upload MB" "100"

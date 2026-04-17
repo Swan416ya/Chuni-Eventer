@@ -133,27 +133,6 @@ class SettingsDialog(FluentCaptionDialog):
         self.pgko_exp_checkbox.setChecked(bool(getattr(cfg, "enable_pgko_ugc_experimental", False)))
         pgko_layout.addWidget(self.pgko_exp_checkbox)
 
-        uploader_card = CardWidget(self)
-        uploader_layout = QVBoxLayout(uploader_card)
-        uploader_layout.setContentsMargins(16, 16, 16, 16)
-        uploader_layout.setSpacing(10)
-        uploader_layout.addWidget(BodyLabel("SwanClub 上传服务", self))
-        uploader_hint = BodyLabel(
-            "配置后，乐曲右键“上传到 SwanClub”将直接调用 uploader.swan416.top 的 API。"
-        )
-        uploader_hint.setWordWrap(True)
-        self.uploader_api_base = LineEdit(self)
-        self.uploader_api_base.setPlaceholderText("例如 https://uploader.swan416.top")
-        self.uploader_api_base.setText((getattr(cfg, "uploader_api_base", "") or "").strip())
-        self.uploader_api_key = LineEdit(self)
-        self.uploader_api_key.setPlaceholderText("后端 UPLOAD_API_KEY")
-        self.uploader_api_key.setText((getattr(cfg, "uploader_api_key", "") or "").strip())
-        uploader_layout.addWidget(uploader_hint)
-        uploader_layout.addWidget(BodyLabel("上传服务地址", self))
-        uploader_layout.addWidget(self.uploader_api_base)
-        uploader_layout.addWidget(BodyLabel("上传服务密钥", self))
-        uploader_layout.addWidget(self.uploader_api_key)
-
         ok = PrimaryPushButton("保存", self)
         ok.clicked.connect(self.accept)
         cancel = PushButton("取消", self)
@@ -171,7 +150,6 @@ class SettingsDialog(FluentCaptionDialog):
         layout.addWidget(card)
         layout.addWidget(pjsk_card)
         layout.addWidget(pgko_card)
-        layout.addWidget(uploader_card)
         layout.addStretch(1)
         layout.addLayout(btns)
 
@@ -338,8 +316,6 @@ class SettingsDialog(FluentCaptionDialog):
         gr = self.game_root.text().strip()
         self._cfg.game_root = gr
         self._cfg.enable_pgko_ugc_experimental = bool(self.pgko_exp_checkbox.isChecked())
-        self._cfg.uploader_api_base = self.uploader_api_base.text().strip()
-        self._cfg.uploader_api_key = self.uploader_api_key.text().strip()
         self._cfg.save()
         if gr:
             _idx, err = run_rebuild_game_index_with_progress(

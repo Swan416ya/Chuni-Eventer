@@ -23,7 +23,7 @@ sudo bash scripts/install-on-ubuntu.sh
 
 输入项只有这些：
 
-- 上传子域名（如 `uploader.swan416.top`）
+- 上传子域名（如 `uploader.example.com`）
 - `UPLOAD_API_KEY`（你自己定义一个长随机串）
 - `STORAGE_ROOT`（默认 `/data/chuni-charts`）
 - 最大上传体积（默认 100MB）
@@ -34,7 +34,7 @@ sudo bash scripts/install-on-ubuntu.sh
 
 ```powershell
 cd "E:\Python Project\Chuni-Eventer\backend\chart_uploader_service\scripts"
-.\deploy-from-windows.ps1 -ServerIp 107.173.111.32 -ServerUser root
+.\deploy-from-windows.ps1 -ServerIp YOUR_SERVER_IP -ServerUser root
 ```
 
 脚本会自动：
@@ -47,7 +47,7 @@ cd "E:\Python Project\Chuni-Eventer\backend\chart_uploader_service\scripts"
 
 在 `Chuni-Eventer` 设置里新增了“后端代传服务（推荐）”：
 
-- `上传服务地址`：`https://uploader.swan416.top`
+- `上传服务地址`：`https://uploader.example.com`
 - `上传服务密钥`：你脚本里输入的 `UPLOAD_API_KEY`
 
 填完后，乐曲卡右键“上传到 GitHub 社区谱面…”会优先走后端代传。
@@ -83,7 +83,42 @@ curl -sS http://127.0.0.1:8081/health
 curl -sS http://127.0.0.1:8081/songs
 ```
 
-## 5) 重新部署（代码更新后）
+## 5) 管理员删除服务器谱面（手动）
+
+当前版本未提供删除 API。管理员可直接在服务器删除目录。
+
+存储根目录：
+
+- `${STORAGE_ROOT}/songs/`
+
+### 5.1 查看现有谱面目录
+
+```bash
+ssh root@YOUR_SERVER_IP
+ls -lah /data/chuni-charts/songs
+```
+
+> 如果你的 `STORAGE_ROOT` 不是 `/data/chuni-charts`，请替换为实际路径。
+
+### 5.2 删除指定谱面目录
+
+```bash
+rm -rf "/data/chuni-charts/songs/SONG_ID_DIR"
+```
+
+例如：
+
+```bash
+rm -rf "/data/chuni-charts/songs/ver-se_x_6000"
+```
+
+### 5.3 验证删除结果
+
+```bash
+curl -sS https://uploader.example.com/songs
+```
+
+## 6) 重新部署（代码更新后）
 
 ```bash
 cd /path/to/chart_uploader_service
@@ -92,13 +127,13 @@ pip install -r requirements.txt
 systemctl restart chuni-chart-uploader
 ```
 
-## 6) 目录
+## 7) 目录
 
 - `app/main.py`：FastAPI 主程序
 - `.env.example`：环境变量模板
 - `scripts/install-on-ubuntu.sh`：一键安装脚本
 
-## 7) 环境变量
+## 8) 环境变量
 
 - `UPLOAD_API_KEY`
 - `STORAGE_ROOT=/data/chuni-charts`

@@ -2,8 +2,8 @@
 set -euo pipefail
 
 SERVICE_ROOT="/opt/chuni-chart-uploader"
-DOMAIN="${1:-uploader.swan416.top}"
-UPLOAD_API_KEY="${2:-114514}"
+DOMAIN="${1:-uploader.example.com}"
+UPLOAD_API_KEY="${2:-change-me}"
 STORAGE_ROOT="${3:-/data/chuni-charts}"
 MAX_UPLOAD_MB="${4:-100}"
 

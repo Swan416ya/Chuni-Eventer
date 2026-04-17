@@ -144,7 +144,7 @@ class FlipMusicCard(QFrame):
 
         act_jacket = Action(FIF.PHOTO, "更换封面…", self)
         act_trophy = Action(FIF.TAG, "生成课题称号…", self)
-        act_gh = Action(FIF.SYNC, "上传到 GitHub 社区谱面…", self)
+        act_gh = Action(FIF.SYNC, "上传", self)
         act_del = Action(FIF.DELETE, "删除乐曲…", self)
         act_jacket.triggered.connect(
             lambda: self.jacketReplaceRequested.emit(self._item)
@@ -152,7 +152,9 @@ class FlipMusicCard(QFrame):
         act_trophy.triggered.connect(
             lambda: self.trophyRequested.emit(self._item)
         )
-        act_gh.triggered.connect(lambda: self.githubUploadRequested.emit(self._item))
+        # Delay emit to next event loop tick so menu closes first.
+        # Otherwise opening a modal dialog immediately here may appear unclickable.
+        act_gh.triggered.connect(lambda: QTimer.singleShot(0, lambda: self.githubUploadRequested.emit(self._item)))
         act_del.triggered.connect(lambda: self.deleteRequested.emit(self._item))
         menu.addAction(act_jacket)
         menu.addAction(act_trophy)

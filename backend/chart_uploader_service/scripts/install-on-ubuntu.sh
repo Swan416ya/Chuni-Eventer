@@ -20,7 +20,7 @@ ENV_FILE="${SERVICE_ROOT}/.env"
 
 echo "== Chuni chart uploader one-click install =="
 
-read -rp "Uploader domain (e.g. uploader.swan416.top): " UPLOADER_DOMAIN
+read -rp "Uploader domain (e.g. uploader.example.com): " UPLOADER_DOMAIN
 read -rp "Upload API key (random long string): " UPLOAD_API_KEY
 read -rp "Storage root [/data/chuni-charts]: " STORAGE_ROOT
 STORAGE_ROOT="${STORAGE_ROOT:-/data/chuni-charts}"

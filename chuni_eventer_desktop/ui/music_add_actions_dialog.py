@@ -26,7 +26,7 @@ _BTN_W = int(round(_BTN_H * 2.5))
 
 class MusicSheetChannelsDialog(QDialog):
     """
-    乐曲页「新增」：选择自制谱下载渠道（Swan / SwanClub / pgko）。
+    乐曲页「新增」：选择自制谱下载渠道（SwanSite / SwanClub / pgko）。
     """
 
     def __init__(self, *, parent=None) -> None:
@@ -102,7 +102,7 @@ class MusicSheetChannelsDialog(QDialog):
         row.addWidget(
             mk_text(
                 "SwanClub",
-                "自制谱opt分享平台",
+                "查看其他用户上传的opt",
                 "从 SwanClub 下载/上传社区谱面",
                 enabled=True,
                 act="swanclub",
