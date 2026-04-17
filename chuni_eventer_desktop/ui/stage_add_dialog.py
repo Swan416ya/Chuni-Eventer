@@ -4,7 +4,8 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 
 from PyQt6.QtWidgets import QFileDialog, QFormLayout, QHBoxLayout, QLineEdit, QVBoxLayout, QWidget
-from PyQt6.QtGui import QColor, QIcon, QPixmap
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor, QIcon, QPainter, QPixmap
 from qfluentwidgets import BodyLabel, CardWidget, ComboBox as FluentComboBox, LineEdit, PrimaryPushButton, PushButton
 
 from ..dds_convert import DdsToolError
@@ -57,6 +58,10 @@ def _color_swatch_icon(hex_color: str) -> QIcon:
     return QIcon(pm)
 
 
+def _stage_layout_preview_path() -> Path:
+    return Path(__file__).resolve().parents[1] / "static" / "tool" / "Stage Layout.png"
+
+
 class StageAddDialog(FluentCaptionDialog):
     def __init__(
         self,
@@ -107,6 +112,16 @@ class StageAddDialog(FluentCaptionDialog):
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#6b7280;")
         cly.addWidget(hint)
+        self._preview_hint = BodyLabel("预览：选择背景图后会叠加 Stage Layout 引导图")
+        self._preview_hint.setStyleSheet("color:#6b7280;")
+        cly.addWidget(self._preview_hint)
+        self._preview_label = BodyLabel("")
+        self._preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._preview_label.setMinimumSize(480, 270)
+        self._preview_label.setStyleSheet(
+            "background:#0b1220;border:1px solid rgba(148,163,184,0.35);border-radius:8px;"
+        )
+        cly.addWidget(self._preview_label)
 
         ok = PrimaryPushButton("生成并写入 ACUS", self)
         ok.clicked.connect(self._run)
@@ -123,6 +138,8 @@ class StageAddDialog(FluentCaptionDialog):
         lay.addWidget(card)
         lay.addStretch(1)
         lay.addLayout(btns)
+        self.image_edit.textChanged.connect(self._update_preview)
+        self._update_preview()
 
     def _file_row(self, edit: QLineEdit, title: str) -> QWidget:
         w = QWidget(self)
@@ -144,6 +161,49 @@ class StageAddDialog(FluentCaptionDialog):
         )
         if p:
             edit.setText(p)
+
+    def _update_preview(self) -> None:
+        p = self.image_edit.text().strip()
+        if not p:
+            self._preview_hint.setText("预览：选择背景图后会叠加 Stage Layout 引导图")
+            self._preview_label.setText("暂无预览")
+            self._preview_label.setPixmap(QPixmap())
+            return
+        src_path = Path(p).expanduser()
+        src = QPixmap(str(src_path))
+        if src.isNull():
+            self._preview_hint.setText("预览：图片读取失败")
+            self._preview_label.setText("无法读取图片")
+            self._preview_label.setPixmap(QPixmap())
+            return
+        if src.width() != 1920 or src.height() != 1080:
+            self._preview_hint.setText(
+                f"预览：当前尺寸 {src.width()}x{src.height()}，建议/要求 1920x1080"
+            )
+        else:
+            self._preview_hint.setText("预览：1920x1080，已叠加 Stage Layout 引导图")
+        composed = QPixmap(src.size())
+        composed.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(composed)
+        painter.drawPixmap(0, 0, src)
+        overlay_path = _stage_layout_preview_path()
+        overlay = QPixmap(str(overlay_path))
+        if not overlay.isNull():
+            if overlay.size() != src.size():
+                overlay = overlay.scaled(
+                    src.size(),
+                    Qt.AspectRatioMode.IgnoreAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            painter.drawPixmap(0, 0, overlay)
+        painter.end()
+        show = composed.scaled(
+            self._preview_label.size(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self._preview_label.setText("")
+        self._preview_label.setPixmap(show)
 
     def _run(self) -> None:
         try:

@@ -22,7 +22,7 @@ def _prepare_stage_preview_png(source: Path) -> Path:
     预览 DDS 生成规则（按需求）：
     1) 输入必须是 1920x1080
     2) 缩小到 960x540
-    3) 裁切最上方 960x450
+    3) 裁切下方 960x450（即去掉上方 90 像素）
     4) 把该 960x450 覆盖到 960x540 底图顶部
     5) 叠加半透明轨道指示图 `static/tool/stage.png`
     6) 输出临时 PNG，供 BC3 DDS 编码
@@ -39,7 +39,8 @@ def _prepare_stage_preview_png(source: Path) -> Path:
         raise ValueError(f"背景图尺寸必须是 1920x1080，当前为 {src.size[0]}x{src.size[1]}。")
 
     half = src.resize((960, 540), Image.Resampling.LANCZOS)
-    top_crop = half.crop((0, 0, 960, 450))
+    # 保留下方 450 像素（裁掉上方 90 像素）
+    top_crop = half.crop((0, 90, 960, 540))
     composed = half.copy()
     composed.paste(top_crop, (0, 0))
 
