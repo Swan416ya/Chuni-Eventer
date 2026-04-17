@@ -60,6 +60,7 @@ from ..acus_scan import (
     NamePlateItem,
     QuestItem,
     RewardItem,
+    StageItem,
     TrophyItem,
     scan_charas,
     scan_dds_images,
@@ -70,6 +71,7 @@ from ..acus_scan import (
     scan_nameplates,
     scan_quests,
     scan_rewards,
+    scan_stages,
     scan_trophies,
 )
 from ..dds_preview import dds_to_pixmap
@@ -84,6 +86,7 @@ _KIND_DEFS: tuple[tuple[str, str], ...] = (
     ("任务", "Quest"),
     ("地图", "Map"),
     ("歌曲", "Music"),
+    ("背景", "Stage"),
     ("角色", "Chara"),
     ("称号", "Trophy"),
     ("名牌", "NamePlate"),
@@ -451,6 +454,8 @@ class ManagerWidget(QWidget):
             self.model.setHorizontalHeaderLabels(["ID", "名称", "奖励类型", "关联目标", "来源(XML)"])
         elif k == "MapBonus":
             self.model.setHorizontalHeaderLabels(["ID", "名称", "条件数", "type摘要", "来源(XML)"])
+        elif k == "Stage":
+            self.model.setHorizontalHeaderLabels(["ID", "名称", "判定线", "预览图", "来源(XML)"])
         elif k == "Chara":
             self.model.setHorizontalHeaderLabels(["ID", "名称"])
         else:
@@ -515,6 +520,25 @@ class ManagerWidget(QWidget):
             self._items = items
             for it in items:
                 self._append_mapbonus_row(it)
+        elif k == "Stage":
+            items = scan_stages(self._acus_root)
+            self._items = items
+            for it in items:
+                line = self._fmt_id_str(it.notes_field_line) if it.notes_field_line else "—"
+                image = it.image_path.strip() or "—"
+                row = self.model.rowCount()
+                self.model.insertRow(row)
+                cols = [
+                    QStandardItem(str(it.name.id)),
+                    QStandardItem(it.name.str),
+                    QStandardItem(line),
+                    QStandardItem(image),
+                    QStandardItem(str(it.xml_path.relative_to(self._acus_root))),
+                ]
+                cols[0].setData(it, Qt.ItemDataRole.UserRole)
+                for i, c in enumerate(cols):
+                    c.setEditable(False)
+                    self.model.setItem(row, i, c)
         else:
             items = scan_dds_images(self._acus_root)
             self._items = items
@@ -647,6 +671,14 @@ class ManagerWidget(QWidget):
                 ("MapFilter", mf),
                 ("XML", self._rel_acus_path(it.xml_path)),
             ]
+        if isinstance(it, StageItem):
+            return [
+                ("背景名称", it.name.str or "—"),
+                ("背景 ID", str(it.name.id)),
+                ("判定线样式", self._fmt_id_str(it.notes_field_line)),
+                ("预览图路径", it.image_path.strip() or "—"),
+                ("XML", self._rel_acus_path(it.xml_path)),
+            ]
         if isinstance(it, DdsImageItem):
             return [
                 ("资源显示名", it.name.str or "—"),
@@ -718,6 +750,9 @@ class ManagerWidget(QWidget):
             return it.xml_path.parent / rel if rel else None
         if isinstance(it, MusicItem) and it.jacket_path.strip():
             return it.xml_path.parent / it.jacket_path.strip()
+        if isinstance(it, StageItem) and it.image_path.strip():
+            p = it.xml_path.parent / it.image_path.strip()
+            return p if p.is_file() else None
         if isinstance(it, NamePlateItem) and it.image_path.strip():
             p = it.xml_path.parent / it.image_path.strip()
             return p if p.is_file() else None
