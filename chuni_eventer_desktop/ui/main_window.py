@@ -35,8 +35,10 @@ from .save_patch_dialog import SavePatchDialog
 from .event_add_dialog import EventAddDialog
 from .quest_add_dialog import QuestAddDialog
 from .mapbonus_dialogs import MapBonusEditDialog
+from .stage_add_dialog import StageAddDialog
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
 from .nav_icons import (
+    SVG_STAGE_BG,
     SVG_CHARA,
     SVG_EVENT,
     SVG_MAP,
@@ -108,6 +110,7 @@ class MainWindow(MSFluentWindow):
             ("nav_event", nav_qicon(SVG_EVENT), "事件", "Event", "事件"),
             ("nav_quest", nav_qicon(SVG_QUEST), "任务", "Quest", "任务"),
             ("nav_music", nav_qicon(SVG_MUSIC), "歌曲", "Music", "歌曲"),
+            ("nav_stage", nav_qicon(SVG_STAGE_BG), "背景", "Stage", "背景"),
             ("nav_trophy", nav_qicon(SVG_TROPHY), "称号", "Trophy", "称号"),
             ("nav_nameplate", nav_qicon(SVG_NAMEPLATE), "名牌", "NamePlate", "名牌"),
             ("nav_reward", nav_qicon(SVG_REWARD), "奖励", "Reward", "奖励"),
@@ -223,6 +226,7 @@ class MainWindow(MSFluentWindow):
             "Trophy": "搜索称号…",
             "NamePlate": "搜索名牌…",
             "Reward": "搜索奖励…",
+            "Stage": "搜索背景（Stage）…",
             "MapBonus": "搜索 MapBonus…",
         }
         self._search.setPlaceholderText(placeholders.get(kind, "搜索当前列表…"))
@@ -346,6 +350,17 @@ class MainWindow(MSFluentWindow):
 
         if kind == "MapBonus":
             dlg = MapBonusEditDialog(acus_root=self._acus_root, game_index=self._resolve_game_index(), parent=self)
+            if dlg.exec() == dlg.DialogCode.Accepted:
+                self._on_refresh()
+            return
+
+        if kind == "Stage":
+            dlg = StageAddDialog(
+                acus_root=self._acus_root,
+                tool_path=self._get_tool_path_or_none(),
+                game_root=self._cfg.game_root or "",
+                parent=self,
+            )
             if dlg.exec() == dlg.DialogCode.Accepted:
                 self._on_refresh()
             return
