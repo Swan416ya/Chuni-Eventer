@@ -39,8 +39,7 @@ def upload_to_backend(
     api_key: str,
     music_id: int,
     song_name: str,
-    music_zip: Path,
-    cue_zip: Path | None,
+    package_zip: Path,
     uploader_name: str = "",
 ) -> dict[str, object]:
     base = api_base.strip().rstrip("/")
@@ -53,9 +52,7 @@ def upload_to_backend(
         "song_name": song_name.strip(),
         "uploader_name": uploader_name.strip() or "desktop-client",
     }
-    files: list[tuple[str, Path, str]] = [("music_zip", music_zip, "application/zip")]
-    if cue_zip is not None and cue_zip.is_file():
-        files.append(("cue_zip", cue_zip, "application/zip"))
+    files: list[tuple[str, Path, str]] = [("package_zip", package_zip, "application/zip")]
     body, boundary = _multipart_body(fields, files)
     req = Request(
         f"{base}/upload",

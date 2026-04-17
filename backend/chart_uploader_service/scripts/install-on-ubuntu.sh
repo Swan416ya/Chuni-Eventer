@@ -26,6 +26,12 @@ read -rp "Storage root [/data/chuni-charts]: " STORAGE_ROOT
 STORAGE_ROOT="${STORAGE_ROOT:-/data/chuni-charts}"
 read -rp "Max upload size MB [100]: " MAX_UPLOAD_MB
 MAX_UPLOAD_MB="${MAX_UPLOAD_MB:-100}"
+read -rp "Max storage size GB [20]: " MAX_STORAGE_GB
+MAX_STORAGE_GB="${MAX_STORAGE_GB:-20}"
+read -rp "Rate limit count per window [30]: " RATE_LIMIT_COUNT
+RATE_LIMIT_COUNT="${RATE_LIMIT_COUNT:-30}"
+read -rp "Rate limit window sec [60]: " RATE_LIMIT_WINDOW_SEC
+RATE_LIMIT_WINDOW_SEC="${RATE_LIMIT_WINDOW_SEC:-60}"
 read -rp "Enable HTTPS with certbot now? [y/N]: " ENABLE_TLS
 
 if [[ -z "${UPLOADER_DOMAIN}" || -z "${UPLOAD_API_KEY}" ]]; then
@@ -74,6 +80,11 @@ cat > "${ENV_FILE}" <<EOF
 UPLOAD_API_KEY=${UPLOAD_API_KEY}
 STORAGE_ROOT=${STORAGE_ROOT}
 MAX_UPLOAD_MB=${MAX_UPLOAD_MB}
+MAX_STORAGE_GB=${MAX_STORAGE_GB}
+MAX_ZIP_ENTRIES=2000
+MAX_UNCOMPRESSED_MB=500
+RATE_LIMIT_COUNT=${RATE_LIMIT_COUNT}
+RATE_LIMIT_WINDOW_SEC=${RATE_LIMIT_WINDOW_SEC}
 CORS_ALLOW_ORIGINS=*
 EOF
 chmod 600 "${ENV_FILE}"

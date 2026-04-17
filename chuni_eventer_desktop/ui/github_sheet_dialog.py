@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import shutil
 import tempfile
+import zipfile
+import xml.etree.ElementTree as ET
 
+from PyQt6.QtWidgets import QInputDialog
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -21,6 +25,7 @@ from ..backend_upload_client import (
     list_backend_songs,
     upload_to_backend,
 )
+from ..music_delete import plan_music_deletion
 from ..sheet_install import install_zip_to_acus
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message, fly_question, fly_warning
@@ -28,6 +33,131 @@ from .fluent_table import apply_fluent_sheet_table
 
 _UPLOADER_API_BASE = "https://uploader.swan416.top"
 _UPLOADER_API_KEY = "114514"
+
+
+def _safe_song_display_name(item: MusicItem) -> str:
+    safe_song = "".join(c if c not in '\\/:*?"<>|' else "_" for c in (item.name.str or "").strip()).strip()
+    if not safe_song:
+        safe_song = f"music_{item.name.id}"
+    return safe_song
+
+
+def _add_dir_to_zip(zf: zipfile.ZipFile, acus_root: Path, source_dir: Path) -> int:
+    count = 0
+    root = acus_root.resolve()
+    src = source_dir.resolve()
+    for p in src.rglob("*"):
+        if not p.is_file():
+            continue
+        rel = p.resolve().relative_to(root).as_posix()
+        zf.write(p, arcname=rel)
+        count += 1
+    return count
+
+
+def _build_song_package_zip(*, acus_root: Path, item: MusicItem, output_zip: Path) -> tuple[int, list[str]]:
+    plan = plan_music_deletion(acus_root, item)
+    include_dirs: list[Path] = []
+    labels: list[str] = []
+    if plan.music_dir is not None and plan.music_dir.is_dir():
+        include_dirs.append(plan.music_dir)
+        labels.append(f"music/{plan.music_dir.name}")
+    if plan.cue_dir is not None and plan.cue_dir.is_dir():
+        include_dirs.append(plan.cue_dir)
+        labels.append(f"cueFile/{plan.cue_dir.name}")
+    if plan.stage_dir is not None and plan.stage_dir.is_dir():
+        include_dirs.append(plan.stage_dir)
+        labels.append(f"stage/{plan.stage_dir.name}")
+    for p in plan.event_dirs_to_remove:
+        if p.is_dir():
+            include_dirs.append(p)
+            labels.append(f"event/{p.name}")
+    if not include_dirs:
+        raise RuntimeError("未找到可打包目录（至少需要 music 目录）。")
+    unique_dirs = list(dict.fromkeys(d.resolve() for d in include_dirs))
+    file_count = 0
+    output_zip.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(output_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for d in unique_dirs:
+            file_count += _add_dir_to_zip(zf, acus_root, d)
+    if file_count <= 0:
+        raise RuntimeError("打包结果为空，请检查歌曲目录内容。")
+    return file_count, labels
+
+
+def _extract_package_zip(src_zip: Path, dst_dir: Path) -> None:
+    with zipfile.ZipFile(src_zip, "r") as zf:
+        zf.extractall(dst_dir)
+
+
+def _find_primary_music_xml(root: Path) -> Path | None:
+    for p in root.glob("music/**/Music.xml"):
+        if p.is_file():
+            return p
+    return None
+
+
+def _replace_music_id_in_xml(xml_path: Path, new_music_id: int) -> int:
+    changed = 0
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+    for el in root.findall(".//name/id"):
+        old = (el.text or "").strip()
+        if old.isdigit():
+            if int(old) != new_music_id:
+                el.text = str(new_music_id)
+                changed += 1
+            break
+    if changed > 0:
+        tree.write(xml_path, encoding="utf-8", xml_declaration=True)
+    return changed
+
+
+def _rename_contains_token(p: Path, old_token: str, new_token: str) -> Path:
+    if old_token not in p.name:
+        return p
+    new_name = p.name.replace(old_token, new_token)
+    new_path = p.with_name(new_name)
+    p.rename(new_path)
+    return new_path
+
+
+def _rewrite_package_music_id(src_zip: Path, new_music_id: int, out_zip: Path) -> tuple[int, int]:
+    old_music_id = -1
+    rename_count = 0
+    with tempfile.TemporaryDirectory(prefix="chuni_pkg_rewrite_") as td:
+        root = Path(td)
+        _extract_package_zip(src_zip, root)
+        music_xml = _find_primary_music_xml(root)
+        if music_xml is None:
+            raise RuntimeError("包内缺少 music/*/Music.xml，无法改 ID。")
+        old_id_text = (ET.parse(music_xml).getroot().findtext("name/id") or "").strip()
+        if not old_id_text.isdigit():
+            raise RuntimeError("Music.xml 中缺少有效的 name/id。")
+        old_music_id = int(old_id_text)
+        if old_music_id == new_music_id:
+            shutil.copy2(src_zip, out_zip)
+            return old_music_id, 0
+        _replace_music_id_in_xml(music_xml, new_music_id)
+        old6 = f"{old_music_id:06d}"
+        new6 = f"{new_music_id:06d}"
+        music_dir_old = root / "music" / f"music{old6}"
+        music_dir_new = root / "music" / f"music{new6}"
+        if music_dir_old.is_dir():
+            music_dir_old.rename(music_dir_new)
+            rename_count += 1
+        for p in sorted(root.rglob("*"), key=lambda x: len(str(x)), reverse=True):
+            if p == music_xml:
+                continue
+            renamed = _rename_contains_token(p, old6, new6)
+            if renamed != p:
+                rename_count += 1
+        with zipfile.ZipFile(out_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for p in root.rglob("*"):
+                if not p.is_file():
+                    continue
+                zf.write(p, arcname=p.relative_to(root).as_posix())
+    return old_music_id, rename_count
 
 
 class GithubSheetDialog(FluentCaptionDialog):
@@ -48,13 +178,14 @@ class GithubSheetDialog(FluentCaptionDialog):
         )
         hint.setWordWrap(True)
 
-        self._table = QTableWidget(0, 4, self)
+        self._table = QTableWidget(0, 5, self)
         apply_fluent_sheet_table(self._table)
-        self._table.setHorizontalHeaderLabels(["歌名目录", "music 包", "cueFile 包", "路径"])
+        self._table.setHorizontalHeaderLabels(["歌名", "艺术家", "谱师", "ID", "整包"])
         self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self._table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -114,10 +245,12 @@ class GithubSheetDialog(FluentCaptionDialog):
             self._song_rows.append(
                 {
                     "song_dir": sid,
-                    "music_path": "music.zip" if bool(s.get("hasMusicZip")) else "",
-                    "cue_path": "cueFile.zip" if bool(s.get("hasCueZip")) else "",
+                    "package_path": "package.zip" if bool(s.get("hasPackageZip")) else "",
                     "base_path": sid,
                     "song_name": str(s.get("songName") or sid),
+                    "artist_name": str(s.get("artistName") or ""),
+                    "charter_name": str(s.get("charterName") or ""),
+                    "music_id": int(s.get("musicId") or 0),
                 }
             )
         self._song_rows.sort(key=lambda x: str(x.get("song_name") or "").lower())
@@ -125,12 +258,12 @@ class GithubSheetDialog(FluentCaptionDialog):
         for e in self._song_rows:
             r = self._table.rowCount()
             self._table.insertRow(r)
-            music_ok = bool(str(e.get("music_path") or "").strip())
-            cue_ok = bool(str(e.get("cue_path") or "").strip())
+            package_ok = bool(str(e.get("package_path") or "").strip())
             self._table.setItem(r, 0, QTableWidgetItem(str(e.get("song_name") or e.get("song_dir") or "")))
-            self._table.setItem(r, 1, QTableWidgetItem("有" if music_ok else "无"))
-            self._table.setItem(r, 2, QTableWidgetItem("有" if cue_ok else "无"))
-            self._table.setItem(r, 3, QTableWidgetItem(str(e.get("base_path") or "")))
+            self._table.setItem(r, 1, QTableWidgetItem(str(e.get("artist_name") or "")))
+            self._table.setItem(r, 2, QTableWidgetItem(str(e.get("charter_name") or "")))
+            self._table.setItem(r, 3, QTableWidgetItem(str(e.get("music_id") or "")))
+            self._table.setItem(r, 4, QTableWidgetItem("有" if package_ok else "无"))
         self._status.setText(f"已加载 {len(self._song_rows)} 首社区乐曲。双击可下载。")
 
     def _selected(self) -> dict[str, object] | None:
@@ -147,26 +280,20 @@ class GithubSheetDialog(FluentCaptionDialog):
         if not self._backend_api:
             fly_warning(self, "服务不可用", "内置上传服务地址为空，请联系开发者。")
             return
-        music_path = str(e.get("music_path") or "").strip()
-        cue_path = str(e.get("cue_path") or "").strip()
-        if not music_path and not cue_path:
-            fly_warning(self, "无可下载文件", "该条目不含 music.zip 或 cueFile.zip。")
+        package_path = str(e.get("package_path") or "").strip()
+        if not package_path:
+            fly_warning(self, "无可下载文件", "该条目不含 package.zip。")
             return
         song_id = str(e.get("song_dir") or "").strip()
         song_title = str(e.get("song_name") or song_id)
         self._status.setText(f"正在下载：{song_title}")
         out_dir = app_cache_dir() / "github_charts"
         out_dir.mkdir(parents=True, exist_ok=True)
-        files: list[Path] = []
+        package_file = out_dir / f"{song_id}_package.zip"
         try:
-            if music_path:
-                p1 = out_dir / f"{song_id}_music.zip"
-                download_backend_song_file(api_base=self._backend_api, song_id=song_id, filename="music.zip", output_path=p1)
-                files.append(p1)
-            if cue_path:
-                p2 = out_dir / f"{song_id}_cueFile.zip"
-                download_backend_song_file(api_base=self._backend_api, song_id=song_id, filename="cueFile.zip", output_path=p2)
-                files.append(p2)
+            download_backend_song_file(
+                api_base=self._backend_api, song_id=song_id, filename="package.zip", output_path=package_file
+            )
         except Exception as ex:
             self._status.setText("下载失败。")
             fly_critical(self, "下载失败", str(ex))
@@ -175,14 +302,35 @@ class GithubSheetDialog(FluentCaptionDialog):
         if fly_question(
             self,
             "下载完成",
-            f"已下载 {song_title} 的 {len(files)} 个包。\n\n是否立即导入到 ACUS？",
-            yes_text="导入",
+            f"已下载 {song_title} 的整包。\n\n是否继续导入（可先改 ID）？",
+            yes_text="继续",
             no_text="仅保存",
         ):
-            total = 0
             try:
-                for p in files:
-                    total += len(install_zip_to_acus(p, self._acus_root))
+                default_id = int(e.get("music_id") or 0)
+                txt, ok = QInputDialog.getText(
+                    self,
+                    "导入前修改 ID",
+                    "请输入新的乐曲 ID（留空/原值表示不修改）:",
+                    text=str(default_id if default_id > 0 else ""),
+                )
+                to_install = package_file
+                if ok:
+                    new_text = txt.strip()
+                    if new_text and re.fullmatch(r"\d+", new_text):
+                        new_id = int(new_text)
+                        if new_id <= 0:
+                            raise RuntimeError("ID 必须大于 0。")
+                        rewritten = out_dir / f"{song_id}_package_reid_{new_id}.zip"
+                        old_id, renamed = _rewrite_package_music_id(package_file, new_id, rewritten)
+                        to_install = rewritten
+                        if old_id != new_id:
+                            fly_message(
+                                self,
+                                "ID 已修改",
+                                f"已将乐曲 ID 从 {old_id} 改为 {new_id}，并处理相关目录/文件重命名 {renamed} 处。",
+                            )
+                total = len(install_zip_to_acus(to_install, self._acus_root))
                 fly_message(self, "导入完成", f"已累计写入 {total} 个文件到 ACUS。")
                 return
             except Exception as ex:
@@ -197,24 +345,25 @@ class GithubSheetDialog(FluentCaptionDialog):
     def upload_music_item(*, parent, acus_root: Path, item: MusicItem) -> None:
         backend_api = _UPLOADER_API_BASE
         backend_key = _UPLOADER_API_KEY
-        music_dir = item.xml_path.parent
+        music_dir = item.xml_path.parent.resolve()
         if not music_dir.is_dir():
             fly_warning(parent, "目录不存在", f"未找到乐曲目录：\n{music_dir}")
             return
-        cue_dir: Path | None = None
-        if item.cue_file is not None and item.cue_file.id > 0:
-            cand = acus_root / "cueFile" / f"cueFile{item.cue_file.id:06d}"
-            if cand.is_dir():
-                cue_dir = cand
-        safe_song = "".join(c if c not in '\\/:*?"<>|' else "_" for c in (item.name.str or "").strip()).strip()
-        if not safe_song:
-            safe_song = f"music_{item.name.id}"
-        remote_base = f"charts/songs/{safe_song}_{item.name.id}"
+        safe_song = _safe_song_display_name(item)
+        plan = plan_music_deletion(acus_root, item)
+        include_texts: list[str] = []
+        if plan.music_dir is not None and plan.music_dir.is_dir():
+            include_texts.append(f"music/{plan.music_dir.name}")
+        if plan.cue_dir is not None and plan.cue_dir.is_dir():
+            include_texts.append(f"cueFile/{plan.cue_dir.name}")
+        if plan.stage_dir is not None and plan.stage_dir.is_dir():
+            include_texts.append(f"stage/{plan.stage_dir.name}")
+        include_texts.extend([f"event/{p.name}" for p in plan.event_dirs_to_remove if p.is_dir()])
         if not fly_question(
             parent,
             "上传到 SwanClub",
-            f"将上传 songId：{safe_song}_{item.name.id}\n\n包含：music 目录"
-            + ("\n包含：cueFile 目录" if cue_dir is not None else "\n不包含 cueFile（未找到）"),
+            f"将上传 songId：{safe_song}_{item.name.id}\n\n"
+            + ("包含目录：\n- " + "\n- ".join(include_texts) if include_texts else "包含目录：music（自动检测）"),
             yes_text="上传",
             no_text="取消",
         ):
@@ -222,25 +371,26 @@ class GithubSheetDialog(FluentCaptionDialog):
         try:
             with tempfile.TemporaryDirectory(prefix="chuni_gh_upload_") as td:
                 tdp = Path(td)
-                music_zip_base = tdp / "music_bundle"
-                cue_zip_base = tdp / "cue_bundle"
-                music_zip = Path(shutil.make_archive(str(music_zip_base), "zip", root_dir=music_dir))
-                cue_zip: Path | None = None
-                if cue_dir is not None and cue_dir.is_dir():
-                    cue_zip = Path(shutil.make_archive(str(cue_zip_base), "zip", root_dir=cue_dir))
+                package_zip = tdp / f"{safe_song}_{item.name.id}.zip"
+                file_count, packed_dirs = _build_song_package_zip(acus_root=acus_root, item=item, output_zip=package_zip)
                 if backend_api and backend_key:
                     ret = upload_to_backend(
                         api_base=backend_api,
                         api_key=backend_key,
                         music_id=item.name.id,
                         song_name=item.name.str or f"music_{item.name.id}",
-                        music_zip=music_zip,
-                        cue_zip=cue_zip,
+                        package_zip=package_zip,
                         uploader_name="desktop-user",
                     )
                     song_id = str(ret.get("songId") or "").strip()
                     folder = str(ret.get("folder") or "").strip()
-                    tip = f"songId: {song_id}\nfolder: {folder}" if song_id or folder else "上传成功。"
+                    tip = (
+                        f"上传成功。\n"
+                        f"songId: {song_id or '-'}\n"
+                        f"folder: {folder or '-'}\n"
+                        f"打包目录数: {len(packed_dirs)}\n"
+                        f"打包文件数: {file_count}"
+                    )
                     fly_message(parent, "上传完成", tip)
                     return
         except Exception as e:

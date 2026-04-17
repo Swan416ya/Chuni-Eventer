@@ -56,23 +56,34 @@ cd "E:\Python Project\Chuni-Eventer\backend\chart_uploader_service\scripts"
 
 - `GET /health`
 - `GET /songs`：返回歌单
-- `GET /download/{song_id}/{filename}`：下载文件（白名单：`music.zip` / `cueFile.zip` / `meta.json`）
+- `GET /download/{song_id}/{filename}`：下载文件（白名单：`package.zip` / `meta.json`）
 - `POST /upload`
   - Header: `X-Upload-Key: <UPLOAD_API_KEY>`
   - Form:
     - `music_id` int
     - `song_name` string
-    - `music_zip` file(.zip)
-    - `cue_zip` file(.zip, optional)
+    - `package_zip` file(.zip, 必填)
     - `uploader_name` optional
 
 上传目标：
 
-- `${STORAGE_ROOT}/songs/<song_slug>_<musicId>/music.zip`
-- `${STORAGE_ROOT}/songs/<song_slug>_<musicId>/cueFile.zip`（可选）
-- `${STORAGE_ROOT}/songs/<song_slug>_<musicId>/meta.json`
+- `${STORAGE_ROOT}/songs/<song_slug>/package.zip`
+- `${STORAGE_ROOT}/songs/<song_slug>/meta.json`
 
-## 4) 常用运维命令
+`package.zip` 由客户端打包：同一首歌的 `music/`、`cueFile/`、（可能的）`stage/`、`event/` 子目录会一起打进一个包。  
+`meta.json` 会记录 `songName`、`artistName`、`charterName`、`musicId` 等信息，供客户端列表展示。
+
+## 4) 上传保护机制
+
+- API Key 校验（`X-Upload-Key`）
+- 单文件大小限制（`MAX_UPLOAD_MB`）
+- 单包解压后体积限制（`MAX_UNCOMPRESSED_MB`）
+- 单包条目数量限制（`MAX_ZIP_ENTRIES`）
+- 服务器总存储限额（`MAX_STORAGE_GB`）
+- 按客户端 IP 的上传限流（`RATE_LIMIT_COUNT` / `RATE_LIMIT_WINDOW_SEC`）
+- ZIP 路径穿越检测、顶层目录白名单校验
+
+## 5) 常用运维命令
 
 ```bash
 systemctl status chuni-chart-uploader --no-pager
@@ -83,7 +94,7 @@ curl -sS http://127.0.0.1:8081/health
 curl -sS http://127.0.0.1:8081/songs
 ```
 
-## 5) 管理员删除服务器谱面（手动）
+## 6) 管理员删除服务器谱面（手动）
 
 当前版本未提供删除 API。管理员可直接在服务器删除目录。
 
@@ -118,7 +129,7 @@ rm -rf "/data/chuni-charts/songs/ver-se_x_6000"
 curl -sS https://uploader.example.com/songs
 ```
 
-## 6) 重新部署（代码更新后）
+## 7) 重新部署（代码更新后）
 
 ```bash
 cd /path/to/chart_uploader_service
@@ -127,15 +138,20 @@ pip install -r requirements.txt
 systemctl restart chuni-chart-uploader
 ```
 
-## 7) 目录
+## 8) 目录
 
 - `app/main.py`：FastAPI 主程序
 - `.env.example`：环境变量模板
 - `scripts/install-on-ubuntu.sh`：一键安装脚本
 
-## 8) 环境变量
+## 9) 环境变量
 
 - `UPLOAD_API_KEY`
 - `STORAGE_ROOT=/data/chuni-charts`
 - `MAX_UPLOAD_MB=100`
+- `MAX_STORAGE_GB=20`
+- `MAX_ZIP_ENTRIES=2000`
+- `MAX_UNCOMPRESSED_MB=500`
+- `RATE_LIMIT_COUNT=30`
+- `RATE_LIMIT_WINDOW_SEC=60`
 - `CORS_ALLOW_ORIGINS=*`
