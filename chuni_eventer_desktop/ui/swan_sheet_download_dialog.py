@@ -28,7 +28,12 @@ from ..swan_sheet_client import (
     list_downloadable_sheets,
 )
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
-from .fluent_dialogs import fly_critical, fly_message, fly_warning
+from .fluent_dialogs import (
+    fly_critical,
+    fly_message,
+    fly_warning,
+    safe_dismiss_modal_progress_dialog,
+)
 
 
 class _FetchSheetsThread(QThread):
@@ -162,12 +167,9 @@ class SwanSheetDownloadDialog(FluentCaptionDialog):
 
     def _close_progress(self) -> None:
         if self._progress_dialog is not None:
-            self._progress_dialog.reset()
-            self._progress_dialog.setWindowModality(Qt.WindowModality.NonModal)
-            self._progress_dialog.close()
-            self._progress_dialog.deleteLater()
+            dlg = self._progress_dialog
             self._progress_dialog = None
-            QApplication.processEvents()
+            safe_dismiss_modal_progress_dialog(dlg)
 
     def _on_refresh(self) -> None:
         base = self._base_url

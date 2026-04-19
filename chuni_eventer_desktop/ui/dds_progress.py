@@ -6,6 +6,7 @@ from PyQt6.QtCore import QEventLoop, QObject, QThread, Qt, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QProgressDialog, QWidget
 
 from ..dds_convert import ingest_to_bc3_dds
+from .fluent_dialogs import safe_dismiss_modal_progress_dialog
 
 
 class _Bc3Worker(QObject):
@@ -89,13 +90,7 @@ def run_bc3_jobs_with_progress(
     thread.start()
     loop.exec()
     thread.wait(120_000)
-    # 显式重置并解除模态，避免在某些无边框父窗体下残留“隐形模态层”
-    # 导致后续完成提示框无法点击。
-    dialog.reset()
-    dialog.setWindowModality(Qt.WindowModality.NonModal)
-    dialog.close()
-    dialog.deleteLater()
-    QApplication.processEvents()
+    safe_dismiss_modal_progress_dialog(dialog)
 
     if err:
         return False, err

@@ -3,7 +3,8 @@
 本文档描述 **当前实现** 中各界面使用的 **PyQt6（Qt 原生）** 与 **qfluentwidgets（PyQt-Fluent-Widgets）** 及 **项目内自定义控件** 的分布情况，供后续统一 UI（目标：尽量仅使用 Fluent 组件或项目自研样式组件）时对照。
 
 > 扫描范围：`chuni_eventer_desktop/ui/` 及直接引用 Qt widgets 的少量模块（如 `app.py`）。  
-> 库名以代码中的 `qfluentwidgets` 为准。
+> 库名以代码中的 `qfluentwidgets` 为准。  
+> **弹窗模态、`QProgressDialog` 与 `fly_*` 安全规范**（排查清单、Code Review）：同目录 [桌面端模态弹窗与进度安全_完整指南_zh.md](./桌面端模态弹窗与进度安全_完整指南_zh.md)。
 
 ---
 
@@ -16,7 +17,7 @@
 | 工作区容器 | `QWidget` + `QVBoxLayout` / `QHBoxLayout` | `main_window.py` 中 `_workspace` |
 | 顶栏控件 | `SubtitleLabel`、`SearchLineEdit`、`PushButton`、`PrimaryPushButton` | Fluent |
 | 系统级弹窗 | `QFileDialog` | 选目录/选文件仍为系统原生 |
-| 轻量提示 / 确认 | `fly_message` / `fly_critical` / `fly_warning` / `fly_question` | `ui/fluent_dialogs.py`，底层为 `qfluentwidgets.MessageBox` |
+| 轻量提示 / 确认 | `fly_message` / `fly_critical` / `fly_warning` / `fly_question`；进度条收尾 `safe_dismiss_modal_progress_dialog` | `ui/fluent_dialogs.py`，底层为 `qfluentwidgets.MessageBox`；规范见 [桌面端模态弹窗与进度安全_完整指南_zh.md](./桌面端模态弹窗与进度安全_完整指南_zh.md) |
 
 ---
 
@@ -54,7 +55,7 @@
 - **数据与协议**：`QStandardItemModel`、`QSortFilterProxyModel`、`QStandardItem`
 - **文件选择**：`QFileDialog`（更换封面）
 
-未覆盖项汇总见 `docs/ui_main_workspace_fluent_gaps_zh.md`。
+未覆盖项汇总见 [ui_main_workspace_fluent_gaps_zh.md](./ui_main_workspace_fluent_gaps_zh.md)。
 
 ### 项目内自定义（非 Fluent 库件）
 
@@ -112,7 +113,7 @@
 1. **布局与容器**：广泛依赖 `QWidget`、`QVBoxLayout`、`QHBoxLayout`、`QFormLayout`、`QSplitter`、`QStackedWidget`、`QFrame`。Fluent 通常不替代布局；若目标包含「界面代码中不出现 Qt 控件」，需单独定义是否允许 **无外观的布局/容器**。
 2. **输入与展示**：主流程弹窗已大量改用 Fluent 输入件；工作区内及少数调试界面仍混用 `QTableWidget`、`QListWidget`、`QPlainTextEdit`、原生布局容器等（见上表「典型 Qt」列）。
 3. **系统对话框**：`QFileDialog`、`QInputDialog`、`QProgressDialog` 等仍为系统原生；若需完全 Fluent 化需自研封装。
-4. **消息与确认**：业务弹窗已统一为 `fly_message` / `fly_critical` / `fly_warning` / `fly_question`（`fluent_dialogs.py`）；非 UI 模块或脚本可能仍直接使用 Qt 消息框（若有）。
+4. **消息与确认**：业务弹窗已统一为 `fly_message` / `fly_critical` / `fly_warning` / `fly_question`（`fluent_dialogs.py`）；`QProgressDialog` 结束须 `safe_dismiss_modal_progress_dialog`。详见 [桌面端模态弹窗与进度安全_完整指南_zh.md](./桌面端模态弹窗与进度安全_完整指南_zh.md)。非 UI 模块或脚本可能仍直接使用 Qt 消息框（若有）。
 5. **已有自研/半自研**：`FlipMusicCard`（卡片翻转）、`fluent_table`（表样式）等 —— 与 Fluent 主题并存即可。
 6. **已推进模块**：除主窗口与工作区表格外，**上述 §5 表中列出的对话框均已使用 `FluentCaptionDialog`（或同等 Fluent 标题栏壳）+ `fluent_caption_content_margins`**，自制谱 Swan / pgko 全链路及其子窗、设置与存档装备、游戏乐曲浏览、乐曲课题称号、乐曲新增渠道、PJSK 下载/导入/人声选择与 SUS 调试窗等均已纳入；业务提示以 `fly_*` 为主。
 

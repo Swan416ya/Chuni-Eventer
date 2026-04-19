@@ -281,7 +281,6 @@ class PjskInstallToAcusDialog(FluentCaptionDialog):
         fly_critical(self, "写入失败", msg)
         self._prog_label.hide()
         self._prog_bar.hide()
-        self.setEnabled(True)
 
     def _on_thread_done(self) -> None:
         self._thread = None

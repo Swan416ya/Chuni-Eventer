@@ -43,7 +43,7 @@ from qfluentwidgets import (
 )
 
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
-from .fluent_dialogs import fly_critical, fly_message, fly_warning
+from .fluent_dialogs import fly_critical, fly_message, fly_warning, safe_dismiss_modal_progress_dialog
 from .fluent_table import apply_fluent_sheet_table
 
 from ..dds_convert import DdsToolError, ingest_to_bc3_dds
@@ -2292,11 +2292,7 @@ class MapAddDialog(FluentCaptionDialog):
                 pass
             prog.setValue(i)
             QApplication.processEvents()
-        prog.reset()
-        prog.setWindowModality(Qt.WindowModality.NonModal)
-        prog.close()
-        prog.deleteLater()
-        QApplication.processEvents()
+        safe_dismiss_modal_progress_dialog(prog)
 
     def _get_chara_back_head_pixmaps(
         self, chara_id: int

@@ -6,6 +6,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QProgressDialog, QWidget
 
 from ..game_data_index import GameDataIndex, rebuild_and_save_game_index
+from .fluent_dialogs import safe_dismiss_modal_progress_dialog
 
 
 def run_rebuild_game_index_with_progress(
@@ -43,8 +44,4 @@ def run_rebuild_game_index_with_progress(
             progress=on_progress,
         )
     finally:
-        prog.reset()
-        prog.setWindowModality(Qt.WindowModality.NonModal)
-        prog.close()
-        prog.deleteLater()
-        QApplication.processEvents()
+        safe_dismiss_modal_progress_dialog(prog)

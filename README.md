@@ -34,6 +34,7 @@
 
 ## 文档导航
 
+- 全库文档索引：[`docs/README.md`](docs/README.md)
 - 配置与详细说明：[`docs/使用与配置指南.md`](docs/使用与配置指南.md)
 - 主题文档目录：
   - `docs/资源与打包`
