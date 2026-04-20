@@ -24,10 +24,16 @@ def _normalize_parent(parent: QWidget | None) -> QWidget | None:
         return None
     try:
         # Always attach to a top-level window to avoid non-top-level modal glitches.
-        w = parent.window()
-        return w if isinstance(w, QWidget) else parent
+        w: QWidget | None = parent
+        while w is not None and not w.isWindow():
+            w = w.parentWidget()
+        if w is not None and w.isWindow():
+            return w
+        if parent.isWindow():
+            return parent
+        return None
     except Exception:
-        return parent
+        return parent if parent.isWindow() else None
 
 
 def _run_modal_with_enabled_top(parent: QWidget | None, fn: Callable[[], _T]) -> _T:
@@ -42,11 +48,11 @@ def _run_modal_with_enabled_top(parent: QWidget | None, fn: Callable[[], _T]) ->
     try:
         return fn()
     finally:
-        if top is not None:
+        if top is not None and top.isWindow():
             try:
                 top.raise_()
                 top.activateWindow()
-            except RuntimeError:
+            except (RuntimeError, TypeError):
                 pass
 
 

@@ -1169,7 +1169,7 @@ class ManagerWidget(QWidget):
                 return
             act_del = Action(FIF.DELETE, "删除角色…", self.table)
             act_del.triggered.connect(
-                lambda checked=False, p=payload: QTimer.singleShot(0, lambda: self._delete_chara_item(p))
+                lambda checked=False, p=payload: QTimer.singleShot(80, lambda: self._delete_chara_item(p))
             )
             menu.addAction(act_del)
             menu.exec(gpos, ani=True, aniType=MenuAnimationType.DROP_DOWN)
@@ -1181,7 +1181,7 @@ class ManagerWidget(QWidget):
             act_trophy_only = Action(FIF.DELETE, "删除称号…", self.table)
             act_trophy_only.triggered.connect(
                 lambda checked=False, p=payload: QTimer.singleShot(
-                    0, lambda: self._delete_trophy_item(p, with_chara=False)
+                    80, lambda: self._delete_trophy_item(p, with_chara=False)
                 )
             )
             menu.addAction(act_trophy_only)
@@ -1195,7 +1195,7 @@ class ManagerWidget(QWidget):
                 act_both = Action(FIF.PEOPLE, "删除称号并删除关联角色…", self.table)
                 act_both.triggered.connect(
                     lambda checked=False, p=payload: QTimer.singleShot(
-                        0, lambda: self._delete_trophy_item(p, with_chara=True)
+                        80, lambda: self._delete_trophy_item(p, with_chara=True)
                     )
                 )
                 menu.addAction(act_both)
@@ -1207,7 +1207,7 @@ class ManagerWidget(QWidget):
                 return
             act_del_q = Action(FIF.DELETE, "删除任务…", self.table)
             act_del_q.triggered.connect(
-                lambda checked=False, p=payload: QTimer.singleShot(0, lambda: self._delete_quest_item(p))
+                lambda checked=False, p=payload: QTimer.singleShot(80, lambda: self._delete_quest_item(p))
             )
             menu.addAction(act_del_q)
             menu.exec(gpos, ani=True, aniType=MenuAnimationType.DROP_DOWN)
@@ -1432,7 +1432,7 @@ class ManagerWidget(QWidget):
         if slot >= 1:
             act_del = Action(FIF.DELETE, "删除此变体…", self.chara_variant_tabs)
             act_del.triggered.connect(
-                lambda _=False, sl=slot: QTimer.singleShot(0, lambda: self._delete_chara_variant_from_tab(sl))
+                lambda _=False, sl=slot: QTimer.singleShot(80, lambda: self._delete_chara_variant_from_tab(sl))
             )
             menu.addAction(act_del)
         menu.exec(gpos, ani=True, aniType=MenuAnimationType.DROP_DOWN)
