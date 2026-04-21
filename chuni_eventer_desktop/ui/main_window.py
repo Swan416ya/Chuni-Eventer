@@ -15,7 +15,7 @@ from qfluentwidgets import (
     SubtitleLabel,
 )
 
-from ..acus_workspace import AcusConfig, ensure_acus_layout, resolve_compressonatorcli_path
+from ..acus_workspace import AcusConfig, ensure_acus_layout, resolve_compressonatorcli_path, sync_chara_works_sort_seeds
 from ..version import APP_VERSION
 from ..game_data_index import load_cached_game_index
 from .index_progress import run_rebuild_game_index_with_progress
@@ -60,8 +60,8 @@ class MainWindow(MSFluentWindow):
         self.setWindowTitle(f"Chuni Eventer v{APP_VERSION}")
         self.resize(1160, 720)
 
-        self._acus_root = ensure_acus_layout()
         self._cfg = AcusConfig.load()
+        self._acus_root = ensure_acus_layout(game_root=self._cfg.game_root or None)
 
         self._workspace = QWidget()
         self._workspace.setObjectName("acusWorkspace")
@@ -187,6 +187,7 @@ class MainWindow(MSFluentWindow):
             return
         self._cfg.game_root = picked
         self._cfg.save()
+        sync_chara_works_sort_seeds(self._acus_root, picked)
         _idx, err = run_rebuild_game_index_with_progress(
             self,
             game_root=Path(picked).expanduser(),

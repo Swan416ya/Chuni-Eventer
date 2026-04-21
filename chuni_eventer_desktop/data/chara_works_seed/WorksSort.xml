@@ -1,0 +1,991 @@
+<?xml version='1.0' encoding='utf-8'?>
+<SerializeSortData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dataName>charaWorks</dataName>
+  <SortList>
+    <StringID>
+      <id>2</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>3</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>8</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>5</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>6</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>9</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>10</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>11</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>12</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>13</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>15</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>16</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>41</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>21</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>17</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>18</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>19</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>23</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>24</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>25</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>26</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>27</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>28</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>29</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>30</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>31</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>32</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>33</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>34</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>35</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>36</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>37</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>38</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>42</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>39</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>40</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>43</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>44</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>45</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>46</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>47</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>48</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>49</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>55</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>51</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>52</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>53</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>54</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>56</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>57</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>58</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>59</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>60</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>61</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>62</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>63</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>64</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>65</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>66</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>67</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>68</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>69</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>70</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>71</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>72</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>73</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>74</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>75</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>76</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>77</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>78</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>79</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>80</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>81</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>82</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>83</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>84</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>85</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>86</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>87</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>88</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>90</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>91</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>92</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>89</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>94</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>95</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>96</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>97</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>98</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>99</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>105</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>100</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>101</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>102</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>103</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>104</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>106</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>107</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>110</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>111</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>115</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>109</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>108</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>113</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>114</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>112</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>116</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>124</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>118</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>119</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>120</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>121</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>122</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>123</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>125</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>126</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>127</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>134</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>129</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>130</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>131</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>132</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>133</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>135</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>136</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>137</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>139</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>141</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>142</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>128</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>143</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>144</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>145</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>146</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>147</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>148</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>149</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>150</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>151</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>152</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>153</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>154</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>155</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>156</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>162</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>158</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>161</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>160</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>172</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>163</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>164</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>171</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>176</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>159</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>167</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>168</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>165</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>169</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>173</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>166</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>170</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>177</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>178</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>175</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>179</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>180</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>174</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>182</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>183</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>184</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>185</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>186</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>187</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>188</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>189</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>190</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>1</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>14</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>117</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>22</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>93</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>9000</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>9010</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>9020</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>9030</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>9040</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>9050</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>9060</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>9070</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>9080</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>9090</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>9990</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>9999</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>900001</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>900002</id>
+      <str />
+      <data />
+    </StringID>
+    <StringID>
+      <id>900003</id>
+      <str />
+      <data />
+    </StringID>
+  </SortList>
+</SerializeSortData>

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -95,18 +96,6 @@ CHARA_DEFAULT_RANKS_XML = """  <ranks>
     </CharaRankData>
   </ranks>"""
 
-def _works_sort_seed_path(acus_root: Path, filename: str) -> Path | None:
-    local_a000 = acus_root.parent / "A000" / "charaWorks" / filename
-    if local_a000.is_file():
-        return local_a000
-    # 兼容用户当前环境给出的 A000 绝对路径
-    if filename == "WorksSort.xml":
-        cand = Path("D:/Chunithm_XVerseX/data/A000/charaWorks/WorksSort.xml")
-        return cand if cand.is_file() else None
-    cand = Path("D:/Chunithm_XVerseX/data/A000/charaWorks/WorksNameSort.xml")
-    return cand if cand.is_file() else None
-
-
 def _append_sort_string_id(sort_xml: Path, works_id: int) -> None:
     root = ET.parse(sort_xml).getroot()
     # ElementTree 不会保留 xmlns 声明为普通属性；写回前补齐，避免格式与官方样本偏差。
@@ -137,15 +126,34 @@ def _append_sort_string_id(sort_xml: Path, works_id: int) -> None:
 
 
 def ensure_chara_works_sorts(*, acus_root: Path, works_id: int) -> None:
+    from .acus_workspace import AcusConfig, bundled_chara_works_sort_path, resolve_game_chara_works_sort_path
+
     works_root = acus_root / "charaWorks"
     works_root.mkdir(parents=True, exist_ok=True)
+    cfg = AcusConfig.load()
+    raw_gr = (cfg.game_root or "").strip()
+    game_path: Path | None = None
+    if raw_gr:
+        try:
+            game_path = Path(raw_gr).expanduser().resolve(strict=False)
+        except OSError:
+            game_path = None
+        if game_path is not None and not game_path.is_dir():
+            game_path = None
     for fn in ("WorksSort.xml", "WorksNameSort.xml"):
         dst = works_root / fn
         if not dst.exists():
-            seed = _works_sort_seed_path(acus_root, fn)
-            if seed is not None:
-                dst.write_text(seed.read_text(encoding="utf-8"), encoding="utf-8")
-            else:
+            src = resolve_game_chara_works_sort_path(game_path, fn) if game_path is not None else None
+            if src is None:
+                bp = bundled_chara_works_sort_path(fn)
+                if bp is not None and bp.is_file():
+                    src = bp
+            if src is not None:
+                try:
+                    shutil.copy2(src, dst)
+                except OSError:
+                    pass
+            if not dst.exists():
                 dst.write_text(
                     """<?xml version="1.0" encoding="utf-8"?>
 <SerializeSortData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">

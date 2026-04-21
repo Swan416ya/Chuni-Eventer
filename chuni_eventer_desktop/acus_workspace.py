@@ -31,6 +31,100 @@ def _acus_seed_source_dir() -> Path:
     return Path(__file__).resolve().parent / "data" / "acus_seed"
 
 
+def bundled_chara_works_sort_path(filename: str) -> Path | None:
+    """随包内置的 charaWorks 排序表（WorksSort / WorksNameSort），用于游戏目录中找不到时的回退。"""
+    p = Path(__file__).resolve().parent / "data" / "chara_works_seed" / filename
+    return p if p.is_file() else None
+
+
+def resolve_game_chara_works_sort_path(game_root: Path, filename: str) -> Path | None:
+    """
+    在用户配置的「游戏数据目录」下查找官方 A000 的 charaWorks 排序 XML。
+    兼容：…/data/A000/charaWorks、安装根下的 A000、以及索引扫描到的名为 A000 的数据包根。
+    """
+    try:
+        gr = game_root.expanduser().resolve(strict=False)
+    except OSError:
+        return None
+    if not gr.is_dir():
+        return None
+    bases: list[Path] = [
+        gr / "data" / "A000" / "charaWorks",
+        gr / "data" / "a000" / "charaWorks",
+        gr / "A000" / "charaWorks",
+    ]
+    # 延迟导入，避免与 game_data_index 的模块级环依赖在初始化阶段触发问题
+    from .game_data_index import enumerate_game_data_roots
+
+    try:
+        for pack in enumerate_game_data_roots(gr):
+            if pack.name.upper() == "A000":
+                bases.append(pack / "charaWorks")
+    except OSError:
+        pass
+    seen: set[str] = set()
+    for base in bases:
+        key = str(base).casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        cand = base / filename
+        if cand.is_file():
+            return cand
+    return None
+
+
+_CHARA_WORKS_SORT_NAMES = ("WorksSort.xml", "WorksNameSort.xml")
+
+_EMPTY_CHARA_WORKS_SORT_XML = """<?xml version="1.0" encoding="utf-8"?>
+<SerializeSortData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dataName>charaWorks</dataName>
+  <SortList>
+  </SortList>
+</SerializeSortData>
+"""
+
+
+def _parse_optional_game_root(game_root: Path | str | None) -> Path | None:
+    if game_root is None:
+        return None
+    raw = str(game_root).strip()
+    if not raw:
+        return None
+    try:
+        p = Path(raw).expanduser().resolve(strict=False)
+    except OSError:
+        return None
+    return p if p.is_dir() else None
+
+
+def sync_chara_works_sort_seeds(acus_root: Path, game_root: Path | str | None = None) -> None:
+    """
+    若 ACUS/charaWorks 下缺少 WorksSort / WorksNameSort：
+    优先从游戏 A000 复制；找不到则使用随包种子；仍无则写入空 Sort 壳。
+    已存在的文件不覆盖（保留用户或工具已追加的 StringID）。
+    """
+    works_root = acus_root / "charaWorks"
+    works_root.mkdir(parents=True, exist_ok=True)
+    gr = _parse_optional_game_root(game_root)
+    for fn in _CHARA_WORKS_SORT_NAMES:
+        dst = works_root / fn
+        if dst.exists():
+            continue
+        src: Path | None = resolve_game_chara_works_sort_path(gr, fn) if gr is not None else None
+        if src is None:
+            bp = bundled_chara_works_sort_path(fn)
+            if bp is not None:
+                src = bp
+        if src is not None and src.is_file():
+            try:
+                shutil.copy2(src, dst)
+            except OSError:
+                pass
+        if not dst.exists():
+            dst.write_text(_EMPTY_CHARA_WORKS_SORT_XML, encoding="utf-8")
+
+
 def _seed_acus_from_bundled(acus_root: Path) -> None:
     """
     首次创建 ACUS 时从随包数据复制：releaseTag（自制譜 / セカイ 等）、常用点数与功能票 Reward。
@@ -57,47 +151,7 @@ def _seed_acus_from_bundled(acus_root: Path) -> None:
             continue
 
 
-def _ensure_chara_works_sort_seed(acus_root: Path) -> None:
-    """
-    首次初始化 ACUS 时补齐 charaWorks 的两个排序文件。
-    优先使用用户给定的 A000 样本路径；若不存在则尝试仓库同级 A000。
-    """
-    works_root = acus_root / "charaWorks"
-    works_root.mkdir(parents=True, exist_ok=True)
-    seed_candidates = (
-        Path("D:/Chunithm_XVerseX/data/A000/charaWorks"),
-        app_root_dir() / "A000" / "charaWorks",
-    )
-    for fn in ("WorksSort.xml", "WorksNameSort.xml"):
-        dst = works_root / fn
-        if dst.exists():
-            continue
-        copied = False
-        for base in seed_candidates:
-            src = base / fn
-            if src.is_file():
-                try:
-                    shutil.copy2(src, dst)
-                    copied = True
-                    break
-                except OSError:
-                    continue
-        if copied:
-            continue
-        # 最后兜底：空 Sort 壳子，避免游戏端读取不到文件
-        dst.write_text(
-            """<?xml version="1.0" encoding="utf-8"?>
-<SerializeSortData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <dataName>charaWorks</dataName>
-  <SortList>
-  </SortList>
-</SerializeSortData>
-""",
-            encoding="utf-8",
-        )
-
-
-def ensure_acus_layout() -> Path:
+def ensure_acus_layout(*, game_root: Path | str | None = None) -> Path:
     """
     Create ACUS folder and core subfolders (A001-like roots we care about).
     """
@@ -124,7 +178,7 @@ def ensure_acus_layout() -> Path:
     ]:
         (root / d).mkdir(parents=True, exist_ok=True)
     _seed_acus_from_bundled(root)
-    _ensure_chara_works_sort_seed(root)
+    sync_chara_works_sort_seeds(root, game_root)
     # 缓存不再放在 ACUS 内，统一放应用根 .cache
     (app_cache_dir() / "dds_preview").mkdir(parents=True, exist_ok=True)
     return root
