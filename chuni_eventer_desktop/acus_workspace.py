@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import sys
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -39,8 +40,9 @@ def bundled_chara_works_sort_path(filename: str) -> Path | None:
 
 def resolve_game_chara_works_sort_path(game_root: Path, filename: str) -> Path | None:
     """
-    在用户配置的「游戏数据目录」下查找官方 A000 的 charaWorks 排序 XML。
+    在用户配置的「游戏数据目录」下 **只读定位** 官方 A000 的 charaWorks 排序 XML（供复制到 ACUS）。
     兼容：…/data/A000/charaWorks、安装根下的 A000、以及索引扫描到的名为 A000 的数据包根。
+    本工具不将修改写回这些路径。
     """
     try:
         gr = game_root.expanduser().resolve(strict=False)
@@ -74,15 +76,25 @@ def resolve_game_chara_works_sort_path(game_root: Path, filename: str) -> Path |
     return None
 
 
-_CHARA_WORKS_SORT_NAMES = ("WorksSort.xml", "WorksNameSort.xml")
-
-_EMPTY_CHARA_WORKS_SORT_XML = """<?xml version="1.0" encoding="utf-8"?>
-<SerializeSortData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <dataName>charaWorks</dataName>
-  <SortList>
-  </SortList>
-</SerializeSortData>
-"""
+def parse_works_sort_xml_string_ids(sort_xml: Path) -> set[int]:
+    """只读解析 SerializeSortData 中 SortList 下全部 StringID 的数值 id。"""
+    try:
+        root = ET.parse(sort_xml).getroot()
+    except (OSError, ET.ParseError):
+        return set()
+    sl = root.find("SortList")
+    if sl is None:
+        return set()
+    out: set[int] = set()
+    for sid in sl.findall("StringID"):
+        raw = sid.findtext("id")
+        if raw is None:
+            continue
+        try:
+            out.add(int((raw or "").strip()))
+        except ValueError:
+            continue
+    return out
 
 
 def _parse_optional_game_root(game_root: Path | str | None) -> Path | None:
@@ -98,31 +110,30 @@ def _parse_optional_game_root(game_root: Path | str | None) -> Path | None:
     return p if p.is_dir() else None
 
 
-def sync_chara_works_sort_seeds(acus_root: Path, game_root: Path | str | None = None) -> None:
+def vanilla_works_sort_id_set(game_root: Path | str | None) -> set[int]:
     """
-    若 ACUS/charaWorks 下缺少 WorksSort / WorksNameSort：
-    优先从游戏 A000 复制；找不到则使用随包种子；仍无则写入空 Sort 壳。
-    已存在的文件不覆盖（保留用户或工具已追加的 StringID）。
+    游戏 A000 原装 WorksSort.xml 与 WorksNameSort.xml 中已登记 id 的并集。
+    未配置或无法定位游戏数据目录时返回空集（此时不做「与原版重复」提示）。
     """
-    works_root = acus_root / "charaWorks"
-    works_root.mkdir(parents=True, exist_ok=True)
     gr = _parse_optional_game_root(game_root)
-    for fn in _CHARA_WORKS_SORT_NAMES:
-        dst = works_root / fn
-        if dst.exists():
-            continue
-        src: Path | None = resolve_game_chara_works_sort_path(gr, fn) if gr is not None else None
-        if src is None:
-            bp = bundled_chara_works_sort_path(fn)
-            if bp is not None:
-                src = bp
-        if src is not None and src.is_file():
-            try:
-                shutil.copy2(src, dst)
-            except OSError:
-                pass
-        if not dst.exists():
-            dst.write_text(_EMPTY_CHARA_WORKS_SORT_XML, encoding="utf-8")
+    if gr is None:
+        return set()
+    merged: set[int] = set()
+    for fn in ("WorksSort.xml", "WorksNameSort.xml"):
+        p = resolve_game_chara_works_sort_path(gr, fn)
+        if p is not None and p.is_file():
+            merged |= parse_works_sort_xml_string_ids(p)
+    return merged
+
+
+def refresh_chara_works_sorts_with_game(acus_root: Path, game_root: Path | str | None = None) -> None:
+    """
+    在 **ACUS/charaWorks** 生成 WorksSort / WorksNameSort：底稿来自游戏 A000（只读复制）或随包种子，
+    再合并 ACUS 内自制 charaWorks 的 id。**不会覆盖或修改**游戏目录下原位置的 sort 文件。
+    """
+    from .xml_writer import refresh_chara_works_sorts_from_game_and_merge_acus
+
+    refresh_chara_works_sorts_from_game_and_merge_acus(acus_root, game_root)
 
 
 def _seed_acus_from_bundled(acus_root: Path) -> None:
@@ -178,7 +189,7 @@ def ensure_acus_layout(*, game_root: Path | str | None = None) -> Path:
     ]:
         (root / d).mkdir(parents=True, exist_ok=True)
     _seed_acus_from_bundled(root)
-    sync_chara_works_sort_seeds(root, game_root)
+    refresh_chara_works_sorts_with_game(root, game_root)
     # 缓存不再放在 ACUS 内，统一放应用根 .cache
     (app_cache_dir() / "dds_preview").mkdir(parents=True, exist_ok=True)
     return root

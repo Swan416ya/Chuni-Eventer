@@ -1427,7 +1427,9 @@ class ManagerWidget(QWidget):
         menu.view.setFont(vf)
         gpos = self.chara_variant_tabs.tabBar.view.mapToGlobal(pos)
         act_edit = Action(FIF.EDIT, "编辑此变体…", self.chara_variant_tabs)
-        act_edit.triggered.connect(lambda _=False, sl=slot: QTimer.singleShot(0, lambda: self._open_chara_variant_editor(sl)))
+        act_edit.triggered.connect(
+            lambda _=False, sl=slot: QTimer.singleShot(80, lambda: self._open_chara_variant_editor(sl))
+        )
         menu.addAction(act_edit)
         if slot >= 1:
             act_del = Action(FIF.DELETE, "删除此变体…", self.chara_variant_tabs)
@@ -1591,7 +1593,7 @@ class ManagerWidget(QWidget):
             self.chara_variant_tabs.setCurrentIndex(prev)
             self.chara_variant_tabs.blockSignals(False)
             # Delay modal dialog opening so tab bar interaction fully settles first.
-            QTimer.singleShot(0, self._open_chara_variant_add_dialog)
+            QTimer.singleShot(80, self._open_chara_variant_add_dialog)
             return
         self._update_chara_variant_preview()
 

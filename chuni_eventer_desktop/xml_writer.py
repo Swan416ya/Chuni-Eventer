@@ -96,6 +96,95 @@ CHARA_DEFAULT_RANKS_XML = """  <ranks>
     </CharaRankData>
   </ranks>"""
 
+_SORT_EMPTY_SHELL = """<?xml version="1.0" encoding="utf-8"?>
+<SerializeSortData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dataName>charaWorks</dataName>
+  <SortList>
+  </SortList>
+</SerializeSortData>
+"""
+
+_SORT_FILENAMES = ("WorksSort.xml", "WorksNameSort.xml")
+
+
+def _copy_sort_into_acus_only(dst: Path, game_src: Path | None, bundled: Path | None) -> None:
+    """
+    将排序表写入 ACUS 内的 dst 路径。
+    game_src 仅只读；若与 dst 解析为同一路径（误联接/重合）则跳过，避免改写游戏安装目录下的原文件。
+    """
+    candidates: list[Path] = []
+    if game_src is not None and game_src.is_file():
+        try:
+            clash = dst.exists() and game_src.resolve() == dst.resolve()
+        except OSError:
+            clash = False
+        if not clash:
+            candidates.append(game_src)
+    if bundled is not None and bundled.is_file():
+        candidates.append(bundled)
+    for cand in candidates:
+        try:
+            shutil.copyfile(cand, dst)
+            return
+        except OSError:
+            continue
+    if not dst.exists():
+        dst.write_text(_SORT_EMPTY_SHELL, encoding="utf-8")
+
+
+def collect_acus_chara_works_sort_ids(acus_root: Path) -> list[int]:
+    """扫描 ACUS/charaWorks/charaWorksXXXXXX/CharaWorks.xml，收集需在 SortList 中出现的 works id。"""
+    seen: set[int] = set()
+    base = acus_root / "charaWorks"
+    if not base.is_dir():
+        return []
+    for d in sorted(base.iterdir()):
+        if not d.is_dir() or not d.name.startswith("charaWorks"):
+            continue
+        xml_path = d / "CharaWorks.xml"
+        if not xml_path.is_file():
+            continue
+        try:
+            root = ET.parse(xml_path).getroot()
+            raw = root.findtext("name/id")
+            if raw is None:
+                continue
+            wid = int((raw or "").strip())
+        except (OSError, ValueError, ET.ParseError):
+            continue
+        if wid >= 0:
+            seen.add(wid)
+    return sorted(seen)
+
+
+def refresh_chara_works_sorts_from_game_and_merge_acus(
+    acus_root: Path, game_root: Path | str | None
+) -> None:
+    """
+    从当前游戏 A000 **只读**复制 WorksSort / WorksNameSort 的底稿到 **ACUS/charaWorks/**，
+    找不到游戏文件则用随包种子；**从不回写**游戏安装目录。
+    随后在 ACUS 内两份 XML 上合并 ACUS 已有 charaWorks 的 id（官方 + 自制）。
+    """
+    from .acus_workspace import (
+        _parse_optional_game_root,
+        bundled_chara_works_sort_path,
+        resolve_game_chara_works_sort_path,
+    )
+
+    works_root = acus_root / "charaWorks"
+    works_root.mkdir(parents=True, exist_ok=True)
+    gr = _parse_optional_game_root(game_root)
+    for fn in _SORT_FILENAMES:
+        dst = works_root / fn
+        game_src = resolve_game_chara_works_sort_path(gr, fn) if gr is not None else None
+        bp = bundled_chara_works_sort_path(fn)
+        _copy_sort_into_acus_only(dst, game_src, bp)
+
+    for wid in collect_acus_chara_works_sort_ids(acus_root):
+        _append_sort_string_id(works_root / "WorksSort.xml", wid)
+        _append_sort_string_id(works_root / "WorksNameSort.xml", wid)
+
+
 def _append_sort_string_id(sort_xml: Path, works_id: int) -> None:
     root = ET.parse(sort_xml).getroot()
     # ElementTree 不会保留 xmlns 声明为普通属性；写回前补齐，避免格式与官方样本偏差。
@@ -140,30 +229,12 @@ def ensure_chara_works_sorts(*, acus_root: Path, works_id: int) -> None:
             game_path = None
         if game_path is not None and not game_path.is_dir():
             game_path = None
-    for fn in ("WorksSort.xml", "WorksNameSort.xml"):
+    for fn in _SORT_FILENAMES:
         dst = works_root / fn
         if not dst.exists():
-            src = resolve_game_chara_works_sort_path(game_path, fn) if game_path is not None else None
-            if src is None:
-                bp = bundled_chara_works_sort_path(fn)
-                if bp is not None and bp.is_file():
-                    src = bp
-            if src is not None:
-                try:
-                    shutil.copy2(src, dst)
-                except OSError:
-                    pass
-            if not dst.exists():
-                dst.write_text(
-                    """<?xml version="1.0" encoding="utf-8"?>
-<SerializeSortData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <dataName>charaWorks</dataName>
-  <SortList>
-  </SortList>
-</SerializeSortData>
-""",
-                    encoding="utf-8",
-                )
+            game_src = resolve_game_chara_works_sort_path(game_path, fn) if game_path is not None else None
+            bp = bundled_chara_works_sort_path(fn)
+            _copy_sort_into_acus_only(dst, game_src, bp)
         _append_sort_string_id(dst, works_id)
 
 

@@ -9,6 +9,7 @@
 | 文档 | 说明 |
 |------|------|
 | [桌面端模态弹窗与进度安全_完整指南_zh.md](./桌面端模态弹窗与进度安全_完整指南_zh.md) | **弹窗假死、系统提示音、进度条残留模态**；`fluent_dialogs` 全部 API；排查清单与 Code Review 项 |
+| [弹窗问题排查修复记录_zh.md](./弹窗问题排查修复记录_zh.md) | **历次修复台账**、全量扫描范围、本轮改动表、回归冒烟建议 |
 | [ui_style_inventory_zh.md](./ui_style_inventory_zh.md) | 各窗口/对话框所用 Fluent 组件与 Qt 回退件清单 |
 | [ui_main_workspace_fluent_gaps_zh.md](./ui_main_workspace_fluent_gaps_zh.md) | 主工作区与 Fluent 设计之间的已知差距与待办 |
 

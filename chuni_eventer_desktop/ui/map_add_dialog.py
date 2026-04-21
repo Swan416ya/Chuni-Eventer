@@ -19,7 +19,6 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QHBoxLayout,
     QLabel,
-    QMessageBox,
     QProgressDialog,
     QTableWidget,
     QTableWidgetItem,
@@ -43,7 +42,13 @@ from qfluentwidgets import (
 )
 
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
-from .fluent_dialogs import fly_critical, fly_message, fly_warning, safe_dismiss_modal_progress_dialog
+from .fluent_dialogs import (
+    fly_critical,
+    fly_message,
+    fly_question,
+    fly_warning,
+    safe_dismiss_modal_progress_dialog,
+)
 from .fluent_table import apply_fluent_sheet_table
 
 from ..dds_convert import DdsToolError, ingest_to_bc3_dds
@@ -2859,15 +2864,10 @@ class MapAddDialog(FluentCaptionDialog):
             return
         area_idx = self._page_area_slots[page_idx][slot_idx]
         if area_idx is None:
-            if (
-                QMessageBox.question(
-                    self,
-                    "空格子",
-                    "此格尚未绑定 MapArea。\n\n要在本格创建跑图区域并配置最终奖励吗？\n（与 A001 一致：无内容的格子可不写 MapArea。）",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.Yes,
-                )
-                != QMessageBox.StandardButton.Yes
+            if not fly_question(
+                self,
+                "空格子",
+                "此格尚未绑定 MapArea。\n\n要在本格创建跑图区域并配置最终奖励吗？\n（与 A001 一致：无内容的格子可不写 MapArea。）",
             ):
                 return
             area_idx = self._append_new_area_with_meta(page_index=page_idx, index_in_page=slot_idx)
@@ -3681,7 +3681,7 @@ class MapAddDialog(FluentCaptionDialog):
             except Exception as e:
                 fly_warning(self, "事件未完整写入", f"地图已生成，但 Event/EventSort 写入失败：\n{e}")
 
-        QMessageBox.information(self, "完成", msg)
+        fly_message(self, "完成", msg)
         self.accept()
 
     def _write_maparea(

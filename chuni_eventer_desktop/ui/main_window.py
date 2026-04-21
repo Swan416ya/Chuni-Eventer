@@ -15,7 +15,7 @@ from qfluentwidgets import (
     SubtitleLabel,
 )
 
-from ..acus_workspace import AcusConfig, ensure_acus_layout, resolve_compressonatorcli_path, sync_chara_works_sort_seeds
+from ..acus_workspace import AcusConfig, ensure_acus_layout, refresh_chara_works_sorts_with_game, resolve_compressonatorcli_path
 from ..version import APP_VERSION
 from ..game_data_index import load_cached_game_index
 from .index_progress import run_rebuild_game_index_with_progress
@@ -172,6 +172,8 @@ class MainWindow(MSFluentWindow):
                         "游戏索引失败",
                         f"{err}\n可在【设置】中重新选择目录并点击「重新扫描游戏索引」。",
                     )
+                elif _idx is not None:
+                    refresh_chara_works_sorts_with_game(self._acus_root, gr)
             return
         picked = QFileDialog.getExistingDirectory(
             self,
@@ -187,7 +189,7 @@ class MainWindow(MSFluentWindow):
             return
         self._cfg.game_root = picked
         self._cfg.save()
-        sync_chara_works_sort_seeds(self._acus_root, picked)
+        refresh_chara_works_sorts_with_game(self._acus_root, picked)
         _idx, err = run_rebuild_game_index_with_progress(
             self,
             game_root=Path(picked).expanduser(),

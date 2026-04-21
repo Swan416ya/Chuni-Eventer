@@ -38,6 +38,7 @@ from .works_dialogs import (
     combo_works_id_str,
     fill_works_fluent_combo,
     load_works_library,
+    user_accepts_vanilla_works_id_for_new_chara_works_folder,
 )
 
 
@@ -339,6 +340,13 @@ class CharaAddDialog(FluentCaptionDialog):
                     raise ValueError(f"{label} 图片路径不存在")
 
             cid = ChuniCharaId(cid_raw)
+            w_id, w_str = combo_works_id_str(self._works_combo)
+            if var == 0:
+                if not user_accepts_vanilla_works_id_for_new_chara_works_folder(
+                    self, acus_root=self._acus_root, works_id=w_id, works_str=w_str
+                ):
+                    return
+
             dds_dir = self._acus_root / "ddsImage" / f"ddsImage{cid.raw6}"
 
             jobs = [
@@ -358,7 +366,6 @@ class CharaAddDialog(FluentCaptionDialog):
             write_ddsimage_xml(out_dir=self._acus_root, chara_id=cid.raw)
             ill = self.illustrator.text().strip() or None
             chara_name = self.name.text().strip()
-            w_id, w_str = combo_works_id_str(self._works_combo)
             if var == 0:
                 write_chara_xml(
                     out_dir=self._acus_root,

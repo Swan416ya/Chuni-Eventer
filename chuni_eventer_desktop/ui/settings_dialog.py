@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QInputDialog, QVBoxLayout
 
 from qfluentwidgets import BodyLabel, CardWidget, CheckBox, LineEdit, PrimaryPushButton, PushButton
 
-from ..acus_workspace import AcusConfig, sync_chara_works_sort_seeds
+from ..acus_workspace import AcusConfig, refresh_chara_works_sorts_with_game
 from ..dds_convert import DdsToolError, is_bc3_dds, run_cmd, validate_compressonator_tool
 from ..dds_quicktex import encode_image_to_bc3_dds_quicktex, quicktex_available
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
@@ -179,6 +179,7 @@ class SettingsDialog(FluentCaptionDialog):
         if idx is None:
             fly_critical(self, "扫描失败", err)
             return
+        refresh_chara_works_sorts_with_game(self._acus_root, root)
         fly_message(
             self,
             "扫描完成",
@@ -317,7 +318,7 @@ class SettingsDialog(FluentCaptionDialog):
         self._cfg.game_root = gr
         self._cfg.enable_pgko_ugc_experimental = bool(self.pgko_exp_checkbox.isChecked())
         self._cfg.save()
-        sync_chara_works_sort_seeds(self._acus_root, gr or None)
+        refresh_chara_works_sorts_with_game(self._acus_root, gr or None)
         if gr:
             _idx, err = run_rebuild_game_index_with_progress(
                 self,

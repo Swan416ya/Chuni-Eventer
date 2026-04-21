@@ -10,6 +10,7 @@
 |------|------|
 | [**界面与工作区/README.md**](界面与工作区/README.md) | 本类文档目录与一览 |
 | [界面与工作区/桌面端模态弹窗与进度安全_完整指南_zh.md](界面与工作区/桌面端模态弹窗与进度安全_完整指南_zh.md) | 模态、`QProgressDialog`、`fly_*` 集中封装与排查规范（**推荐维护者与贡献者阅读**） |
+| [界面与工作区/弹窗问题排查修复记录_zh.md](界面与工作区/弹窗问题排查修复记录_zh.md) | 弹窗相关 **修复记录与全量排查结果** |
 | [界面与工作区/ui_style_inventory_zh.md](界面与工作区/ui_style_inventory_zh.md) | UI 组件清单 |
 | [界面与工作区/ui_main_workspace_fluent_gaps_zh.md](界面与工作区/ui_main_workspace_fluent_gaps_zh.md) | 主工作区 Fluent 差距 |
 

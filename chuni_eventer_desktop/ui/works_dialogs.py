@@ -19,6 +19,7 @@ from qfluentwidgets import (
     isDarkTheme,
 )
 
+from ..acus_workspace import AcusConfig, vanilla_works_sort_id_set
 from ..works_library import add_work_entry, load_works_library, remove_work_entry, WORKS_CUSTOM_ID_START
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_question, fly_warning
@@ -48,6 +49,52 @@ def works_warning_label(*, parent: QWidget | None = None) -> BodyLabel:
     lb.setWordWrap(True)
     lb.setStyleSheet("color:#B45309; font-size:12px;")
     return lb
+
+
+def user_accepts_vanilla_works_id_conflict(parent: QWidget | None, works_id: int) -> bool:
+    """
+    若 works_id 已在游戏原版 WorksSort / WorksNameSort 中出现，弹出 Fluent 二次确认。
+    返回 True 表示可继续（未重复、或用户确认承担与原版分类共用的影响）。
+    使用 fly_question + 顶层 parent 规范化，避免无边框窗体下模态卡死。
+    """
+    if works_id < 0:
+        return True
+    cfg = AcusConfig.load()
+    vanilla = vanilla_works_sort_id_set(cfg.game_root or None)
+    if works_id not in vanilla:
+        return True
+    return fly_question(
+        parent,
+        "作品 ID 与游戏内分类重复",
+        f"作品 ID {works_id} 已在游戏原装的排序表中登记。\n"
+        "使用该 ID 会与原版某个「作品」分类共用列表位置，可能影响选角界面中的归类与排序。\n\n"
+        "确定仍要使用此 ID 吗？",
+        yes_text="仍要使用",
+        no_text="返回修改",
+    )
+
+
+def user_accepts_vanilla_works_id_for_new_chara_works_folder(
+    parent: QWidget | None,
+    *,
+    acus_root: Path,
+    works_id: int,
+    works_str: str,
+) -> bool:
+    """
+    即将在 ACUS 中新建某 works_id 对应的 charaWorks 条目时：若原版排序表已有该 id 且本地尚无对应 CharaWorks.xml，则确认。
+    已存在 CharaWorks.xml 时视为编辑，不弹窗。
+    """
+    if works_id < 0:
+        return True
+    ws = (works_str or "").strip()
+    if not ws or ws == "Invalid":
+        return True
+    row = f"{int(works_id):06d}"
+    wdir = acus_root / "charaWorks" / f"charaWorks{row}"
+    if (wdir / "CharaWorks.xml").is_file():
+        return True
+    return user_accepts_vanilla_works_id_conflict(parent, works_id)
 
 
 def fill_works_combo(cb: QComboBox, *, include_invalid: bool = True) -> None:
@@ -163,6 +210,8 @@ class WorkCreateDialog(FluentCaptionDialog):
             fly_critical(self, "错误", "请填写作品显示名。")
             return
         wid = int(self._id_spin.value())
+        if not user_accepts_vanilla_works_id_conflict(self, wid):
+            return
         try:
             add_work_entry(work_id=wid, work_str=s)
         except ValueError as e:
@@ -420,6 +469,10 @@ class CharaEditWorksDialog(FluentCaptionDialog):
 
     def _on_ok(self) -> None:
         wid, wstr = combo_works_id_str(self._cb)
+        if not user_accepts_vanilla_works_id_for_new_chara_works_folder(
+            self, acus_root=self._acus_root, works_id=wid, works_str=wstr
+        ):
+            return
         try:
             patch_chara_xml_works(self._xml_path, works_id=wid, works_str=wstr)
         except Exception as e:
