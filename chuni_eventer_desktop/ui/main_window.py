@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import QObject, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QVBoxLayout, QWidget
 
 from qfluentwidgets import (
@@ -17,8 +17,7 @@ from qfluentwidgets import (
 
 from ..acus_workspace import AcusConfig, ensure_acus_layout, refresh_chara_works_sorts_with_game, resolve_compressonatorcli_path
 from ..version import APP_VERSION
-from ..game_data_index import load_cached_game_index
-from .index_progress import run_rebuild_game_index_with_progress
+from ..game_data_index import GameDataIndex, load_cached_game_index, rebuild_and_save_game_index
 from ..sheet_install import install_zip_to_acus
 from ..dds_quicktex import quicktex_available
 from .manager_widget import ManagerWidget
@@ -36,7 +35,7 @@ from .event_add_dialog import EventAddDialog
 from .quest_add_dialog import QuestAddDialog
 from .mapbonus_dialogs import MapBonusEditDialog
 from .stage_add_dialog import StageAddDialog
-from .fluent_dialogs import fly_critical, fly_message, fly_warning
+from .fluent_dialogs import fly_critical, fly_message, fly_message_async, fly_warning
 from .nav_icons import (
     SVG_STAGE_BG,
     SVG_CHARA,
@@ -50,6 +49,23 @@ from .nav_icons import (
     SVG_TROPHY,
     nav_qicon,
 )
+
+
+class _GameIndexWorker(QObject):
+    finished = pyqtSignal(object, str)
+
+    def __init__(self, game_root: Path, compressonatorcli_path: Path | None) -> None:
+        super().__init__()
+        self._game_root = game_root
+        self._compressonatorcli_path = compressonatorcli_path
+
+    def run(self) -> None:
+        idx, err = rebuild_and_save_game_index(
+            self._game_root,
+            self._compressonatorcli_path,
+            prewarm_dds_preview=False,
+        )
+        self.finished.emit(idx, err)
 
 
 class MainWindow(MSFluentWindow):
@@ -148,7 +164,9 @@ class MainWindow(MSFluentWindow):
         # 延后到事件循环下一轮再扫 ACUS / 建歌曲卡片，让窗口先完成 show()，体感启动更快
         QTimer.singleShot(0, lambda: self._apply_category("Music", "歌曲"))
 
-        QTimer.singleShot(0, self._ensure_game_root_first_run)
+        self._index_thread: QThread | None = None
+        self._index_worker: _GameIndexWorker | None = None
+        QTimer.singleShot(0, self._ensure_game_index_background)
 
     def _resolve_game_index(self):
         gr = (self._cfg.game_root or "").strip()
@@ -156,54 +174,72 @@ class MainWindow(MSFluentWindow):
             return None
         return load_cached_game_index(gr)
 
-    def _ensure_game_root_first_run(self) -> None:
+    def _ensure_game_index_background(self) -> None:
         gr_raw = (self._cfg.game_root or "").strip()
-        if gr_raw:
-            gr = Path(gr_raw).expanduser()
-            if load_cached_game_index(str(gr)) is None:
-                _idx, err = run_rebuild_game_index_with_progress(
-                    self,
-                    game_root=gr,
-                    compressonatorcli_path=self._get_tool_path_or_none(),
-                )
-                if _idx is None and err:
-                    fly_critical(
-                        self,
-                        "游戏索引失败",
-                        f"{err}\n可在【设置】中重新选择目录并点击「重新扫描游戏索引」。",
-                    )
-                elif _idx is not None:
-                    refresh_chara_works_sorts_with_game(self._acus_root, gr)
-            return
-        picked = QFileDialog.getExistingDirectory(
-            self,
-            "首次使用：请选择游戏数据目录（含 A001，或为含 A001 / Option\\A001 的安装根目录）",
-        )
-        if not picked:
-            fly_message(
+        if not gr_raw:
+            fly_message_async(
                 self,
                 "提示",
                 "未设置游戏目录时，乐曲/场景/ddsMap 等下拉列表仅包含 ACUS 内已有数据。\n"
                 "稍后可打开【设置】填写「游戏数据目录」并扫描。",
+                single_button=True,
+                window_modal=False,
             )
             return
-        self._cfg.game_root = picked
-        self._cfg.save()
-        refresh_chara_works_sorts_with_game(self._acus_root, picked)
-        _idx, err = run_rebuild_game_index_with_progress(
+
+        gr = Path(gr_raw).expanduser()
+        if load_cached_game_index(str(gr)) is not None:
+            return
+
+        self._start_index_thread(gr)
+
+    def _start_index_thread(self, game_root: Path) -> None:
+        if self._index_thread is not None:
+            return
+        fly_message_async(
             self,
-            game_root=Path(picked).expanduser(),
+            "正在后台建立索引",
+            "已进入主界面，游戏数据索引正在后台构建，完成后会自动可用。",
+            single_button=True,
+            window_modal=False,
+        )
+        thread = QThread(self)
+        worker = _GameIndexWorker(
+            game_root=game_root,
             compressonatorcli_path=self._get_tool_path_or_none(),
         )
-        if _idx is None:
-            fly_critical(self, "扫描失败", err or "无法建立游戏索引。")
-        else:
-            fly_message(
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(self._on_background_index_finished)
+        worker.finished.connect(thread.quit)
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._on_index_thread_stopped)
+        self._index_thread = thread
+        self._index_worker = worker
+        thread.start()
+
+    def _on_background_index_finished(self, idx: object, err: str) -> None:
+        if not isinstance(idx, GameDataIndex):
+            fly_critical(
                 self,
-                "索引完成",
-                f"已缓存游戏内乐曲 {len(_idx.music)}、场景 {len(_idx.stage)}、"
-                f"DDSImage {len(_idx.dds_image)}、ddsMap {len(_idx.dds_map)} 条（仅 ID 与名称）。",
+                "游戏索引失败",
+                f"{err or '无法建立游戏索引。'}\n可在【设置】中重新选择目录并点击「重新扫描游戏索引」。",
             )
+            return
+        refresh_chara_works_sorts_with_game(self._acus_root, self._cfg.game_root or None)
+        fly_message_async(
+            self,
+            "索引完成",
+            f"已缓存游戏内乐曲 {len(idx.music)}、场景 {len(idx.stage)}、"
+            f"DDSImage {len(idx.dds_image)}、ddsMap {len(idx.dds_map)} 条（仅 ID 与名称）。",
+            single_button=True,
+            window_modal=False,
+        )
+
+    def _on_index_thread_stopped(self) -> None:
+        self._index_thread = None
+        self._index_worker = None
 
     def _get_tool_path_or_none(self) -> Path | None:
         return resolve_compressonatorcli_path(self._cfg)

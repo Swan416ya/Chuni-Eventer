@@ -189,7 +189,8 @@ def ensure_acus_layout(*, game_root: Path | str | None = None) -> Path:
     ]:
         (root / d).mkdir(parents=True, exist_ok=True)
     _seed_acus_from_bundled(root)
-    refresh_chara_works_sorts_with_game(root, game_root)
+    # 启动链路只做轻量目录准备，避免同步扫描游戏目录导致首屏阻塞。
+    # works sort 刷新改为在主界面可交互后由后台任务触发。
     # 缓存不再放在 ACUS 内，统一放应用根 .cache
     (app_cache_dir() / "dds_preview").mkdir(parents=True, exist_ok=True)
     return root

@@ -560,6 +560,8 @@ def rebuild_and_save_game_index(
     game_root: Path,
     compressonatorcli_path: Path | None = None,
     progress: GameIndexProgress | None = None,
+    *,
+    prewarm_dds_preview: bool = True,
 ) -> tuple[GameDataIndex | None, str]:
     root = game_root.expanduser().resolve()
     roots = enumerate_game_data_roots(root)
@@ -572,12 +574,13 @@ def rebuild_and_save_game_index(
     idx = build_game_data_index(game_root=root, progress=progress)
     _pg(progress, "正在写入索引缓存…", 0, 0)
     save_game_data_index(idx)
-    # 索引阶段顺便预生成游戏资源 ddsMap 预览 PNG
-    prewarm_game_dds_preview_pngs(
-        game_root=root,
-        compressonatorcli_path=compressonatorcli_path,
-        progress=progress,
-    )
+    if prewarm_dds_preview:
+        # 预热耗时较大：仅在明确需要时执行，避免拖慢启动链路
+        prewarm_game_dds_preview_pngs(
+            game_root=root,
+            compressonatorcli_path=compressonatorcli_path,
+            progress=progress,
+        )
     return idx, ""
 
 
