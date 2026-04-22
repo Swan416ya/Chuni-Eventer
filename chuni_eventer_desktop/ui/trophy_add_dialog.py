@@ -6,6 +6,7 @@ from pathlib import Path
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
+    QDialog,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
@@ -29,6 +30,7 @@ from ..dds_convert import DdsToolError, ingest_to_bc3_dds
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message
 from .name_glyph_preview import wrap_name_input_with_preview
+from .trophy_texture_compose_dialog import TrophyTextureComposeDialog
 
 
 def _safe_int(text: str) -> int | None:
@@ -221,6 +223,22 @@ def next_trophy_rare_type_with_image(acus_root: Path) -> int:
     return 20
 
 
+def suggest_next_trophy_id(acus_root: Path, *, start: int = 50_000) -> int:
+    used: set[int] = set()
+    for p in acus_root.glob("trophy/**/Trophy.xml"):
+        try:
+            root = ET.parse(p).getroot()
+            tid = _safe_int(root.findtext("name/id") or "")
+            if tid is not None and tid >= 0:
+                used.add(tid)
+        except Exception:
+            continue
+    out = max(0, int(start))
+    while out in used:
+        out += 1
+    return out
+
+
 class TrophyAddDialog(FluentCaptionDialog):
     def __init__(self, *, acus_root: Path, tool_path: Path | None, parent=None) -> None:
         super().__init__(parent=parent)
@@ -232,6 +250,7 @@ class TrophyAddDialog(FluentCaptionDialog):
 
         self.id_edit = LineEdit(self)
         self.id_edit.setPlaceholderText("例如 9760")
+        self.id_edit.setText(str(suggest_next_trophy_id(acus_root, start=50_000)))
         self.name_edit = LineEdit(self)
         self.name_edit.setPlaceholderText("例如 曲名（请仅用日语字库内字符）")
         self.name_edit.setToolTip(
@@ -296,6 +315,12 @@ class TrophyAddDialog(FluentCaptionDialog):
                 ),
             )
         )
+        editor_btn = PushButton("称号贴图编辑器（608×148 / 608×80）…", self)
+        editor_btn.setToolTip(
+            "上传 608×148 或 608×80 的位图；若为 80 高会自动向下扩展透明区并叠加工具模板 trophy.png。"
+        )
+        editor_btn.clicked.connect(self._open_trophy_texture_editor)
+        img_lay.addWidget(editor_btn)
 
         ex_card = CardWidget(self)
         ex_lay = QVBoxLayout(ex_card)
@@ -394,6 +419,15 @@ class TrophyAddDialog(FluentCaptionDialog):
         p, _ = QFileDialog.getOpenFileName(self, title)
         if p:
             edit.setText(p)
+
+    def _open_trophy_texture_editor(self) -> None:
+        out_dir = self._acus_root / "_generated" / "trophy_compose_png"
+        dlg = TrophyTextureComposeDialog(out_dir=out_dir, parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        if dlg.result_png_path is not None:
+            self.image_edit.setText(str(dlg.result_png_path))
+            self._sync_rare_ui()
 
     def _run(self) -> None:
         try:

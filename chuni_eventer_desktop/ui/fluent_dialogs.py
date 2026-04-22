@@ -66,6 +66,30 @@ def _normalize_parent(parent: QWidget | None) -> QWidget | None:
             return None
 
 
+def _best_message_parent(parent: QWidget | None) -> QWidget | None:
+    """Return a stable top-level parent for MessageBox, or None."""
+    p = _normalize_parent(parent)
+    if p is not None:
+        return p
+    try:
+        aw = QApplication.activeWindow()
+        p = _normalize_parent(aw)
+        if p is not None:
+            return p
+    except Exception:
+        pass
+    try:
+        for w in QApplication.topLevelWidgets():
+            if w is None or not w.isVisible():
+                continue
+            p = _normalize_parent(w)
+            if p is not None:
+                return p
+    except Exception:
+        pass
+    return None
+
+
 def _run_modal_with_enabled_top(parent: QWidget | None, fn: Callable[[], _T]) -> _T:
     """
     在顶层父窗被 setEnabled(False) 时仍同步弹出 MessageBox，Windows 上会导致
@@ -105,8 +129,11 @@ def safe_dismiss_modal_progress_dialog(dlg: QProgressDialog | None) -> None:
 
 
 def fly_message(parent: QWidget | None, title: str, text: str, *, single_button: bool = True) -> None:
-    box_parent = _normalize_parent(parent)
+    box_parent = _best_message_parent(parent)
     _debug_state("fly_message:create", parent, title=title)
+    if box_parent is None:
+        log.warning("fly_message skipped: no valid parent title=%r text=%r", title, text)
+        return
 
     def _exec() -> None:
         w = MessageBox(title, text, box_parent)
@@ -137,8 +164,11 @@ def fly_message_async(
     """
     非阻塞提示框：用于避免连环模态框导致 UI 卡死。
     """
-    box_parent = _normalize_parent(parent)
+    box_parent = _best_message_parent(parent)
     _debug_state("fly_message_async:create", parent, title=title)
+    if box_parent is None:
+        log.warning("fly_message_async skipped: no valid parent title=%r text=%r", title, text)
+        return
     w = MessageBox(title, text, box_parent)
     if single_button:
         w.cancelButton.hide()
@@ -182,8 +212,11 @@ def fly_question(
     no_text: str = "取消",
 ) -> bool:
     """Fluent MessageBox：是 / 否。返回 True 表示点击确认（yes）。"""
-    box_parent = _normalize_parent(parent)
+    box_parent = _best_message_parent(parent)
     _debug_state("fly_question:create", parent, title=title)
+    if box_parent is None:
+        log.warning("fly_question fallback=False: no valid parent title=%r text=%r", title, text)
+        return False
 
     def _exec() -> bool:
         w = MessageBox(title, text, box_parent)
@@ -209,8 +242,15 @@ def fly_question_async(
     非阻塞确认框：避免在复杂层级中使用 exec() 造成卡死。
     on_result(True) 表示确认，False 表示取消/关闭。
     """
-    box_parent = _normalize_parent(parent)
+    box_parent = _best_message_parent(parent)
     _debug_state("fly_question_async:create", parent, title=title)
+    if box_parent is None:
+        log.warning("fly_question_async fallback=False: no valid parent title=%r text=%r", title, text)
+        try:
+            on_result(False)
+        except Exception:
+            log.exception("fly_question_async on_result failed during fallback")
+        return
     w = MessageBox(title, text, box_parent)
     w.yesButton.setText(yes_text)
     w.cancelButton.setText(no_text)
