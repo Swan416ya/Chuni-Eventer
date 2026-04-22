@@ -26,7 +26,7 @@ _BTN_W = int(round(_BTN_H * 2.5))
 
 class MusicSheetChannelsDialog(QDialog):
     """
-    乐曲页「新增」：选择自制谱下载渠道（SwanSite / SwanClub / pgko）。
+    乐曲页「新增」：选择自制谱下载渠道（SwanSite / pgko）。
     """
 
     def __init__(self, *, parent=None) -> None:
@@ -79,14 +79,6 @@ class MusicSheetChannelsDialog(QDialog):
         row.addWidget(mk("SwanSite.png", "从 Swan 站获取自制谱", enabled=True, act="swan"))
         row.addWidget(
             mk(
-                "SwanClub.jpg",
-                "从 SwanClub 下载/上传社区谱面",
-                enabled=True,
-                act="swanclub",
-            )
-        )
-        row.addWidget(
-            mk(
                 "pgko.jpg",
                 "从 pgko.dev 获取自制谱",
                 enabled=True,
@@ -123,7 +115,7 @@ class MusicSheetChannelsDialog(QDialog):
         root.setSpacing(12)
         root.addWidget(card, stretch=1)
 
-        min_w = _BTN_W * 3 + 12 * 2 + 48
+        min_w = _BTN_W * 2 + 12 * 1 + 48
         card.setMinimumWidth(min_w)
 
     def showEvent(self, event) -> None:

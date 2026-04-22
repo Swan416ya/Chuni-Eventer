@@ -27,7 +27,6 @@ from .map_add_dialog import MapAddDialog, RewardCreateDialog, ensure_reward_xml,
 from .nameplate_add_dialog import NamePlateAddDialog
 from .trophy_add_dialog import TrophyAddDialog
 from .music_add_actions_dialog import MusicSheetChannelsDialog
-from .github_sheet_dialog import GithubSheetDialog
 from .pgko_sheet_download_dialog import PgkoSheetDownloadDialog
 from .swan_sheet_download_dialog import SwanSheetDownloadDialog
 from .save_patch_dialog import SavePatchDialog
@@ -341,9 +340,6 @@ class MainWindow(MSFluentWindow):
                 self._on_refresh()
             elif act == "pgko":
                 PgkoSheetDownloadDialog(parent=self).exec()
-                self._on_refresh()
-            elif act == "swanclub":
-                GithubSheetDialog(acus_root=self._acus_root, parent=self).exec()
                 self._on_refresh()
             elif act == "local_zip":
                 path, _ = QFileDialog.getOpenFileName(

@@ -283,7 +283,7 @@ class _CharaQuickComposeDialog(FluentCaptionDialog):
         super().__init__(parent=parent)
         self.setModal(True)
         self.setWindowTitle("单图快速生成角色贴图")
-        self.resize(1280, 740)
+        self.resize(1280, 680)
         self._out_dir = out_dir
         self.generated_paths: tuple[Path, Path, Path] | None = None  # full, half, head
 
@@ -291,12 +291,18 @@ class _CharaQuickComposeDialog(FluentCaptionDialog):
         self._cell_half = _CharaImageAdjustCell(template_path=static_chara_dir / "Template01.png", parent=self)
         self._cell_head = _CharaImageAdjustCell(template_path=static_chara_dir / "Template02.png", parent=self)
         for cell in (self._cell_full, self._cell_half, self._cell_head):
-            cell.setMinimumSize(320, 320)
+            cell.setMinimumSize(240, 240)
+            cell.setSizePolicy(
+                QSizePolicy.Policy.Expanding,
+                QSizePolicy.Policy.Expanding,
+            )
 
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setHorizontalSpacing(2)
         grid.setVerticalSpacing(4)
+        grid.setRowStretch(0, 1)
+        grid.setRowStretch(1, 0)
         grid.addWidget(self._cell_full, 0, 0)
         grid.addWidget(self._cell_half, 0, 1)
         grid.addWidget(self._cell_head, 0, 2)
@@ -329,6 +335,7 @@ class _CharaQuickComposeDialog(FluentCaptionDialog):
         cancel = PushButton("取消", self)
         cancel.clicked.connect(self.reject)
         foot = QHBoxLayout()
+        foot.setContentsMargins(0, 4, 0, 0)
         foot.addWidget(upload)
         foot.addStretch(1)
         foot.addWidget(cancel)
@@ -341,12 +348,12 @@ class _CharaQuickComposeDialog(FluentCaptionDialog):
         cly.addWidget(hint)
         cly.addLayout(opacity_row)
         cly.addLayout(grid, stretch=1)
+        cly.addLayout(foot)
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(*fluent_caption_content_margins())
-        lay.setSpacing(8)
+        lay.setSpacing(0)
         lay.addWidget(card, stretch=1)
-        lay.addLayout(foot)
 
     def _on_template_opacity_changed(self, value: int) -> None:
         op = float(value) / 100.0

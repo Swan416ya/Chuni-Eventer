@@ -29,8 +29,22 @@ from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_m
 from .fluent_dialogs import fly_critical, fly_message, fly_question, fly_warning
 from .fluent_table import apply_fluent_sheet_table
 
-_UPLOADER_API_BASE = "https://uploader.swan416.top"
-_UPLOADER_API_KEY = "114514"
+# 社区谱面上传/列表 API：请在本地构建前替换为实际地址与密钥（勿将真实密钥提交到仓库）。
+_UPLOADER_API_BASE = "https://YOUR_UPLOAD_API_BASE.example"
+_UPLOADER_API_KEY = "YOUR_UPLOAD_API_KEY"
+
+
+def _upload_backend_configured() -> bool:
+    """占位符未替换时不连接网络，避免误请求。"""
+    b = (_UPLOADER_API_BASE or "").strip()
+    k = (_UPLOADER_API_KEY or "").strip()
+    if not b or not k:
+        return False
+    if "YOUR_" in b or "YOUR_" in k:
+        return False
+    if ".example" in b.lower():
+        return False
+    return True
 
 
 def _safe_song_display_name(item: MusicItem) -> str:
@@ -357,7 +371,7 @@ class MusicIdInputDialog(FluentCaptionDialog):
 class GithubSheetDialog(FluentCaptionDialog):
     def __init__(self, *, acus_root: Path, parent=None) -> None:
         super().__init__(parent=parent)
-        self.setWindowTitle("SwanClub 社区谱面")
+        self.setWindowTitle("社区谱面")
         self.setModal(True)
         self.resize(780, 560)
         self._acus_root = acus_root
@@ -367,8 +381,8 @@ class GithubSheetDialog(FluentCaptionDialog):
 
         card = CardWidget(self)
         hint = BodyLabel(
-            "从 SwanClub 服务浏览社区谱面并下载；上传请在乐曲卡右键菜单中操作。\n"
-            "当前客户端已内置上传服务地址与密钥。"
+            "从已配置的后端浏览社区谱面并下载；上传请在乐曲卡片右键菜单中操作。\n"
+            "服务地址与密钥请在本模块顶部常量中自行填写（默认占位符不会连接真实服务）。"
         )
         hint.setWordWrap(True)
 
@@ -417,11 +431,21 @@ class GithubSheetDialog(FluentCaptionDialog):
         lay.addWidget(card, stretch=1)
         lay.addLayout(btns)
 
-        self._on_refresh()
+        if _upload_backend_configured():
+            self._on_refresh()
+        else:
+            self._status.setText("未配置上传服务地址或密钥，无法拉取列表。")
 
     def _on_refresh(self) -> None:
+        if not _upload_backend_configured():
+            fly_warning(
+                self,
+                "未配置",
+                "请在 github_sheet_dialog.py 中设置 _UPLOADER_API_BASE 与 _UPLOADER_API_KEY（替换占位符）。",
+            )
+            return
         if not self._backend_api:
-            fly_warning(self, "服务不可用", "内置上传服务地址为空，请联系开发者。")
+            fly_warning(self, "服务不可用", "上传服务地址为空。")
             return
         self._table.setRowCount(0)
         self._status.setText(f"正在拉取后端歌单：{self._backend_api}")
@@ -471,8 +495,15 @@ class GithubSheetDialog(FluentCaptionDialog):
         if e is None:
             fly_warning(self, "未选择", "请先选择一个文件。")
             return
+        if not _upload_backend_configured():
+            fly_warning(
+                self,
+                "未配置",
+                "请在 github_sheet_dialog.py 中设置 _UPLOADER_API_BASE 与 _UPLOADER_API_KEY（替换占位符）。",
+            )
+            return
         if not self._backend_api:
-            fly_warning(self, "服务不可用", "内置上传服务地址为空，请联系开发者。")
+            fly_warning(self, "服务不可用", "上传服务地址为空。")
             return
         package_path = str(e.get("package_path") or "").strip()
         if not package_path:
@@ -553,6 +584,13 @@ class GithubSheetDialog(FluentCaptionDialog):
 
     @staticmethod
     def upload_music_item(*, parent, acus_root: Path, item: MusicItem) -> None:
+        if not _upload_backend_configured():
+            fly_warning(
+                parent,
+                "未配置",
+                "社区谱面上传未启用：请在 github_sheet_dialog.py 中设置 _UPLOADER_API_BASE 与 _UPLOADER_API_KEY（替换占位符）。",
+            )
+            return
         backend_api = _UPLOADER_API_BASE
         backend_key = _UPLOADER_API_KEY
         music_dir = item.xml_path.parent.resolve()
@@ -571,7 +609,7 @@ class GithubSheetDialog(FluentCaptionDialog):
         include_texts.extend([f"event/{p.name}" for p in plan.event_dirs_to_remove if p.is_dir()])
         if not fly_question(
             parent,
-            "上传到 SwanClub",
+            "上传到社区谱面服务",
             f"将上传 songId：{safe_song}_{item.name.id}\n\n"
             + ("包含目录：\n- " + "\n- ".join(include_texts) if include_texts else "包含目录：music（自动检测）"),
             yes_text="上传",
@@ -583,25 +621,24 @@ class GithubSheetDialog(FluentCaptionDialog):
                 tdp = Path(td)
                 package_zip = tdp / f"{safe_song}_{item.name.id}.zip"
                 file_count, packed_dirs = _build_song_package_zip(acus_root=acus_root, item=item, output_zip=package_zip)
-                if backend_api and backend_key:
-                    ret = upload_to_backend(
-                        api_base=backend_api,
-                        api_key=backend_key,
-                        music_id=item.name.id,
-                        song_name=item.name.str or f"music_{item.name.id}",
-                        package_zip=package_zip,
-                        uploader_name="desktop-user",
-                    )
-                    song_id = str(ret.get("songId") or "").strip()
-                    folder = str(ret.get("folder") or "").strip()
-                    tip = (
-                        f"上传成功。\n"
-                        f"songId: {song_id or '-'}\n"
-                        f"folder: {folder or '-'}\n"
-                        f"打包目录数: {len(packed_dirs)}\n"
-                        f"打包文件数: {file_count}"
-                    )
-                    fly_message(parent, "上传完成", tip)
-                    return
+                ret = upload_to_backend(
+                    api_base=backend_api.strip(),
+                    api_key=backend_key.strip(),
+                    music_id=item.name.id,
+                    song_name=item.name.str or f"music_{item.name.id}",
+                    package_zip=package_zip,
+                    uploader_name="desktop-user",
+                )
+                song_id = str(ret.get("songId") or "").strip()
+                folder = str(ret.get("folder") or "").strip()
+                tip = (
+                    f"上传成功。\n"
+                    f"songId: {song_id or '-'}\n"
+                    f"folder: {folder or '-'}\n"
+                    f"打包目录数: {len(packed_dirs)}\n"
+                    f"打包文件数: {file_count}"
+                )
+                fly_message(parent, "上传完成", tip)
+                return
         except Exception as e:
             fly_critical(parent, "上传失败", str(e))
