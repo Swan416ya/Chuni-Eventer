@@ -1,10 +1,10 @@
-# Clone Foahh/PenguinTools into repo root as ./PenguinTools (required to build PenguinBridge with Core).
+# Clone Foahh/PenguinTools into repo root as ./PenguinTools (used to publish PenguinTools.CLI for packaging).
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 $Target = Join-Path $Root "PenguinTools"
-$core = Join-Path $Target "PenguinTools.Core\PenguinTools.Core.csproj"
-if (Test-Path $core) {
-    Write-Host "PenguinTools already present: $core"
+$cli = Join-Path $Target "PenguinTools.CLI\PenguinTools.CLI.csproj"
+if (Test-Path $cli) {
+    Write-Host "PenguinTools already present: $cli"
     exit 0
 }
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
@@ -16,8 +16,8 @@ if ($LASTEXITCODE -ne 0) {
     if (Test-Path $Target) { Remove-Item $Target -Recurse -Force -ErrorAction SilentlyContinue }
     throw "git clone failed (exit $LASTEXITCODE). Check network / proxy, or clone manually into: $Target"
 }
-if (-not (Test-Path $core)) {
+if (-not (Test-Path $cli)) {
     if (Test-Path $Target) { Remove-Item $Target -Recurse -Force -ErrorAction SilentlyContinue }
-    throw "Clone finished but project file missing: $core"
+    throw "Clone finished but project file missing: $cli"
 }
-Write-Host "Done. Next: dotnet build tools\PenguinBridge\PenguinBridge.csproj -c Release"
+Write-Host "Done. Next: dotnet publish PenguinTools\PenguinTools.CLI\PenguinTools.CLI.csproj -c Release -p:PublishProfile=WinX64-SelfContained-SingleFile-ExternalAssets"

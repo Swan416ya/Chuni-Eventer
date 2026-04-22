@@ -42,7 +42,7 @@ class SusC2sDebugDialog(FluentCaptionDialog):
         self._selected_music_id_fn = selected_music_id_fn
 
         hint = BodyLabel(
-            "从文件或下方文本框读取 SUS，点击「转换」生成 c2s（UTF-8）。"
+            "从文件或下方文本框读取 SUS，点击「转换」后将调用 PenguinTools.CLI 生成 c2s（UTF-8）。"
             "「从缓存加载」使用当前表格选中曲目的 pjsk_cache/…/sus/ 下 expert.sus（若存在）。",
             self,
         )

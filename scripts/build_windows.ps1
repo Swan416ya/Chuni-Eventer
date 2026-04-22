@@ -1,7 +1,7 @@
 param(
     [string]$Version = "0.6.3",
     [switch]$SkipPyInstaller,
-    [switch]$SkipBridge,
+    [Alias("SkipBridge")][switch]$SkipPenguinToolsCli,
     [switch]$SkipCompressonator
 )
 
@@ -17,7 +17,25 @@ function Assert-Command([string]$Name) {
 }
 
 Assert-Command "python"
-if (-not $SkipBridge) { Assert-Command "dotnet" }
+if (-not $SkipPenguinToolsCli) { Assert-Command "dotnet" }
+
+function Resolve-PenguinToolsRoot {
+    $candidates = @()
+    if ($env:CHUNI_PENGUINTOOLS_ROOT) {
+        $candidates += $env:CHUNI_PENGUINTOOLS_ROOT
+    }
+    $candidates += (Join-Path $Root "PenguinTools")
+    $candidates += (Join-Path (Split-Path -Parent $Root) "PenguinTools")
+    foreach ($cand in $candidates) {
+        if (-not $cand) { continue }
+        $full = [System.IO.Path]::GetFullPath($cand)
+        $cliProj = Join-Path $full "PenguinTools.CLI\PenguinTools.CLI.csproj"
+        if (Test-Path $cliProj) {
+            return $full
+        }
+    }
+    return $null
+}
 
 $VenvPy = Join-Path $Root ".venv-build\Scripts\python.exe"
 if (-not (Test-Path $VenvPy)) {
@@ -35,15 +53,22 @@ if (-not $SkipPyInstaller) {
     Write-Host "[2/5] Skip PyInstaller"
 }
 
-$BridgeOut = Join-Path $Root "tools\PenguinBridge\bin\Release\net8.0\win-x64\publish"
-if (-not $SkipBridge) {
-    Write-Host "[3/5] Publish PenguinBridge (self-contained) ..."
-    & dotnet publish (Join-Path $Root "tools\PenguinBridge\PenguinBridge.csproj") -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false
+$PenguinToolsRoot = Resolve-PenguinToolsRoot
+$PenguinToolsCliOut = $null
+if (-not $SkipPenguinToolsCli) {
+    if (-not $PenguinToolsRoot) {
+        throw "PenguinTools source not found. Run scripts\setup_penguin_tools.ps1, or set CHUNI_PENGUINTOOLS_ROOT to a Foahh/PenguinTools checkout."
+    }
+    $PenguinToolsCliProject = Join-Path $PenguinToolsRoot "PenguinTools.CLI\PenguinTools.CLI.csproj"
+    $PenguinToolsCliOut = Join-Path $PenguinToolsRoot "PenguinTools.CLI\bin\Release\net10.0\publish\WinX64-SelfContained-SingleFile-ExternalAssets"
+    Write-Host "[3/5] Publish PenguinTools.CLI ..."
+    & dotnet publish $PenguinToolsCliProject -c Release -p:PublishProfile=WinX64-SelfContained-SingleFile-ExternalAssets
     if ($LASTEXITCODE -ne 0) {
-        throw "dotnet publish PenguinBridge failed (exit $LASTEXITCODE). Run scripts\setup_penguin_tools.ps1 (and ensure PenguinTools.Core can build), or pass -SkipBridge."
+        throw "dotnet publish PenguinTools.CLI failed (exit $LASTEXITCODE). Run scripts\setup_penguin_tools.ps1, or pass -SkipPenguinToolsCli."
     }
 } else {
-    Write-Host "[3/5] Skip bridge build"
+    $PenguinToolsCliOut = Join-Path $Root "tools\PenguinToolsCLI"
+    Write-Host "[3/5] Skip PenguinTools.CLI publish"
 }
 
 # AMD GPUOpen Compressonator CLI (pinned zip). App resolves .tools/CompressonatorCLI/compressonatorcli.exe when frozen.
@@ -95,26 +120,27 @@ New-Item -ItemType Directory -Path $OutDir | Out-Null
 
 Copy-Item $AppExe (Join-Path $OutDir "ChuniEventer.exe") -Force
 
-$BridgeExe = Join-Path $BridgeOut "PenguinBridge.exe"
-function Copy-PenguinBridgePublish([string]$dest) {
+$PenguinToolsCliExe = Join-Path $PenguinToolsCliOut "PenguinTools.CLI.exe"
+function Copy-PenguinToolsCliPublish([string]$dest) {
+    if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
     New-Item -ItemType Directory -Path $dest -Force | Out-Null
-    # 复制 self-contained 发布目录内除 pdb 外的全部文件（含 core 依赖）
-    Get-ChildItem $BridgeOut -File | Where-Object { $_.Extension -ne ".pdb" } | ForEach-Object {
-        Copy-Item $_.FullName $dest -Force
+    Copy-Item -Path (Join-Path $PenguinToolsCliOut "*") -Destination $dest -Recurse -Force
+    Get-ChildItem $dest -Recurse -File | Where-Object { $_.Extension -eq ".pdb" } | ForEach-Object {
+        Remove-Item $_.FullName -Force
     }
 }
 
-if (Test-Path $BridgeExe) {
-    $BridgeDist = Join-Path $OutDir ".tools\PenguinBridge"
-    Copy-PenguinBridgePublish $BridgeDist
-    # Also place bridge under dist/.tools for users who directly run dist\ChuniEventer.exe.
+if (Test-Path $PenguinToolsCliExe) {
+    $CliDist = Join-Path $OutDir ".tools\PenguinToolsCLI"
+    Copy-PenguinToolsCliPublish $CliDist
+    # Also place PenguinTools.CLI under dist/.tools for users who directly run dist\ChuniEventer.exe.
     $DistTools = Join-Path $Root "dist\.tools"
-    $DistBridge = Join-Path $DistTools "PenguinBridge"
-    Copy-PenguinBridgePublish $DistBridge
-} elseif ($SkipBridge) {
-    Write-Host "  Skip PenguinBridge bundle (no $BridgeExe ; pgko C# 转码不可用)"
+    $DistCli = Join-Path $DistTools "PenguinToolsCLI"
+    Copy-PenguinToolsCliPublish $DistCli
+} elseif ($SkipPenguinToolsCli) {
+    Write-Host "  Skip PenguinTools.CLI bundle (no $PenguinToolsCliExe ; pgko / pjsk 转谱不可用)"
 } else {
-    throw "PenguinBridge.exe not found: $BridgeExe"
+    throw "PenguinTools.CLI.exe not found: $PenguinToolsCliExe"
 }
 
 if (-not $SkipCompressonator) {
@@ -155,7 +181,7 @@ Compress-Archive -Path (Join-Path $OutDir "*") -DestinationPath $ZipPath -Compre
 
 Write-Host "Done."
 Write-Host "EXE: $AppExe"
-Write-Host "Bridge: $BridgeExe"
+Write-Host "PenguinTools.CLI: $PenguinToolsCliExe"
 if (-not $SkipCompressonator) {
     Write-Host "CompressonatorCLI: $(Join-Path $OutDir '.tools\CompressonatorCLI\compressonatorcli.exe')"
 }

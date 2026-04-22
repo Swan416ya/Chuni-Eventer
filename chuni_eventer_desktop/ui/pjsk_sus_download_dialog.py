@@ -95,7 +95,7 @@ class _PjskCacheThread(QThread):
 
 
 class PjskSusDownloadDialog(FluentCaptionDialog):
-    """PJSK：缓存封面、曲绘与固定难度 SUS，并尝试生成实验性 c2s。"""
+    """PJSK：缓存封面、曲绘与固定难度 SUS，后续由 PenguinTools.CLI 负责转 c2s。"""
 
     def __init__(
         self,
@@ -119,12 +119,12 @@ class PjskSusDownloadDialog(FluentCaptionDialog):
         card = CardWidget(self)
 
         warn = BodyLabel(
-            "【重要】当前内置 SUS→c2s 转谱逻辑完全不可用，生成的 chuni/*.c2s 仅作占位，不可指望可玩。"
-            "详见 docs/sus_to_c2s_implementation_detailed_zh.md。"
-            "本窗口仍会下载 SUS/封面/音频等；若需要可玩中二谱面，请用其它成熟工具链或在「新增」中选 Swan 等渠道。"
+            "SUS→c2s 现改为调用 PenguinTools.CLI。"
+            "本窗口仍只缓存 SUS/封面/音频；真正生成 chuni/*.c2s 会在后续转写到 ACUS 时执行。"
+            "若未正确配置 PenguinTools.CLI，该步骤会失败并提示检查外部工具路径。"
         )
         warn.setWordWrap(True)
-        warn.setStyleSheet("color: #b45309;")
+        warn.setStyleSheet("color: #0f766e;")
 
         _cache_root = pjsk_cache_root(self._acus_root)
         hint = BodyLabel(
