@@ -1,10 +1,22 @@
 from __future__ import annotations
 
 from pathlib import Path
+from datetime import datetime
 import xml.etree.ElementTree as ET
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QDialog, QFileDialog, QHBoxLayout, QVBoxLayout, QWidget
+from PyQt6.QtCore import QPoint, QPointF, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
+from PyQt6.QtWidgets import (
+    QDialog,
+    QFileDialog,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QSizePolicy,
+    QSlider,
+    QVBoxLayout,
+    QWidget,
+)
 
 from qfluentwidgets import (
     BodyLabel,
@@ -29,7 +41,7 @@ from ..xml_writer import (
 )
 from .dds_progress import run_bc3_jobs_with_progress
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
-from .fluent_dialogs import fly_critical, fly_message
+from .fluent_dialogs import fly_critical
 from .name_glyph_preview import wrap_name_input_with_preview
 from .works_dialogs import (
     WORKS_WARNING_TEXT,
@@ -140,6 +152,244 @@ def _hint_style() -> str:
     return f"color:{c}; font-size:11px;"
 
 
+class _CharaImageAdjustCell(QFrame):
+    """单个方格：同一张图可在格内独立移动/缩放，顶部叠加模板定位图。"""
+
+    changed = pyqtSignal()
+
+    def __init__(self, *, template_path: Path, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setMinimumSize(260, 260)
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        self._src: QPixmap | None = None
+        self._template = QPixmap(str(template_path))
+        self._template_opacity = 0.65
+        self._zoom = 1.0
+        self._offset_ratio = QPointF(0.0, 0.0)  # 相对格子边长，便于不同导出分辨率复用
+        self._dragging = False
+        self._drag_last = QPoint()
+
+    def set_source(self, src: QPixmap | None) -> None:
+        self._src = src if src is not None and not src.isNull() else None
+        self._offset_ratio = QPointF(0.0, 0.0)
+        self._zoom = 1.0
+        self.update()
+        self.changed.emit()
+
+    def _side(self) -> int:
+        return max(1, min(self.width(), self.height()))
+
+    def _fit_scale_for_side(self, side: int) -> float:
+        if self._src is None or self._src.isNull():
+            return 1.0
+        side_f = float(max(1, side))
+        return min(side_f / max(1.0, float(self._src.width())), side_f / max(1.0, float(self._src.height())))
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = True
+            self._drag_last = event.position().toPoint()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._dragging:
+            cur = event.position().toPoint()
+            delta = cur - self._drag_last
+            self._drag_last = cur
+            side = float(self._side())
+            self._offset_ratio.setX(self._offset_ratio.x() + float(delta.x()) / side)
+            self._offset_ratio.setY(self._offset_ratio.y() + float(delta.y()) / side)
+            self.update()
+            self.changed.emit()
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = False
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
+        super().mouseReleaseEvent(event)
+
+    def wheelEvent(self, event) -> None:
+        step = event.angleDelta().y()
+        if step == 0:
+            return
+        fac = 1.1 if step > 0 else (1.0 / 1.1)
+        self._zoom = max(0.05, min(40.0, self._zoom * fac))
+        self.update()
+        self.changed.emit()
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        side = self._side()
+        x0 = (self.width() - side) // 2
+        y0 = (self.height() - side) // 2
+        rect = self.rect().adjusted(x0, y0, -(self.width() - side - x0), -(self.height() - side - y0))
+        p.fillRect(rect, QColor("#111827" if isDarkTheme() else "#E5E7EB"))
+        p.setPen(QPen(QColor("#374151" if isDarkTheme() else "#9CA3AF"), 1))
+        p.drawRect(rect)
+        self._draw_scene(p, side=side, origin=QPoint(x0, y0), draw_template=True)
+
+    def _draw_scene(self, p: QPainter, *, side: int, origin: QPoint, draw_template: bool) -> None:
+        clip_rect = (origin.x(), origin.y(), side, side)
+        p.save()
+        p.setClipRect(*clip_rect)
+        if self._src is not None and not self._src.isNull():
+            ox = self._offset_ratio.x() * float(side)
+            oy = self._offset_ratio.y() * float(side)
+            cx = float(origin.x()) + side / 2.0 + ox
+            cy = float(origin.y()) + side / 2.0 + oy
+            draw_scale = self._fit_scale_for_side(side) * self._zoom
+            p.save()
+            p.translate(cx, cy)
+            p.scale(draw_scale, draw_scale)
+            p.drawPixmap(-self._src.width() // 2, -self._src.height() // 2, self._src)
+            p.restore()
+        if draw_template and not self._template.isNull():
+            tpl = self._template.scaled(
+                side,
+                side,
+                Qt.AspectRatioMode.IgnoreAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            p.setOpacity(self._template_opacity)
+            p.drawPixmap(origin, tpl)
+            p.setOpacity(1.0)
+        p.restore()
+
+    def set_template_opacity(self, opacity: float) -> None:
+        self._template_opacity = max(0.0, min(1.0, float(opacity)))
+        self.update()
+
+    def save_render_png(self, out_png: Path, *, size: int) -> None:
+        img = QImage(size, size, QImage.Format.Format_ARGB32)
+        img.fill(Qt.GlobalColor.transparent)
+        p = QPainter(img)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        self._draw_scene(p, side=size, origin=QPoint(0, 0), draw_template=False)
+        p.end()
+        out_png.parent.mkdir(parents=True, exist_ok=True)
+        if not img.save(str(out_png), "PNG"):
+            raise RuntimeError(f"无法写入 PNG：{out_png}")
+
+
+class _CharaQuickComposeDialog(FluentCaptionDialog):
+    def __init__(self, *, static_chara_dir: Path, out_dir: Path, parent=None) -> None:
+        super().__init__(parent=parent)
+        self.setModal(True)
+        self.setWindowTitle("单图快速生成角色贴图")
+        self.resize(1280, 740)
+        self._out_dir = out_dir
+        self.generated_paths: tuple[Path, Path, Path] | None = None  # full, half, head
+
+        self._cell_full = _CharaImageAdjustCell(template_path=static_chara_dir / "Template00.png", parent=self)
+        self._cell_half = _CharaImageAdjustCell(template_path=static_chara_dir / "Template01.png", parent=self)
+        self._cell_head = _CharaImageAdjustCell(template_path=static_chara_dir / "Template02.png", parent=self)
+        for cell in (self._cell_full, self._cell_half, self._cell_head):
+            cell.setMinimumSize(320, 320)
+
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(2)
+        grid.setVerticalSpacing(4)
+        grid.addWidget(self._cell_full, 0, 0)
+        grid.addWidget(self._cell_half, 0, 1)
+        grid.addWidget(self._cell_head, 0, 2)
+        grid.addWidget(BodyLabel("全身", self), 1, 0, alignment=Qt.AlignmentFlag.AlignHCenter)
+        grid.addWidget(BodyLabel("半身", self), 1, 1, alignment=Qt.AlignmentFlag.AlignHCenter)
+        grid.addWidget(BodyLabel("大头", self), 1, 2, alignment=Qt.AlignmentFlag.AlignHCenter)
+        for i in range(3):
+            grid.setColumnStretch(i, 1)
+
+        hint = BodyLabel("上传一张 PNG 后可在三个格子分别拖拽移动、滚轮缩放；模板始终覆盖在最上层。", self)
+        hint.setWordWrap(False)
+        hint.setStyleSheet(_hint_style())
+        hint.setMinimumHeight(22)
+        hint.setMaximumHeight(24)
+        hint.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+
+        self._opacity_slider = QSlider(Qt.Orientation.Horizontal, self)
+        self._opacity_slider.setRange(0, 100)
+        self._opacity_slider.setValue(65)
+        self._opacity_slider.valueChanged.connect(self._on_template_opacity_changed)
+        opacity_row = QHBoxLayout()
+        opacity_row.setSpacing(8)
+        opacity_row.addWidget(BodyLabel("覆盖图透明度", self))
+        opacity_row.addWidget(self._opacity_slider, stretch=1)
+
+        upload = PushButton("上传 PNG 到三个格子", self)
+        upload.clicked.connect(self._pick_source_png)
+        ok = PrimaryPushButton("生成并回填", self)
+        ok.clicked.connect(self._on_generate)
+        cancel = PushButton("取消", self)
+        cancel.clicked.connect(self.reject)
+        foot = QHBoxLayout()
+        foot.addWidget(upload)
+        foot.addStretch(1)
+        foot.addWidget(cancel)
+        foot.addWidget(ok)
+
+        card = CardWidget(self)
+        cly = QVBoxLayout(card)
+        cly.setContentsMargins(8, 8, 8, 8)
+        cly.setSpacing(4)
+        cly.addWidget(hint)
+        cly.addLayout(opacity_row)
+        cly.addLayout(grid, stretch=1)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(*fluent_caption_content_margins())
+        lay.setSpacing(8)
+        lay.addWidget(card, stretch=1)
+        lay.addLayout(foot)
+
+    def _on_template_opacity_changed(self, value: int) -> None:
+        op = float(value) / 100.0
+        self._cell_full.set_template_opacity(op)
+        self._cell_half.set_template_opacity(op)
+        self._cell_head.set_template_opacity(op)
+
+    def _pick_source_png(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择立绘 PNG",
+            "",
+            "PNG 图片 (*.png);;图片文件 (*.png *.jpg *.jpeg *.webp *.bmp);;所有文件 (*.*)",
+        )
+        if not path:
+            return
+        pm = QPixmap(path)
+        if pm.isNull():
+            fly_critical(self, "错误", "图片加载失败，请换一张。")
+            return
+        self._cell_full.set_source(pm)
+        self._cell_half.set_source(pm)
+        self._cell_head.set_source(pm)
+
+    def _on_generate(self) -> None:
+        if self._cell_full._src is None:
+            fly_critical(self, "错误", "请先上传一张 PNG。")
+            return
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        full = self._out_dir / f"quick_chara_full_{ts}.png"
+        half = self._out_dir / f"quick_chara_half_{ts}.png"
+        head = self._out_dir / f"quick_chara_head_{ts}.png"
+        try:
+            self._cell_full.save_render_png(full, size=1024)
+            self._cell_half.save_render_png(half, size=512)
+            self._cell_head.save_render_png(head, size=128)
+        except Exception as e:
+            fly_critical(self, "生成失败", str(e))
+            return
+        self.generated_paths = (full, half, head)
+        self.accept()
+
+
 class CharaAddDialog(FluentCaptionDialog):
     def __init__(self, *, acus_root: Path, tool_path: Path | None, parent=None) -> None:
         super().__init__(parent=parent)
@@ -229,6 +479,12 @@ class CharaAddDialog(FluentCaptionDialog):
         tex_lay.setContentsMargins(16, 16, 16, 16)
         tex_lay.setSpacing(10)
         tex_lay.addWidget(BodyLabel("贴图（CHU_UI_Character：全身 _00 / 半身 _01 / 大头 _02）", self))
+        quick_row = QHBoxLayout()
+        quick_btn = PushButton("单图快速生成三张贴图…", self)
+        quick_btn.clicked.connect(self._open_quick_compose_dialog)
+        quick_row.addWidget(quick_btn)
+        quick_row.addStretch(1)
+        tex_lay.addLayout(quick_row)
         tex_lay.addWidget(
             self._file_row(
                 self.full,
@@ -314,6 +570,17 @@ class CharaAddDialog(FluentCaptionDialog):
         if path:
             edit.setText(path)
 
+    def _open_quick_compose_dialog(self) -> None:
+        static_dir = Path(__file__).resolve().parent.parent / "static" / "tool" / "chara"
+        out_dir = self._acus_root / "_generated" / "chara_quick_png"
+        dlg = _CharaQuickComposeDialog(static_chara_dir=static_dir, out_dir=out_dir, parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted or dlg.generated_paths is None:
+            return
+        full, half, head = dlg.generated_paths
+        self.full.setText(str(full))
+        self.half.setText(str(half))
+        self.head.setText(str(head))
+
     def _update_preview(self) -> None:
         try:
             base = int(self.base.text().strip())
@@ -325,11 +592,29 @@ class CharaAddDialog(FluentCaptionDialog):
             self.cid_preview.setText("")
 
     def _run(self) -> None:
+        base_txt = self.base.text().strip()
+        var_txt = self.variant.text().strip()
+        if not base_txt:
+            fly_critical(self, "错误", "请填写基 ID")
+            return
+        if not var_txt:
+            fly_critical(self, "错误", "请填写变体（0-9）")
+            return
         try:
-            base = int(self.base.text().strip())
-            var = int(self.variant.text().strip())
-            if var < 0 or var > 9:
-                raise ValueError("变体必须在 0-9 之间")
+            base = int(base_txt)
+        except ValueError:
+            fly_critical(self, "错误", "基 ID 必须是整数")
+            return
+        try:
+            var = int(var_txt)
+        except ValueError:
+            fly_critical(self, "错误", "变体必须是整数（0-9）")
+            return
+        if var < 0 or var > 9:
+            fly_critical(self, "错误", "变体必须在 0-9 之间")
+            return
+
+        try:
             cid_raw = base * 10 + var
 
             head = Path(self.head.text().strip()).expanduser()
@@ -394,12 +679,6 @@ class CharaAddDialog(FluentCaptionDialog):
                     variant_name=chara_name or cid.chara_key,
                 )
 
-            msg = f"已写入 ACUS：ddsImage {cid.raw}"
-            if var == 0:
-                msg += f"\n并生成主角色 chara{cid.raw6}/Chara.xml"
-            else:
-                msg += f"\n并更新主角色 chara{base*10:06d}/Chara.xml 的 addImages{var}"
-            fly_message(self, "完成", msg)
             self.accept()
         except DdsToolError as e:
             fly_critical(self, "DDS 转换失败", str(e))

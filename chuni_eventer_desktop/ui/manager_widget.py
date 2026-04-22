@@ -1560,19 +1560,11 @@ class ManagerWidget(QWidget):
         if not master.is_file():
             fly_message(self.window(), "无法删除", f"未找到主 Chara.xml：\n{master}")
             return
-        if not fly_question(
-            self.window(),
-            "删除变体",
-            f"将从主 Chara.xml 移除 addImages{variant_slot}。\n"
-            f"不会自动删除 ddsImage 目录下的文件，可稍后手动清理。\n\n确定删除？",
-        ):
-            return
         try:
             remove_chara_variant_from_xml(xml_path=master, variant=variant_slot)
         except Exception as e:
             fly_critical(self.window(), "删除失败", str(e))
             return
-        fly_message(self.window(), "已删除", f"已移除 addImages{variant_slot}。")
         self.reload()
 
     def _show_chara_detail(self, it: CharaItem) -> None:

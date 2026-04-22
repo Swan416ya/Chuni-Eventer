@@ -27,13 +27,18 @@ def _normalize_parent(parent: QWidget | None) -> QWidget | None:
         w: QWidget | None = parent
         while w is not None and not w.isWindow():
             w = w.parentWidget()
-        if w is not None and w.isWindow():
+        # Require real top-level widget (no parentWidget) to avoid warnings like:
+        # "QWidgetWindow(... ) must be a top level window."
+        if w is not None and w.isWindow() and w.parentWidget() is None:
             return w
-        if parent.isWindow():
+        if parent.isWindow() and parent.parentWidget() is None:
             return parent
         return None
     except Exception:
-        return parent if parent.isWindow() else None
+        try:
+            return parent if parent.isWindow() and parent.parentWidget() is None else None
+        except Exception:
+            return None
 
 
 def _run_modal_with_enabled_top(parent: QWidget | None, fn: Callable[[], _T]) -> _T:
@@ -45,15 +50,10 @@ def _run_modal_with_enabled_top(parent: QWidget | None, fn: Callable[[], _T]) ->
     top = _normalize_parent(parent)
     if top is not None and not top.isEnabled():
         top.setEnabled(True)
-    try:
-        return fn()
-    finally:
-        if top is not None and top.isWindow():
-            try:
-                top.raise_()
-                top.activateWindow()
-            except (RuntimeError, TypeError):
-                pass
+    # Avoid force-activating parent window here: in some widget hierarchies
+    # (e.g. stacked views) this can emit "must be a top level window" and
+    # may destabilize modal input routing on Windows.
+    return fn()
 
 
 def safe_dismiss_modal_progress_dialog(dlg: QProgressDialog | None) -> None:
@@ -161,3 +161,47 @@ def fly_question(
         return w.exec() == QDialog.DialogCode.Accepted
 
     return _run_modal_with_enabled_top(parent, _exec)
+
+
+def fly_question_async(
+    parent: QWidget | None,
+    title: str,
+    text: str,
+    *,
+    on_result: Callable[[bool], None],
+    yes_text: str = "确定",
+    no_text: str = "取消",
+    window_modal: bool = True,
+) -> None:
+    """
+    非阻塞确认框：避免在复杂层级中使用 exec() 造成卡死。
+    on_result(True) 表示确认，False 表示取消/关闭。
+    """
+    box_parent = _normalize_parent(parent)
+    w = MessageBox(title, text, box_parent)
+    w.yesButton.setText(yes_text)
+    w.cancelButton.setText(no_text)
+    w.setWindowModality(
+        Qt.WindowModality.WindowModal if window_modal else Qt.WindowModality.NonModal
+    )
+
+    top = _normalize_parent(parent)
+    if window_modal and top is not None and not top.isEnabled():
+        top.setEnabled(True)
+
+    _ACTIVE_MESSAGE_BOXES.append(w)
+
+    def _on_finished(code: int) -> None:
+        accepted = code == int(QDialog.DialogCode.Accepted)
+        try:
+            on_result(bool(accepted))
+        except Exception:
+            log.exception("fly_question_async on_result failed")
+        try:
+            _ACTIVE_MESSAGE_BOXES.remove(w)
+        except ValueError:
+            pass
+        w.deleteLater()
+
+    w.finished.connect(_on_finished)
+    w.open()

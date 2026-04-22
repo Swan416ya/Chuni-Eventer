@@ -5,6 +5,7 @@ from pathlib import Path
 
 from .acus_scan import CharaItem
 from .chuni_formats import ChuniCharaId
+from .dds_preview import remove_cached_pngs_for_dds_basenames
 
 
 def delete_chara_from_acus(acus_root: Path, item: CharaItem) -> None:
@@ -28,8 +29,19 @@ def delete_chara_from_acus(acus_root: Path, item: CharaItem) -> None:
         )
 
     dds_dir = ar / "ddsImage" / f"ddsImage{cid_fmt.raw6}"
+    dds_cache_keys: set[str] = {
+        cid_fmt.dds_filename(0),
+        cid_fmt.dds_filename(1),
+        cid_fmt.dds_filename(2),
+    }
+    if dds_dir.is_dir():
+        # Also purge preview cache entries generated from this chara's DDS files.
+        # dds_to_pixmap caches as "<dds filename>.png" under .cache/dds_preview.
+        for dds in dds_dir.glob("*.dds"):
+            dds_cache_keys.add(dds.name)
 
     if chara_dir.is_dir():
         shutil.rmtree(chara_dir)
     if dds_dir.is_dir():
         shutil.rmtree(dds_dir)
+    remove_cached_pngs_for_dds_basenames(sorted(dds_cache_keys))

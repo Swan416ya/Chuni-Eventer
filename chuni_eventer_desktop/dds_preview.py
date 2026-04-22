@@ -55,7 +55,16 @@ def dds_to_pixmap(
     cache.mkdir(parents=True, exist_ok=True)
     png_path = cache / (dds_path.name + ".png")
 
-    if not png_path.exists():
+    should_rebuild = not png_path.exists()
+    if not should_rebuild:
+        try:
+            # If DDS was updated/replaced after the cached PNG was produced,
+            # force regenerate to avoid stale preview after delete/recreate flows.
+            should_rebuild = dds_path.stat().st_mtime_ns > png_path.stat().st_mtime_ns
+        except OSError:
+            should_rebuild = True
+
+    if should_rebuild:
         if compressonatorcli_path is None and not quicktex_available():
             return None
         try:
