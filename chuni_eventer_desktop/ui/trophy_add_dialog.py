@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
+    QApplication,
     QDialog,
     QFileDialog,
     QFormLayout,
@@ -30,6 +32,7 @@ from ..dds_convert import DdsToolError, ingest_to_bc3_dds
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message
 from .name_glyph_preview import wrap_name_input_with_preview
+from .trophy_pjsk_generator_dialog import TrophyPjskGeneratorDialog
 from .trophy_texture_compose_dialog import TrophyTextureComposeDialog
 
 
@@ -321,6 +324,10 @@ class TrophyAddDialog(FluentCaptionDialog):
         )
         editor_btn.clicked.connect(self._open_trophy_texture_editor)
         img_lay.addWidget(editor_btn)
+        pjsk_btn = PushButton("PJSK 自助生成称号贴图…", self)
+        pjsk_btn.setToolTip("选择 PJSK Trophy 底板与 line，输入文字后自动生成 608×148 PNG 并填入。")
+        pjsk_btn.clicked.connect(self._open_pjsk_trophy_generator)
+        img_lay.addWidget(pjsk_btn)
 
         ex_card = CardWidget(self)
         ex_lay = QVBoxLayout(ex_card)
@@ -422,8 +429,80 @@ class TrophyAddDialog(FluentCaptionDialog):
 
     def _open_trophy_texture_editor(self) -> None:
         out_dir = self._acus_root / "_generated" / "trophy_compose_png"
-        dlg = TrophyTextureComposeDialog(out_dir=out_dir, parent=self)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
+        parent_win = self.window()
+        aw = QApplication.activeWindow()
+        print(
+            f"[trophy-debug] open texture editor ts={time.time():.3f} "
+            f"self_visible={self.isVisible()} self_enabled={self.isEnabled()} "
+            f"parent={type(parent_win).__name__ if parent_win is not None else None} "
+            f"active={type(aw).__name__ if aw is not None else None}"
+        )
+        dlg = TrophyTextureComposeDialog(out_dir=out_dir, parent=parent_win)
+        print(
+            f"[trophy-debug] texture dlg created ts={time.time():.3f} "
+            f"visible={dlg.isVisible()} modal={dlg.isModal()} "
+            f"modality={int(dlg.windowModality())} "
+            f"parent={type(dlg.parentWidget()).__name__ if dlg.parentWidget() is not None else None}"
+        )
+        code = dlg.exec()
+        print(f"[trophy-debug] texture dlg finished ts={time.time():.3f} code={code}")
+        try:
+            dlg.setWindowModality(Qt.WindowModality.NonModal)
+            dlg.hide()
+        except Exception:
+            pass
+        dlg.deleteLater()
+        QApplication.processEvents()
+        try:
+            self.setEnabled(True)
+            self.raise_()
+            self.activateWindow()
+        except Exception:
+            pass
+        if code != QDialog.DialogCode.Accepted:
+            return
+        if dlg.result_png_path is not None:
+            self.image_edit.setText(str(dlg.result_png_path))
+            self._sync_rare_ui()
+
+    def _open_pjsk_trophy_generator(self) -> None:
+        out_dir = self._acus_root / "_generated" / "trophy_compose_png"
+        parent_win = self.window()
+        aw = QApplication.activeWindow()
+        print(
+            f"[trophy-debug] open pjsk generator ts={time.time():.3f} "
+            f"self_visible={self.isVisible()} self_enabled={self.isEnabled()} "
+            f"parent={type(parent_win).__name__ if parent_win is not None else None} "
+            f"active={type(aw).__name__ if aw is not None else None}"
+        )
+        try:
+            dlg = TrophyPjskGeneratorDialog(out_dir=out_dir, parent=parent_win)
+        except Exception as e:
+            print(f"[trophy-debug] pjsk dlg create failed ts={time.time():.3f} err={e}")
+            fly_critical(self, "资源加载失败", str(e))
+            return
+        print(
+            f"[trophy-debug] pjsk dlg created ts={time.time():.3f} "
+            f"visible={dlg.isVisible()} modal={dlg.isModal()} "
+            f"modality={dlg.windowModality()} "
+            f"parent={type(dlg.parentWidget()).__name__ if dlg.parentWidget() is not None else None}"
+        )
+        code = dlg.exec()
+        print(f"[trophy-debug] pjsk dlg finished ts={time.time():.3f} code={code}")
+        try:
+            dlg.setWindowModality(Qt.WindowModality.NonModal)
+            dlg.hide()
+        except Exception:
+            pass
+        dlg.deleteLater()
+        QApplication.processEvents()
+        try:
+            self.setEnabled(True)
+            self.raise_()
+            self.activateWindow()
+        except Exception:
+            pass
+        if code != QDialog.DialogCode.Accepted:
             return
         if dlg.result_png_path is not None:
             self.image_edit.setText(str(dlg.result_png_path))
@@ -479,7 +558,6 @@ class TrophyAddDialog(FluentCaptionDialog):
 """
             (tdir / "Trophy.xml").write_text(xml, encoding="utf-8")
 
-            fly_message(self, "完成", f"已生成 trophy{tid:06d}（rareType={rare}）")
             self.accept()
         except DdsToolError as e:
             fly_critical(self, "DDS 转换失败", str(e))

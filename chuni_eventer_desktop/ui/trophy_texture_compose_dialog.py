@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import time
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QImage, QPainter, QPixmap
@@ -21,7 +22,7 @@ def _static_trophy_template_path() -> Path:
     return Path(__file__).resolve().parent.parent / "static" / "tool" / "trophy.png"
 
 
-def compose_trophy_title_png(*, user_image_path: Path, template_path: Path | None = None) -> QImage:
+def compose_trophy_title_image(*, user_image: QImage | QPixmap, template_path: Path | None = None) -> QImage:
     """
     将用户图与 static/tool/trophy.png 叠合成 608×148。
     - 用户图须宽 608，高 80 或 148。
@@ -29,9 +30,12 @@ def compose_trophy_title_png(*, user_image_path: Path, template_path: Path | Non
     - 高 148：整图顶对齐后叠模板（模板盖在最上层）。
     """
     tpl_path = template_path if template_path is not None else _static_trophy_template_path()
-    pm_user = QPixmap(str(user_image_path))
+    if isinstance(user_image, QPixmap):
+        pm_user = user_image
+    else:
+        pm_user = QPixmap.fromImage(user_image)
     if pm_user.isNull():
-        raise ValueError("无法读取用户图片，请确认格式与路径。")
+        raise ValueError("无法读取用户图片。")
     w, h = pm_user.width(), pm_user.height()
     if w != TROPHY_TITLE_W:
         raise ValueError(f"图片宽度须为 {TROPHY_TITLE_W}，当前为 {w}。")
@@ -60,6 +64,13 @@ def compose_trophy_title_png(*, user_image_path: Path, template_path: Path | Non
     return out
 
 
+def compose_trophy_title_png(*, user_image_path: Path, template_path: Path | None = None) -> QImage:
+    pm_user = QPixmap(str(user_image_path))
+    if pm_user.isNull():
+        raise ValueError("无法读取用户图片，请确认格式与路径。")
+    return compose_trophy_title_image(user_image=pm_user, template_path=template_path)
+
+
 class TrophyTextureComposeDialog(FluentCaptionDialog):
     """称号贴图：608×148 或 608×80（自动垫高透明区）后与 trophy.png 叠加。"""
 
@@ -67,6 +78,7 @@ class TrophyTextureComposeDialog(FluentCaptionDialog):
         super().__init__(parent=parent)
         self.setWindowTitle("称号贴图编辑器")
         self.setModal(True)
+        self.setWindowModality(Qt.WindowModality.ApplicationModal)
         self.resize(720, 420)
         self._out_dir = out_dir
         self.result_png_path: Path | None = None
@@ -113,6 +125,16 @@ class TrophyTextureComposeDialog(FluentCaptionDialog):
         lay.setContentsMargins(*fluent_caption_content_margins())
         lay.setSpacing(10)
         lay.addWidget(card, stretch=1)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self.raise_()
+        self.activateWindow()
+        print(
+            f"[trophy-debug] texture show ts={time.time():.3f} "
+            f"visible={self.isVisible()} active={self.isActiveWindow()} "
+            f"geom={self.geometry().x()},{self.geometry().y()},{self.geometry().width()},{self.geometry().height()}"
+        )
 
     def _on_pick(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
