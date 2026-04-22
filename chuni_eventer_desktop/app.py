@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import ctypes
+import logging
+import os
 import sys
 from pathlib import Path
 
@@ -11,6 +13,7 @@ from .frozen_runtime import ensure_pyinstaller_dll_search_path
 
 from qfluentwidgets import Theme, setTheme
 
+from .acus_workspace import app_cache_dir
 from .ui.main_window import MainWindow
 
 
@@ -69,9 +72,31 @@ def _set_windows_alt_tab_icon(window: QWidget, icon_path: Path) -> None:
         pass
 
 
+def _setup_dialog_debug_logging() -> None:
+    if os.getenv("CHUNI_DIALOG_DEBUG", "").strip() not in {"1", "true", "TRUE", "yes", "YES"}:
+        return
+    try:
+        log_dir = app_cache_dir() / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / "dialog_debug.log"
+        handler = logging.FileHandler(log_file, encoding="utf-8")
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        root = logging.getLogger()
+        root.setLevel(logging.DEBUG)
+        root.addHandler(handler)
+        logging.getLogger(__name__).warning(
+            "dialog debug logging enabled, output=%s",
+            log_file,
+        )
+    except Exception:
+        # Non-fatal: if debug logging setup fails, continue app startup.
+        pass
+
+
 def main() -> int:
     ensure_pyinstaller_dll_search_path()
     _set_windows_appusermodel_id()
+    _setup_dialog_debug_logging()
     app = QApplication(sys.argv)
     app.setApplicationName("chuni eventer desktop")
     icon_path = _app_icon_path()

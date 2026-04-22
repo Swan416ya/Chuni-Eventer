@@ -58,7 +58,8 @@
 |-----|----------|----------|
 | `fly_message(parent, title, text, *, single_button=True)` | 单按钮或双按钮信息框；`WindowModal`；内部经 `_normalize_parent`、`_run_modal_with_enabled_top` | 一般提示、完成说明 |
 | `fly_warning` / `fly_critical` | 等价于带单按钮的 `fly_message` | 警告 / 错误文案 |
-| `fly_question(parent, title, text, *, yes_text, no_text)` | 是/否；返回 `bool`；同上套壳 | 删除前确认等 |
+| `fly_question(parent, title, text, *, yes_text, no_text)` | 同步确认；返回 `bool` | 低频、无菜单/层级干扰的确认 |
+| `fly_question_async(..., on_result=...)` | 非阻塞确认（`open()` + 回调） | 删除链路、菜单触发链路、疑似卡死路径优先 |
 | `fly_message_async(..., *, window_modal=False)` | `open()` 非阻塞；可选 `WindowModal`；`window_modal` 且顶层禁用时会在 `open` 前启用顶层 | 已有模态 `exec` 时仅需提示、避免再叠一层同步 `exec` |
 
 **内部机制（无需业务重复实现）**：
@@ -69,7 +70,7 @@
 - **`_run_modal_with_enabled_top(parent, fn)`**（`fly_message` / `fly_question` 使用）  
   - 若 `parent.window()` 顶层 **`setEnabled(False)`**，在 `MessageBox.exec()` **之前**对该顶层 **`setEnabled(True)`**。  
   - **不在**关闭后再把顶层设回 `False`（否则提示结束后整窗仍禁用，用户无法点「取消」等）。  
-  - 在 `finally` 中对顶层 **`raise_()`、`activateWindow()`**，减轻焦点留在「幽灵层」上的问题。
+  - 不再强制 `raise_()` / `activateWindow()`，避免在复杂父链下触发 `must be a top level window`。
 
 **开发规范**：
 
@@ -91,7 +92,7 @@
 
 ### 3.3 异步消息框的日志
 
-`fly_message_async` 使用 **`logging.getLogger(__name__).debug`** 打点（创建 / finished / destroyed）。需要排查时把 logger `chuni_eventer_desktop.ui.fluent_dialogs` 调到 DEBUG 即可，无需改代码。
+`fly_message_async` / `fly_question_async` 支持诊断打点。设置环境变量 **`CHUNI_DIALOG_DEBUG=1`** 后，启动时 `app.py` 会自动将日志写入 **`.cache/logs/dialog_debug.log`**。
 
 ---
 
@@ -182,8 +183,9 @@
 
 ## 9. 调试与日志
 
-- 将 logger **`chuni_eventer_desktop.ui.fluent_dialogs`** 设为 **DEBUG**，可观察 `fly_message_async` 的生命周期日志。  
-- 若怀疑残留模态，可在关键点打印 **`QApplication.activeModalWidget()`** 的类型与 `windowTitle`。
+- 启动前设置 **`CHUNI_DIALOG_DEBUG=1`**，会记录弹窗创建/结束、parent/top 类型、`top_enabled`、`active_modal` 与标题、异步确认结果。  
+- 诊断日志路径：**`.cache/logs/dialog_debug.log`**。  
+- 若怀疑残留模态，可在关键点额外查看 **`QApplication.activeModalWidget()`** 的类型与 `windowTitle`。
 
 ---
 

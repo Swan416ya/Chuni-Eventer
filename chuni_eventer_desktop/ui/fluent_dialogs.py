@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from collections.abc import Callable
 from typing import TypeVar
@@ -17,6 +18,30 @@ log = logging.getLogger(__name__)
 _ACTIVE_MESSAGE_BOXES: list[MessageBox] = []
 
 _T = TypeVar("_T")
+
+
+def _dialog_debug_enabled() -> bool:
+    return os.getenv("CHUNI_DIALOG_DEBUG", "").strip() in {"1", "true", "TRUE", "yes", "YES"}
+
+
+def _debug_state(tag: str, parent: QWidget | None, *, title: str | None = None) -> None:
+    if not _dialog_debug_enabled():
+        return
+    try:
+        top = _normalize_parent(parent)
+        active = QApplication.activeModalWidget()
+        log.warning(
+            "[dialog-debug] %s title=%r parent=%s top=%s top_enabled=%s active_modal=%s active_title=%r",
+            tag,
+            title,
+            type(parent).__name__ if parent is not None else None,
+            type(top).__name__ if top is not None else None,
+            top.isEnabled() if top is not None else None,
+            type(active).__name__ if active is not None else None,
+            active.windowTitle() if active is not None else None,
+        )
+    except Exception:
+        log.exception("[dialog-debug] failed to collect state for %s", tag)
 
 
 def _normalize_parent(parent: QWidget | None) -> QWidget | None:
@@ -48,12 +73,15 @@ def _run_modal_with_enabled_top(parent: QWidget | None, fn: Callable[[], _T]) ->
     False，否则成功/失败提示后用户会再次被整窗禁用而无法点按钮（需由业务在适当时机自行禁用）。
     """
     top = _normalize_parent(parent)
+    _debug_state("before_modal_exec", parent)
     if top is not None and not top.isEnabled():
         top.setEnabled(True)
     # Avoid force-activating parent window here: in some widget hierarchies
     # (e.g. stacked views) this can emit "must be a top level window" and
     # may destabilize modal input routing on Windows.
-    return fn()
+    out = fn()
+    _debug_state("after_modal_exec", parent)
+    return out
 
 
 def safe_dismiss_modal_progress_dialog(dlg: QProgressDialog | None) -> None:
@@ -78,6 +106,7 @@ def safe_dismiss_modal_progress_dialog(dlg: QProgressDialog | None) -> None:
 
 def fly_message(parent: QWidget | None, title: str, text: str, *, single_button: bool = True) -> None:
     box_parent = _normalize_parent(parent)
+    _debug_state("fly_message:create", parent, title=title)
 
     def _exec() -> None:
         w = MessageBox(title, text, box_parent)
@@ -109,6 +138,7 @@ def fly_message_async(
     非阻塞提示框：用于避免连环模态框导致 UI 卡死。
     """
     box_parent = _normalize_parent(parent)
+    _debug_state("fly_message_async:create", parent, title=title)
     w = MessageBox(title, text, box_parent)
     if single_button:
         w.cancelButton.hide()
@@ -128,6 +158,7 @@ def fly_message_async(
     )
 
     def _on_finished(_code: int) -> None:
+        _debug_state("fly_message_async:finished", parent, title=title)
         log.debug("fly_message_async finished code=%s title=%r", _code, title)
         try:
             _ACTIVE_MESSAGE_BOXES.remove(w)
@@ -152,6 +183,7 @@ def fly_question(
 ) -> bool:
     """Fluent MessageBox：是 / 否。返回 True 表示点击确认（yes）。"""
     box_parent = _normalize_parent(parent)
+    _debug_state("fly_question:create", parent, title=title)
 
     def _exec() -> bool:
         w = MessageBox(title, text, box_parent)
@@ -178,6 +210,7 @@ def fly_question_async(
     on_result(True) 表示确认，False 表示取消/关闭。
     """
     box_parent = _normalize_parent(parent)
+    _debug_state("fly_question_async:create", parent, title=title)
     w = MessageBox(title, text, box_parent)
     w.yesButton.setText(yes_text)
     w.cancelButton.setText(no_text)
@@ -193,6 +226,14 @@ def fly_question_async(
 
     def _on_finished(code: int) -> None:
         accepted = code == int(QDialog.DialogCode.Accepted)
+        _debug_state("fly_question_async:finished", parent, title=title)
+        if _dialog_debug_enabled():
+            log.warning(
+                "[dialog-debug] fly_question_async result title=%r code=%s accepted=%s",
+                title,
+                code,
+                bool(accepted),
+            )
         try:
             on_result(bool(accepted))
         except Exception:

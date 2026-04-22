@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "0.5.0",
+    [string]$Version = "0.6.2",
     [switch]$SkipPyInstaller,
     [switch]$SkipBridge,
     [switch]$SkipCompressonator

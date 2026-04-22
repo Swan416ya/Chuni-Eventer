@@ -21,7 +21,7 @@
 
 | 位置 | 作用 |
 |------|------|
-| `ui/fluent_dialogs.py` | `fly_message` / `fly_warning` / `fly_critical` / `fly_question` / `fly_message_async`；`_normalize_parent` 向上解析**真正顶层窗口**；`_run_modal_with_enabled_top` 在 `exec` 前启用顶层、结束后 `raise_`/`activateWindow` |
+| `ui/fluent_dialogs.py` | `fly_message` / `fly_warning` / `fly_critical` / `fly_question` / `fly_question_async` / `fly_message_async`；`_normalize_parent` 仅接受真正顶层窗口；`_run_modal_with_enabled_top` 在 `exec` 前启用顶层 |
 | `safe_dismiss_modal_progress_dialog` | 统一关闭曾 `WindowModal` 的 `QProgressDialog`，避免「隐形模态层」 |
 
 **约定**：业务提示尽量只走 `fly_*`；进度条结束必须走 `safe_dismiss_modal_progress_dialog`。
@@ -36,11 +36,13 @@
 
 | 改动 | 文件 | 说明 |
 |------|------|------|
+| 删除链路确认改为异步确认 | `manager_widget.py` | 删除乐曲/称号/任务/角色统一改为 `fly_question_async`，保留确认弹窗但避免 `exec()` 嵌套卡死 |
+| 弹窗调试日志开关 | `app.py`、`fluent_dialogs.py` | `CHUNI_DIALOG_DEBUG=1` 时写 `.cache/logs/dialog_debug.log`，记录 parent/top/activeModal/确认结果 |
 | 去除最后两处原生 `QMessageBox` | `map_add_dialog.py` | 「空格子」确认改为 `fly_question`；地图生成完成改为 `fly_message`，与 Fluent 父链及启用逻辑一致 |
 | 右键菜单后延迟再打开模态/发信号 | `music_cards_view.py` | 卡片右键：更换封面 / 背景 / 课题称号 / 上传 / 删除 等由 `singleShot(0)` 改为 **`singleShot(80)`**，与菜单关闭动画错开 |
 | 角色变体 Tab | `manager_widget.py` | 「编辑此变体」「+ 新增变体」触发对话框由 `0ms` 改为 **`80ms`** |
 | 既有（本次确认仍有效） | `manager_widget.py` | 表格右键删除角色/称号/任务等已使用 **`singleShot(80)`** |
-| 既有 | `fluent_dialogs.py` | `_normalize_parent` 沿 `parentWidget()` 直至 `isWindow()`；`raise_`/`activateWindow` 仅对顶层调用 |
+| 调整 | `fluent_dialogs.py` | `_normalize_parent` 仅接受真正顶层；去除强制 `raise_`/`activateWindow` |
 | 既有 | `dds_progress.py`、`index_progress.py`、`map_add_dialog.py`、`swan_sheet_download_dialog.py` | 进度框统一 `safe_dismiss_modal_progress_dialog` |
 | 既有 | `pjsk_hub_dialog.py` | 转写线程期间整窗禁用；提示依赖 `fly_*` 内启用顶层逻辑（曾手写 `setEnabled(True)` 已收敛到封装层） |
 

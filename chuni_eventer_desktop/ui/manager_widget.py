@@ -44,7 +44,12 @@ from .chara_add_dialog import (
     chara_variant_display_name,
     remove_chara_variant_slot as remove_chara_variant_from_xml,
 )
-from .fluent_dialogs import fly_critical, fly_message, fly_question
+from .fluent_dialogs import (
+    fly_critical,
+    fly_message,
+    fly_message_async,
+    fly_question_async,
+)
 from .music_cards_view import MusicCardsView
 from .music_release_tag_dialog import MusicReleaseTagDialog
 from .music_stage_dialog import MusicStageSelectDialog
@@ -1180,14 +1185,18 @@ class ManagerWidget(QWidget):
             return
         lines = plan.summary_lines()
         body = "将执行以下操作：\n\n• " + "\n• ".join(lines) + "\n\n此操作不可撤销，确定删除？"
-        if not fly_question(self.window(), "删除乐曲", body):
-            return
-        try:
-            execute_music_deletion(plan)
-        except Exception as e:
-            fly_critical(self.window(), "删除失败", str(e))
-            return
-        self.reload()
+
+        def _on_confirm(ok: bool) -> None:
+            if not ok:
+                return
+            try:
+                execute_music_deletion(plan)
+            except Exception as e:
+                fly_critical(self.window(), "删除失败", str(e))
+                return
+            self.reload()
+
+        fly_question_async(self.window(), "删除乐曲", body, on_result=_on_confirm, window_modal=True)
 
     def _on_table_context_menu(self, pos: QPoint) -> None:
         k = self._kind_key()
@@ -1268,15 +1277,24 @@ class ManagerWidget(QWidget):
             lines.append("（未找到可删的角色目录，将仅删除称号）")
         title = "删除称号并删除关联角色" if with_chara else "删除称号"
         body = "将执行以下操作：\n\n• " + "\n• ".join(lines) + "\n\n此操作不可撤销，确定删除？"
-        if not fly_question(self.window(), title, body):
-            return
-        try:
-            execute_trophy_deletion(self._acus_root, plan, delete_linked_charas=with_chara)
-        except Exception as e:
-            fly_critical(self.window(), "删除失败", str(e))
-            return
-        fly_message(self.window(), "已删除", "已移除所选称号" + ("及关联角色资源。" if with_chara else "。"))
-        self.reload()
+        def _on_confirm(ok: bool) -> None:
+            if not ok:
+                return
+            try:
+                execute_trophy_deletion(self._acus_root, plan, delete_linked_charas=with_chara)
+            except Exception as e:
+                fly_critical(self.window(), "删除失败", str(e))
+                return
+            fly_message_async(
+                self.window(),
+                "已删除",
+                "已移除所选称号" + ("及关联角色资源。" if with_chara else "。"),
+                single_button=True,
+                window_modal=False,
+            )
+            self.reload()
+
+        fly_question_async(self.window(), title, body, on_result=_on_confirm, window_modal=True)
 
     def _delete_quest_item(self, it: QuestItem) -> None:
         qdir = it.xml_path.parent
@@ -1293,34 +1311,52 @@ class ManagerWidget(QWidget):
             f"• {self._rel_acus_path(qdir)}\n\n"
             "此操作不可撤销，确定删除？"
         )
-        if not fly_question(self.window(), "删除任务", body):
-            return
-        try:
-            shutil.rmtree(qdir)
-        except Exception as e:
-            fly_critical(self.window(), "删除失败", str(e))
-            return
-        fly_message(self.window(), "已删除", f"已移除任务 {it.name.id} 的目录。")
-        self.reload()
+        def _on_confirm(ok: bool) -> None:
+            if not ok:
+                return
+            try:
+                shutil.rmtree(qdir)
+            except Exception as e:
+                fly_critical(self.window(), "删除失败", str(e))
+                return
+            fly_message_async(
+                self.window(),
+                "已删除",
+                f"已移除任务 {it.name.id} 的目录。",
+                single_button=True,
+                window_modal=False,
+            )
+            self.reload()
+
+        fly_question_async(self.window(), "删除任务", body, on_result=_on_confirm, window_modal=True)
 
     def _delete_chara_item(self, it: CharaItem) -> None:
         nm = (it.name.str or "").strip() or "—"
-        if not fly_question(
-            self.window(),
-            "删除角色",
+        body = (
             f"将永久删除角色 ID {it.name.id}（{nm}）在 ACUS 下的目录：\n"
             f"• chara/{it.xml_path.parent.name}/\n"
             f"• ddsImage/ddsImage{it.name.id:06d}/（若存在）\n\n"
-            "此操作不可撤销，确定删除？",
-        ):
-            return
-        try:
-            delete_chara_from_acus(self._acus_root, it)
-        except Exception as e:
-            fly_critical(self.window(), "删除失败", str(e))
-            return
-        fly_message(self.window(), "已删除", f"已移除角色 {it.name.id} 的资源目录。")
-        self.reload()
+            "此操作不可撤销，确定删除？"
+        )
+
+        def _on_confirm(ok: bool) -> None:
+            if not ok:
+                return
+            try:
+                delete_chara_from_acus(self._acus_root, it)
+            except Exception as e:
+                fly_critical(self.window(), "删除失败", str(e))
+                return
+            fly_message_async(
+                self.window(),
+                "已删除",
+                f"已移除角色 {it.name.id} 的资源目录。",
+                single_button=True,
+                window_modal=False,
+            )
+            self.reload()
+
+        fly_question_async(self.window(), "删除角色", body, on_result=_on_confirm, window_modal=True)
 
     def _on_select(self, *_args) -> None:
         sel = self.table.selectionModel()
@@ -1560,12 +1596,36 @@ class ManagerWidget(QWidget):
         if not master.is_file():
             fly_message(self.window(), "无法删除", f"未找到主 Chara.xml：\n{master}")
             return
-        try:
-            remove_chara_variant_from_xml(xml_path=master, variant=variant_slot)
-        except Exception as e:
-            fly_critical(self.window(), "删除失败", str(e))
-            return
-        self.reload()
+        body = (
+            f"将从主 Chara.xml 移除 addImages{variant_slot}。\n"
+            f"不会自动删除 ddsImage 目录下的文件，可稍后手动清理。\n\n"
+            "确定删除？"
+        )
+
+        def _on_confirm(ok: bool) -> None:
+            if not ok:
+                return
+            try:
+                remove_chara_variant_from_xml(xml_path=master, variant=variant_slot)
+            except Exception as e:
+                fly_critical(self.window(), "删除失败", str(e))
+                return
+            fly_message_async(
+                self.window(),
+                "已删除",
+                f"已移除 addImages{variant_slot}。",
+                single_button=True,
+                window_modal=False,
+            )
+            self.reload()
+
+        fly_question_async(
+            self.window(),
+            "删除变体",
+            body,
+            on_result=_on_confirm,
+            window_modal=True,
+        )
 
     def _show_chara_detail(self, it: CharaItem) -> None:
         self._selected_chara = it
