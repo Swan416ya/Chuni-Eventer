@@ -84,6 +84,7 @@ class FlipMusicCard(QFrame):
     jacketReplaceRequested = pyqtSignal(object)
     githubUploadRequested = pyqtSignal(object)
     stageChangeRequested = pyqtSignal(object)
+    releaseTagChangeRequested = pyqtSignal(object)
 
     def __init__(
         self,
@@ -145,6 +146,7 @@ class FlipMusicCard(QFrame):
 
         act_jacket = Action(FIF.PHOTO, "更换封面…", self)
         act_stage = Action(FIF.ALBUM, "修改背景(Stage)…", self)
+        act_release_tag = Action(FIF.TAG, "修改分类(releaseTag)…", self)
         act_trophy = Action(FIF.TAG, "生成课题称号…", self)
         act_gh = Action(FIF.SYNC, "上传", self)
         act_del = Action(FIF.DELETE, "删除乐曲…", self)
@@ -153,6 +155,9 @@ class FlipMusicCard(QFrame):
         )
         act_stage.triggered.connect(
             lambda: QTimer.singleShot(80, lambda: self.stageChangeRequested.emit(self._item))
+        )
+        act_release_tag.triggered.connect(
+            lambda: QTimer.singleShot(80, lambda: self.releaseTagChangeRequested.emit(self._item))
         )
         act_trophy.triggered.connect(
             lambda: QTimer.singleShot(80, lambda: self.trophyRequested.emit(self._item))
@@ -169,6 +174,7 @@ class FlipMusicCard(QFrame):
         )
         menu.addAction(act_jacket)
         menu.addAction(act_stage)
+        menu.addAction(act_release_tag)
         menu.addAction(act_trophy)
         menu.addAction(act_gh)
         menu.addAction(act_del)
@@ -441,6 +447,7 @@ class MusicCardsView(QWidget):
     musicJacketReplaceRequested = pyqtSignal(object)
     musicGithubUploadRequested = pyqtSignal(object)
     musicStageChangeRequested = pyqtSignal(object)
+    musicReleaseTagChangeRequested = pyqtSignal(object)
 
     def __init__(
         self,
@@ -576,6 +583,7 @@ class MusicCardsView(QWidget):
             card.jacketReplaceRequested.connect(self.musicJacketReplaceRequested.emit)
             card.githubUploadRequested.connect(self.musicGithubUploadRequested.emit)
             card.stageChangeRequested.connect(self.musicStageChangeRequested.emit)
+            card.releaseTagChangeRequested.connect(self.musicReleaseTagChangeRequested.emit)
             self._cards.append(card)
             row, col = divmod(idx, cols)
             self._grid.addWidget(

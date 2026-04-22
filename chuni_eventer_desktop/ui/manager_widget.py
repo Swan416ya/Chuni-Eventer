@@ -46,6 +46,7 @@ from .chara_add_dialog import (
 )
 from .fluent_dialogs import fly_critical, fly_message, fly_question
 from .music_cards_view import MusicCardsView
+from .music_release_tag_dialog import MusicReleaseTagDialog
 from .music_stage_dialog import MusicStageSelectDialog
 from .github_sheet_dialog import GithubSheetDialog
 
@@ -385,6 +386,9 @@ class ManagerWidget(QWidget):
         )
         self.music_cards_view.musicStageChangeRequested.connect(
             self._on_music_stage_change_requested
+        )
+        self.music_cards_view.musicReleaseTagChangeRequested.connect(
+            self._on_music_release_tag_change_requested
         )
 
         self._main_stack = QStackedWidget()
@@ -1121,6 +1125,47 @@ class ManagerWidget(QWidget):
         QTimer.singleShot(100, lambda: print(f"[stage-debug] heartbeat +100ms ts={time.time():.3f}"))
         QTimer.singleShot(500, lambda: print(f"[stage-debug] heartbeat +500ms ts={time.time():.3f}"))
         QTimer.singleShot(1500, lambda: print(f"[stage-debug] heartbeat +1500ms ts={time.time():.3f}"))
+
+    def _on_music_release_tag_change_requested(self, it: object) -> None:
+        if not isinstance(it, MusicItem):
+            return
+        cur_id = it.release_tag.id if it.release_tag is not None else None
+        dlg = MusicReleaseTagDialog(
+            acus_root=self._acus_root,
+            current_release_tag_id=cur_id,
+            parent=self.window(),
+        )
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        picked = dlg.selected_release_tag
+        if picked is None:
+            return
+        rid, rstr = picked
+        try:
+            tree = ET.parse(it.xml_path)
+            root = tree.getroot()
+            rt = root.find("releaseTagName")
+            if rt is None:
+                rt = ET.SubElement(root, "releaseTagName")
+            id_el = rt.find("id")
+            if id_el is None:
+                id_el = ET.SubElement(rt, "id")
+            id_el.text = str(rid)
+            str_el = rt.find("str")
+            if str_el is None:
+                str_el = ET.SubElement(rt, "str")
+            str_el.text = rstr
+            data_el = rt.find("data")
+            if data_el is None:
+                data_el = ET.SubElement(rt, "data")
+            if data_el.text is None:
+                data_el.text = ""
+            ET.indent(root)  # type: ignore[attr-defined]
+            tree.write(it.xml_path, encoding="utf-8", xml_declaration=True)
+        except Exception as e:
+            fly_critical(self.window(), "修改分类失败", str(e))
+            return
+        self.reload()
 
     def _on_music_delete_requested(self, it: object) -> None:
         if not isinstance(it, MusicItem):
