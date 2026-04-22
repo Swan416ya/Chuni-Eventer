@@ -4,8 +4,8 @@ from datetime import datetime
 from pathlib import Path
 import time
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QFont, QFontDatabase, QImage, QLinearGradient, QPainter, QPainterPath, QPainterPathStroker, QPixmap
+from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtGui import QIcon, QColor, QFont, QFontDatabase, QImage, QLinearGradient, QPainter, QPainterPath, QPainterPathStroker, QPixmap
 from PyQt6.QtWidgets import QColorDialog, QHBoxLayout, QLabel, QSlider, QVBoxLayout
 
 from qfluentwidgets import BodyLabel, CardWidget, ComboBox as FluentComboBox, LineEdit, PrimaryPushButton, PushButton
@@ -16,6 +16,8 @@ from .trophy_texture_compose_dialog import compose_trophy_title_image
 
 W = 608
 H = 80
+BG_PREVIEW_W = 120
+BG_PREVIEW_H = 30
 
 
 def _assets_root() -> Path:
@@ -75,6 +77,27 @@ def _line_files() -> list[Path]:
 def _bg_files() -> list[Path]:
     root = _background_dir()
     return sorted([p for p in root.glob("*.png") if p.is_file()], key=lambda p: p.name.lower())
+
+
+def _bg_preview_icon(path: Path) -> QIcon:
+    src = QPixmap(str(path))
+    if src.isNull():
+        return QIcon()
+    canvas = QPixmap(BG_PREVIEW_W, BG_PREVIEW_H)
+    canvas.fill(Qt.GlobalColor.transparent)
+    p = QPainter(canvas)
+    p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+    scaled = src.scaled(
+        BG_PREVIEW_W,
+        BG_PREVIEW_H,
+        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+    x = max(0, (scaled.width() - BG_PREVIEW_W) // 2)
+    y = max(0, (scaled.height() - BG_PREVIEW_H) // 2)
+    p.drawPixmap(0, 0, scaled.copy(x, y, BG_PREVIEW_W, BG_PREVIEW_H))
+    p.end()
+    return QIcon(canvas)
 
 
 def _darkest_color(img: QImage) -> QColor:
@@ -183,8 +206,9 @@ class TrophyPjskGeneratorDialog(FluentCaptionDialog):
             raise ValueError(f"未找到底板资源：{_background_dir()}")
 
         self.bg_combo = FluentComboBox(self)
+        self.bg_combo.setIconSize(QSize(BG_PREVIEW_W, BG_PREVIEW_H))
         for p in self._bgs:
-            self.bg_combo.addItem(p.stem, None, str(p))
+            self.bg_combo.addItem(p.stem, _bg_preview_icon(p), str(p))
         self.line_combo = FluentComboBox(self)
         self.line_combo.addItem("无外框 line", None, "")
         for p in self._lines:
