@@ -141,6 +141,15 @@ def _normalize_parent(parent: QWidget | None) -> QWidget | None:
 
 def _best_message_parent(parent: QWidget | None) -> QWidget | None:
     """Return a stable top-level parent for MessageBox, or None."""
+    # If caller itself is a visible modal dialog, keep MessageBox attached to it.
+    # Otherwise we may end up parenting to MainWindow while the dialog is still modal,
+    # which can produce an unclickable "back-layer" message box on Windows.
+    if parent is not None:
+        try:
+            if isinstance(parent, QDialog) and parent.isVisible() and parent.isModal():
+                return parent
+        except Exception:
+            pass
     p = _normalize_parent(parent)
     if p is not None:
         return p

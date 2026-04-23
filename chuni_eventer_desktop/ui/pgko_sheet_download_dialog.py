@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+import logging
+import os
 import zipfile
 
-from PyQt6.QtCore import QThread, pyqtSignal, Qt
-from PyQt6.QtGui import QEnterEvent, QPixmap
+from PyQt6.QtCore import QThread, QUrl, pyqtSignal, Qt
+from PyQt6.QtGui import QBrush, QColor, QDesktopServices, QEnterEvent, QPixmap
 from PyQt6.QtWidgets import (
+    QApplication,
     QDialog,
     QFormLayout,
     QHBoxLayout,
@@ -25,6 +28,7 @@ from qfluentwidgets import (
     LineEdit,
     PrimaryPushButton,
     PushButton,
+    isDarkTheme,
 )
 
 from ..acus_workspace import AcusConfig, acus_root_dir, app_cache_dir, resolve_compressonatorcli_path
@@ -49,13 +53,56 @@ from ..pgko_to_c2s import (
 )
 from ..penguin_tools_cli import explain_penguin_tools_cli_lookup, resolve_penguin_tools_cli
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
-from .fluent_dialogs import fly_critical, fly_message, fly_question, fly_warning
+from .fluent_dialogs import (
+    fly_critical,
+    fly_message_async,
+    fly_question_async,
+    fly_warning,
+)
 from .fluent_table import (
     apply_fluent_sheet_table,
     mark_sheet_item_readonly,
     sheet_list_card_layout_margins,
     sheet_list_hint_muted_colors,
 )
+
+_PGKO_TABLE_COL_DETAIL = 2
+_PGKO_DETAIL_URL_ROLE = Qt.ItemDataRole.UserRole + 11
+log = logging.getLogger(__name__)
+
+
+def _pgko_debug_enabled() -> bool:
+    return os.getenv("CHUNI_DIALOG_DEBUG", "").strip() in {"1", "true", "TRUE", "yes", "YES"}
+
+
+def _w_short(w: QWidget | None) -> str:
+    if w is None:
+        return "None"
+    try:
+        nm = (w.objectName() or "").strip() or "-"
+        return f"{type(w).__name__}[{nm}](vis={w.isVisible()},en={w.isEnabled()},win={w.isWindow()})"
+    except Exception:
+        return f"{type(w).__name__}[?]"
+
+
+def _pgko_dlog(tag: str, **kv: object) -> None:
+    if not _pgko_debug_enabled():
+        return
+    try:
+        active_modal = QApplication.activeModalWidget()
+        active_popup = QApplication.activePopupWidget()
+        focus = QApplication.focusWidget()
+        payload = ", ".join(f"{k}={v!r}" for k, v in kv.items())
+        log.warning(
+            "[pgko-debug] %s %s | active_modal=%s active_popup=%s focus=%s",
+            tag,
+            payload,
+            _w_short(active_modal),
+            _w_short(active_popup),
+            _w_short(focus),
+        )
+    except Exception:
+        log.exception("[pgko-debug] failed to log tag=%s", tag)
 
 
 class _FetchPgkoThread(QThread):
@@ -292,7 +339,7 @@ class _PgkoUgcGuideDialog(FluentCaptionDialog):
         hh.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         hh.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         hh.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
-        self._table.itemDoubleClicked.connect(lambda _it: self._on_row_activated())
+        self._table.itemDoubleClicked.connect(self._on_row_activated)
 
         refresh = PushButton("刷新列表", self)
         refresh.clicked.connect(self._reload_table)
@@ -356,7 +403,7 @@ class _PgkoUgcGuideDialog(FluentCaptionDialog):
                 mark_sheet_item_readonly(itc)
                 self._table.setItem(r, col, itc)
 
-    def _on_row_activated(self, _index) -> None:
+    def _on_row_activated(self, _index=None) -> None:
         r = self._table.currentRow()
         if r < 0:
             return
@@ -391,18 +438,23 @@ class _PgkoUgcGuideDialog(FluentCaptionDialog):
         if not folder.is_dir():
             fly_warning(self, "路径无效", f"不是有效文件夹：\n{folder}")
             return
-        if not fly_question(
+        def _on_continue(ok: bool) -> None:
+            if not ok:
+                return
+            self.accept()
+            self._on_try_experimental_ugc(folder)
+
+        fly_question_async(
             self,
             "实验性功能提示",
             "将尝试“仅使用 UGC”直转 c2s（不走 mgxc 回退）。\n"
             "该功能仍在实验阶段，可能失败或结果与官方差异较大。\n\n"
             "是否继续？",
+            on_result=_on_continue,
             yes_text="继续",
             no_text="取消",
-        ):
-            return
-        self.accept()
-        self._on_try_experimental_ugc(folder)
+            window_modal=True,
+        )
 
 
 class PgkoSheetDownloadDialog(FluentCaptionDialog):
@@ -440,14 +492,18 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
         hint.setWordWrap(True)
         sheet_list_hint_muted_colors(hint)
 
-        self._table = QTableWidget(0, 4, self)
+        self._table = QTableWidget(0, 3, self)
         apply_fluent_sheet_table(self._table)
-        self._table.setHorizontalHeaderLabels(["标题", "艺术家", "详情页", "来源"])
-        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self._table.horizontalHeader().setStretchLastSection(False)
+        self._table.setHorizontalHeaderLabels(["标题", "艺术家", "详情"])
+        hh = self._table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        hh.resizeSection(1, 260)
+        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self._table.setTextElideMode(Qt.TextElideMode.ElideRight)
         self._table.itemDoubleClicked.connect(lambda _it: self._on_download())
+        self._table.cellClicked.connect(self._on_pgko_table_cell_clicked)
         self._table.verticalScrollBar().valueChanged.connect(self._on_scroll_value_changed)
 
         self._status = BodyLabel("点击“刷新列表”加载。")
@@ -483,6 +539,19 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
         lay.addLayout(btns)
 
         self._on_refresh()
+
+    def _on_pgko_table_cell_clicked(self, row: int, col: int) -> None:
+        if col != _PGKO_TABLE_COL_DETAIL or row < 0:
+            return
+        it = self._table.item(row, col)
+        if it is None:
+            return
+        raw = it.data(_PGKO_DETAIL_URL_ROLE)
+        if not isinstance(raw, str) or not raw.strip():
+            return
+        u = QUrl(raw.strip())
+        if u.isValid() and u.scheme() in ("http", "https"):
+            QDesktopServices.openUrl(u)
 
     @staticmethod
     def _thread_running_safe(th: QThread | None) -> bool:
@@ -564,11 +633,13 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
             )
             return
         self._status.setText(f"实验性 UGC 转换完成：{out.name}（{backend}）")
-        fly_message(
+        fly_message_async(
             self,
             "实验性 UGC 转换完成",
             f"输入：{src}\n输出：{out}\n后端：{backend}\n\n"
             "提示：该结果为实验性输出，不保证可用性与一致性。",
+            single_button=True,
+            window_modal=False,
         )
 
     def _on_refresh(self) -> None:
@@ -595,15 +666,19 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
             self._entries.append(e)
             r = self._table.rowCount()
             self._table.insertRow(r)
-            for col, txt in (
-                (0, e.title),
-                (1, e.artist),
-                (2, e.detail_url),
-                (3, "pgko.dev"),
-            ):
-                itc = QTableWidgetItem(txt)
-                mark_sheet_item_readonly(itc)
-                self._table.setItem(r, col, itc)
+            t0 = QTableWidgetItem(e.title)
+            mark_sheet_item_readonly(t0)
+            self._table.setItem(r, 0, t0)
+            t1 = QTableWidgetItem(e.artist)
+            mark_sheet_item_readonly(t1)
+            self._table.setItem(r, 1, t1)
+            t2 = QTableWidgetItem("查看")
+            t2.setData(_PGKO_DETAIL_URL_ROLE, e.detail_url)
+            t2.setToolTip(e.detail_url)
+            link_c = "#64B5F6" if isDarkTheme() else "#1565C0"
+            t2.setForeground(QBrush(QColor(link_c)))
+            mark_sheet_item_readonly(t2)
+            self._table.setItem(r, 2, t2)
             added += 1
         self._next_cursor = rows.next_cursor
         self._is_fetching_more = False
@@ -617,7 +692,13 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
     def _on_fetch_fail(self, msg: str) -> None:
         self._status.setText("加载失败。")
         self._is_fetching_more = False
-        fly_critical(self, "读取 pgko.dev 失败", msg)
+        fly_message_async(
+            self,
+            "读取 pgko.dev 失败",
+            msg,
+            single_button=True,
+            window_modal=False,
+        )
 
     def _fetch_more(self) -> None:
         if not self._next_cursor:
@@ -659,33 +740,52 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
         self._status.setText(f"已解析下载链接：\n{text}")
 
     def _on_download_ok(self, output_path: str, ext: str, extracted_zip: bool) -> None:
+        _pgko_dlog(
+            "_on_download_ok:enter",
+            output_path=output_path,
+            ext=ext,
+            extracted_zip=extracted_zip,
+        )
         self._status.setText("下载完成。")
         if extracted_zip:
             target_tip = f"已解压到目录：\n{output_path}"
         else:
             target_tip = f"返回体非 zip，已按原始文件保存：\n{output_path}"
-        if fly_question(
+
+        def _on_convert_choice(ok: bool) -> None:
+            _pgko_dlog("_on_download_ok:convert_choice", ok=ok, output_path=output_path)
+            if ok:
+                self._try_convert_pgko_to_c2s(Path(output_path))
+                return
+            fly_message_async(
+                self,
+                "已下载",
+                target_tip,
+                single_button=True,
+                window_modal=False,
+            )
+
+        fly_question_async(
             self,
             "下载完成",
             f"{target_tip}\n\n是否尝试转码为中二 c2s？",
+            on_result=_on_convert_choice,
             yes_text="是",
             no_text="否",
-        ):
-            self._try_convert_pgko_to_c2s(Path(output_path))
-        else:
-            fly_message(self, "已下载", target_tip)
+            window_modal=True,
+        )
+        _pgko_dlog("_on_download_ok:question_shown", output_path=output_path)
 
     def _on_download_fail(self, msg: str) -> None:
-        self._status.setText("下载失败。")
-        fly_critical(
-            self,
-            "下载失败",
-            "下载过程中发生错误。\n\n"
+        _pgko_dlog("_on_download_fail", msg=msg[:220])
+        self._status.setText(
+            "下载失败。\n\n"
             "调试信息（复制给开发者）：\n"
-            f"{msg}",
+            f"{msg}"
         )
 
     def _try_convert_pgko_to_c2s(self, output: Path) -> None:
+        _pgko_dlog("_try_convert_pgko_to_c2s:start", output=str(output))
         mgxc_list: list[Path] = []
         if output.is_dir():
             mgxc_list = sorted(p for p in output.glob("**/*.mgxc") if p.is_file())
@@ -694,6 +794,7 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
 
         pick = pick_pgko_chart_for_convert(output)
         if not mgxc_list and pick is None:
+            _pgko_dlog("_try_convert_pgko_to_c2s:no_source", output=str(output))
             fly_warning(
                 self,
                 "未找到谱面文件",
@@ -715,6 +816,7 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
                     cli_ok += 1
             except Exception as e:
                 errs.append(f"{mg.name}: {type(e).__name__}: {e}")
+                _pgko_dlog("_try_convert_pgko_to_c2s:mgxc_fail", mg=str(mg), err=f"{type(e).__name__}: {e}")
 
         out: Path | None = None
         backend: str = "cli"
@@ -743,7 +845,11 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
             return
         except Exception as e:
             self._status.setText("转码失败。")
-            fly_critical(self, "转码失败", f"{type(e).__name__}: {e}")
+            _pgko_dlog("_try_convert_pgko_to_c2s:hard_fail", err=f"{type(e).__name__}: {e}")
+            self._status.setText(
+                "转码失败。\n\n"
+                f"{type(e).__name__}: {e}"
+            )
             return
 
         backend_tip = "PenguinTools.CLI" if backend == "cli" else backend
@@ -761,6 +867,7 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
                 f"本次没有任何谱面成功走 PenguinTools.CLI。\n原因：{why}\n\n{detail}".strip(),
             )
         if errs:
+            _pgko_dlog("_try_convert_pgko_to_c2s:partial_fail", fail_count=len(errs))
             fly_warning(
                 self,
                 "部分谱面转换失败",
@@ -774,6 +881,7 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
                     raise RuntimeError("缺少用于读取元数据的谱面源")
             meta = read_pgko_meta_for_pick(pick)
         except Exception as e:
+            _pgko_dlog("_try_convert_pgko_to_c2s:meta_fail", err=f"{type(e).__name__}: {e}")
             fly_warning(self, "读取元数据失败", f"{type(e).__name__}: {e}")
             return
         cfg = AcusConfig.load()
@@ -786,7 +894,14 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
             parent=self,
         )
         if dlg.exec() != QDialog.DialogCode.Accepted:
-            fly_message(self, "转码完成", f"输出文件：\n{out}")
+            _pgko_dlog("_try_convert_pgko_to_c2s:install_cancel", out=str(out))
+            fly_message_async(
+                self,
+                "转码完成",
+                f"输出文件：\n{out}",
+                single_button=True,
+                window_modal=False,
+            )
             return
 
 
@@ -864,6 +979,7 @@ class _PgkoInstallConfigDialog(FluentCaptionDialog):
         root.addLayout(row)
 
     def _run_install(self) -> None:
+        _pgko_dlog("_run_install:start", pick=str(self._pick.path), ext=self._pick.ext)
         txt = self._id_edit.text().strip()
         if txt:
             try:
@@ -896,6 +1012,7 @@ class _PgkoInstallConfigDialog(FluentCaptionDialog):
         )
         self._thread.ok.connect(self._on_install_ok)
         self._thread.fail.connect(self._on_install_fail)
+        _pgko_dlog("_run_install:thread_started", music_id=opts.music_id, stage_id=opts.stage_id)
 
         def _done() -> None:
             th = self._thread
@@ -908,20 +1025,29 @@ class _PgkoInstallConfigDialog(FluentCaptionDialog):
         self._thread.start()
 
     def _on_install_fail(self, msg: str) -> None:
-        self._status.hide()
-        fly_critical(self, "导入失败", msg)
+        _pgko_dlog("_on_install_fail", msg=msg[:220])
+        self._status.setText(f"导入失败：{msg}")
+        self._status.show()
 
     def _on_install_ok(self, ret: object) -> None:
+        _pgko_dlog("_on_install_ok:enter", ret_type=type(ret).__name__)
         if not isinstance(ret, dict):
-            fly_critical(self, "导入失败", "返回结果格式错误")
+            self._status.hide()
+            self._status.setText("导入失败：返回结果格式错误")
+            self._status.show()
             return
-        fly_message(
-            self,
+        host = self.window()
+        _pgko_dlog("_on_install_ok:accept_before", host=_w_short(host))
+        self.accept()
+        _pgko_dlog("_on_install_ok:accept_after")
+        fly_message_async(
+            host,
             "导入完成",
             f"musicId: {ret.get('musicId')}\n"
             f"slots: {ret.get('slots')}\n"
             f"Music.xml: {ret.get('musicXml')}\n"
             f"cue: {ret.get('cueDir')}\n"
             f"event: {ret.get('eventId')}",
+            single_button=True,
+            window_modal=False,
         )
-        self.accept()
