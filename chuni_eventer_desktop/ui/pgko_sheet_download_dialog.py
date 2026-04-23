@@ -7,7 +7,6 @@ import zipfile
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from PyQt6.QtGui import QEnterEvent, QPixmap
 from PyQt6.QtWidgets import (
-    QAbstractItemView,
     QDialog,
     QFormLayout,
     QHBoxLayout,
@@ -51,7 +50,12 @@ from ..pgko_to_c2s import (
 from ..penguin_tools_cli import explain_penguin_tools_cli_lookup, resolve_penguin_tools_cli
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message, fly_question, fly_warning
-from .fluent_table import apply_fluent_sheet_table
+from .fluent_table import (
+    apply_fluent_sheet_table,
+    mark_sheet_item_readonly,
+    sheet_list_card_layout_margins,
+    sheet_list_hint_muted_colors,
+)
 
 
 class _FetchPgkoThread(QThread):
@@ -274,6 +278,7 @@ class _PgkoUgcGuideDialog(FluentCaptionDialog):
             "显示含有 .mgxc 或 .ugc 的文件夹；双击一行仍按默认规则（mgxc 优先）处理。"
         )
         hint_below.setWordWrap(True)
+        sheet_list_hint_muted_colors(hint_below)
 
         self._table = QTableWidget(0, 6, self)
         apply_fluent_sheet_table(self._table)
@@ -287,10 +292,7 @@ class _PgkoUgcGuideDialog(FluentCaptionDialog):
         hh.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         hh.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         hh.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
-        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self._table.doubleClicked.connect(self._on_row_activated)
+        self._table.itemDoubleClicked.connect(lambda _it: self._on_row_activated())
 
         refresh = PushButton("刷新列表", self)
         refresh.clicked.connect(self._reload_table)
@@ -341,12 +343,18 @@ class _PgkoUgcGuideDialog(FluentCaptionDialog):
             folder_disp = bundle.name if bundle != root else "（pgko_downloads 根目录）"
             it0 = QTableWidgetItem(folder_disp)
             it0.setData(Qt.ItemDataRole.UserRole, str(bundle.resolve()))
+            mark_sheet_item_readonly(it0)
             self._table.setItem(r, 0, it0)
-            self._table.setItem(r, 1, QTableWidgetItem(title))
-            self._table.setItem(r, 2, QTableWidgetItem(artist))
-            self._table.setItem(r, 3, QTableWidgetItem(designer))
-            self._table.setItem(r, 4, QTableWidgetItem(str(n_mg)))
-            self._table.setItem(r, 5, QTableWidgetItem(str(n_ug)))
+            for col, txt in (
+                (1, title),
+                (2, artist),
+                (3, designer),
+                (4, str(n_mg)),
+                (5, str(n_ug)),
+            ):
+                itc = QTableWidgetItem(txt)
+                mark_sheet_item_readonly(itc)
+                self._table.setItem(r, col, itc)
 
     def _on_row_activated(self, _index) -> None:
         r = self._table.currentRow()
@@ -430,6 +438,7 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
             "若只有 UGC，请点「UGC → mgxc…」查看用 Margrete 手工导出 mgxc 的步骤，并浏览已缓存的 mgxc 包。"
         )
         hint.setWordWrap(True)
+        sheet_list_hint_muted_colors(hint)
 
         self._table = QTableWidget(0, 4, self)
         apply_fluent_sheet_table(self._table)
@@ -438,18 +447,14 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
         self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self._table.doubleClicked.connect(lambda _i: self._on_download())
+        self._table.itemDoubleClicked.connect(lambda _it: self._on_download())
         self._table.verticalScrollBar().valueChanged.connect(self._on_scroll_value_changed)
 
         self._status = BodyLabel("点击“刷新列表”加载。")
         self._status.setWordWrap(True)
 
         cly = QVBoxLayout(card)
-        cly.setContentsMargins(16, 16, 16, 16)
-        cly.setSpacing(10)
+        sheet_list_card_layout_margins(cly)
         cly.addWidget(hint)
         cly.addWidget(self._table, stretch=1)
         cly.addWidget(self._status)
@@ -590,10 +595,15 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
             self._entries.append(e)
             r = self._table.rowCount()
             self._table.insertRow(r)
-            self._table.setItem(r, 0, QTableWidgetItem(e.title))
-            self._table.setItem(r, 1, QTableWidgetItem(e.artist))
-            self._table.setItem(r, 2, QTableWidgetItem(e.detail_url))
-            self._table.setItem(r, 3, QTableWidgetItem("pgko.dev"))
+            for col, txt in (
+                (0, e.title),
+                (1, e.artist),
+                (2, e.detail_url),
+                (3, "pgko.dev"),
+            ):
+                itc = QTableWidgetItem(txt)
+                mark_sheet_item_readonly(itc)
+                self._table.setItem(r, col, itc)
             added += 1
         self._next_cursor = rows.next_cursor
         self._is_fetching_more = False

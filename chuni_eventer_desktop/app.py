@@ -18,7 +18,18 @@ from .ui.main_window import MainWindow
 
 
 def _app_icon_path() -> Path:
-    return Path(__file__).resolve().parent / "static" / "logo" / "ChuniEventer.png"
+    """
+    窗口 / QApplication 用图标。优先 .ico（与 PyInstaller / Windows HWND 一致），否则用 PNG。
+    开发时可用仓库根 assets/icon.ico；打包后由 spec 复制到 static/logo/icon.ico。
+    """
+    logo = Path(__file__).resolve().parent / "static" / "logo"
+    ico_packaged = logo / "icon.ico"
+    if ico_packaged.is_file():
+        return ico_packaged
+    repo_ico = Path(__file__).resolve().parent.parent / "assets" / "icon.ico"
+    if repo_ico.is_file():
+        return repo_ico
+    return logo / "ChuniEventer.png"
 
 
 def _set_windows_appusermodel_id() -> None:
@@ -33,42 +44,28 @@ def _set_windows_appusermodel_id() -> None:
         pass
 
 
-def _clear_windows_titlebar_small_icon(window: QWidget) -> None:
-    if sys.platform != "win32":
+def _set_windows_hwnd_icons_from_ico(window: QWidget, ico_path: Path) -> None:
+    """
+    用真实 ICO 设置 HWND 的大/小图标。任务栏、Alt+Tab 常依赖 ICON_SMALL；
+    若只对 BIG 用 PNG 去 LoadImage(IMAGE_ICON) 会失败，再把 SMALL 清成 0 就会变通用 exe 图标。
+    """
+    if sys.platform != "win32" or not ico_path.is_file() or ico_path.suffix.lower() != ".ico":
         return
     try:
         hwnd = int(window.winId())
         WM_SETICON = 0x0080
         ICON_SMALL = 0
-        ICON_SMALL2 = 2
-        ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, 0)
-        ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL2, 0)
-    except Exception:
-        # 非致命：失败时最多保留原有标题栏小图标。
-        pass
-
-
-def _set_windows_alt_tab_icon(window: QWidget, icon_path: Path) -> None:
-    if sys.platform != "win32" or not icon_path.is_file():
-        return
-    try:
-        hwnd = int(window.winId())
-        WM_SETICON = 0x0080
         ICON_BIG = 1
         IMAGE_ICON = 1
         LR_LOADFROMFILE = 0x0010
-        hicon = ctypes.windll.user32.LoadImageW(
-            None,
-            str(icon_path),
-            IMAGE_ICON,
-            0,
-            0,
-            LR_LOADFROMFILE,
-        )
-        if hicon:
-            ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, hicon)
+        u = ctypes.windll.user32
+        hbig = u.LoadImageW(None, str(ico_path), IMAGE_ICON, 32, 32, LR_LOADFROMFILE)
+        hsm = u.LoadImageW(None, str(ico_path), IMAGE_ICON, 16, 16, LR_LOADFROMFILE)
+        if hbig:
+            u.SendMessageW(hwnd, WM_SETICON, ICON_BIG, hbig)
+        if hsm:
+            u.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, hsm)
     except Exception:
-        # 非致命：失败时退回 Qt 默认窗口图标行为。
         pass
 
 
@@ -108,6 +105,6 @@ def main() -> int:
     if icon_path.is_file():
         w.setWindowIcon(QIcon(str(icon_path)))
     w.show()
-    _set_windows_alt_tab_icon(w, icon_path)
-    _clear_windows_titlebar_small_icon(w)
+    if icon_path.suffix.lower() == ".ico":
+        _set_windows_hwnd_icons_from_ico(w, icon_path)
     return app.exec()

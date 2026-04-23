@@ -16,7 +16,7 @@ from qfluentwidgets import BodyLabel, CardWidget, LineEdit, PrimaryPushButton, P
 
 from ..dds_convert import DdsToolError, ingest_to_bc3_dds
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
-from .fluent_dialogs import fly_critical, fly_message
+from .fluent_dialogs import fly_critical
 from .name_glyph_preview import wrap_name_input_with_preview
 
 
@@ -152,9 +152,8 @@ class NamePlateAddDialog(FluentCaptionDialog):
 """
             (plate_dir / "NamePlate.xml").write_text(xml, encoding="utf-8")
 
-            fly_message(self, "完成", f"已生成 namePlate{nid:08d}")
             self.accept()
         except DdsToolError as e:
-            fly_critical(self, "DDS 转换失败", str(e))
+            fly_critical(self.window(), "DDS 转换失败", str(e))
         except Exception as e:
-            fly_critical(self, "错误", str(e))
+            fly_critical(self.window(), "错误", str(e))

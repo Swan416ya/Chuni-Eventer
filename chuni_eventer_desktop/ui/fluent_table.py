@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QAbstractItemView
-from PyQt6.QtWidgets import QTableWidget
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QAbstractItemView, QTableWidget, QTableWidgetItem, QVBoxLayout
 
 from qfluentwidgets import FluentStyleSheet, setCustomStyleSheet
 
@@ -39,3 +39,20 @@ def apply_fluent_sheet_table(table: QTableWidget) -> None:
     table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
     table.verticalHeader().setVisible(False)
     table.horizontalHeader().setStretchLastSection(True)
+
+
+def sheet_list_card_layout_margins(layout: QVBoxLayout) -> None:
+    """与 `MusicReleaseTagDialog` 列表卡一致：内边距与间距。"""
+    layout.setContentsMargins(16, 14, 16, 14)
+    layout.setSpacing(8)
+
+
+def sheet_list_hint_muted_colors(widget: object) -> None:
+    """与 `MusicReleaseTagDialog` 顶部说明一致（BodyLabel 等支持 setTextColor 的控件）。"""
+    fn = getattr(widget, "setTextColor", None)
+    if callable(fn):
+        fn("#6B7280", "#9CA3AF")
+
+
+def mark_sheet_item_readonly(item: QTableWidgetItem) -> None:
+    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)

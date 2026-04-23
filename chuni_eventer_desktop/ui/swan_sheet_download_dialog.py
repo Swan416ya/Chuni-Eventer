@@ -7,7 +7,6 @@ from pathlib import Path
 from PyQt6.QtCore import QThread, QTimer, pyqtSignal, Qt
 from PyQt6.QtWidgets import (
     QApplication,
-    QAbstractItemView,
     QHBoxLayout,
     QHeaderView,
     QProgressDialog,
@@ -18,7 +17,12 @@ from PyQt6.QtWidgets import (
 
 from qfluentwidgets import BodyLabel, CardWidget, PrimaryPushButton, PushButton
 
-from .fluent_table import apply_fluent_sheet_table
+from .fluent_table import (
+    apply_fluent_sheet_table,
+    mark_sheet_item_readonly,
+    sheet_list_card_layout_margins,
+    sheet_list_hint_muted_colors,
+)
 
 from ..sheet_install import install_zip_to_acus
 from ..swan_sheet_client import (
@@ -108,25 +112,22 @@ class SwanSheetDownloadDialog(FluentCaptionDialog):
             "选择一行后点击「下载并解压到 ACUS」。若加载失败请检查网络或服务是否可用。"
         )
         hint.setWordWrap(True)
+        sheet_list_hint_muted_colors(hint)
 
-        self._table = QTableWidget(0, 3, card)
+        self._table = QTableWidget(0, 3, self)
         apply_fluent_sheet_table(self._table)
         self._table.setHorizontalHeaderLabels(["曲名", "艺术家", "网页标题"])
-        for col in range(3):
-            self._table.horizontalHeader().setSectionResizeMode(
-                col, QHeaderView.ResizeMode.Stretch
-            )
-        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self._table.doubleClicked.connect(lambda _i: self._on_install())
+        hh = self._table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self._table.itemDoubleClicked.connect(lambda _it: self._on_install())
 
         self._status = BodyLabel("点击「刷新列表」加载。", card)
         self._status.setWordWrap(True)
 
         cly = QVBoxLayout(card)
-        cly.setContentsMargins(16, 16, 16, 16)
-        cly.setSpacing(10)
+        sheet_list_card_layout_margins(cly)
         cly.addWidget(hint)
         cly.addWidget(self._table, stretch=1)
         cly.addWidget(self._status)
@@ -200,9 +201,16 @@ class SwanSheetDownloadDialog(FluentCaptionDialog):
         self._entries = [r for r in rows if isinstance(r, SheetListEntry)]
         self._table.setRowCount(len(self._entries))
         for i, e in enumerate(self._entries):
-            self._table.setItem(i, 0, QTableWidgetItem(e.music_name))
-            self._table.setItem(i, 1, QTableWidgetItem(e.artist_name))
-            self._table.setItem(i, 2, QTableWidgetItem(e.title))
+            c0 = QTableWidgetItem(e.music_name)
+            c0.setData(Qt.ItemDataRole.UserRole, e.content_id)
+            mark_sheet_item_readonly(c0)
+            self._table.setItem(i, 0, c0)
+            c1 = QTableWidgetItem(e.artist_name)
+            mark_sheet_item_readonly(c1)
+            self._table.setItem(i, 1, c1)
+            c2 = QTableWidgetItem(e.title)
+            mark_sheet_item_readonly(c2)
+            self._table.setItem(i, 2, c2)
             for c in range(3):
                 it = self._table.item(i, c)
                 if it:

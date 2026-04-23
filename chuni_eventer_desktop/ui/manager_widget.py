@@ -1365,16 +1365,19 @@ class ManagerWidget(QWidget):
             except Exception as e:
                 fly_critical(self.window(), "删除失败", str(e))
                 return
-            fly_message_async(
-                self.window(),
-                "已删除",
-                f"已移除名牌 {it.name.id} 的目录。",
-                single_button=True,
-                window_modal=False,
-            )
             self.reload()
 
-        fly_question_async(self.window(), "删除名牌", body, on_result=_on_confirm, window_modal=True)
+        def _ask_delete() -> None:
+            fly_question_async(
+                self.window(),
+                "删除名牌",
+                body,
+                on_result=_on_confirm,
+                window_modal=True,
+            )
+
+        # 刚创建名牌后立刻删：reload/选中/DDS 预览与确认框抢主线程时序会卡死，略推迟再问。
+        QTimer.singleShot(120, _ask_delete)
 
     def _delete_chara_item(self, it: CharaItem) -> None:
         nm = (it.name.str or "").strip() or "—"
@@ -1424,6 +1427,16 @@ class ManagerWidget(QWidget):
             return
 
         self._fill_attrs_table(payload)
+        # 名牌预览会同步解码 DDS，刚写入磁盘后立刻与其它 UI（如删除确认框）叠在同一段
+        # 事件里容易假死；推迟到下一轮事件循环，且切换行时用 xml_path 校验避免错位。
+        if isinstance(payload, NamePlateItem):
+            xp = payload.xml_path
+            QTimer.singleShot(0, lambda p=xp: self._nameplate_preview_after_tick(p))
+            return
+
+        self._apply_simple_preview_for_payload(payload)
+
+    def _apply_simple_preview_for_payload(self, payload: object) -> None:
         pm, hint = self._simple_preview_pixmap_and_hint(payload)
         if hint:
             self._append_attr_row("预览说明", hint)
@@ -1436,6 +1449,24 @@ class ManagerWidget(QWidget):
         else:
             self.simple_preview.clear_source()
             self._hide_preview_section()
+
+    def _nameplate_preview_after_tick(self, xml_path: Path) -> None:
+        if self._kind_key() != "NamePlate":
+            return
+        sel = self.table.selectionModel()
+        if sel is None:
+            return
+        rows = sel.selectedRows()
+        if not rows:
+            return
+        src_idx = self.proxy.mapToSource(rows[0])
+        item = self.model.item(src_idx.row(), 0)
+        if item is None:
+            return
+        payload = item.data(Qt.ItemDataRole.UserRole)
+        if not isinstance(payload, NamePlateItem) or payload.xml_path != xml_path:
+            return
+        self._apply_simple_preview_for_payload(payload)
 
     def _on_table_double_clicked(self, proxy_index: QModelIndex) -> None:
         """地图：双击编辑；歌曲：双击生成课题称号。"""
