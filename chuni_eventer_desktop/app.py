@@ -85,7 +85,7 @@ def _setup_dialog_debug_logging() -> None:
         root.setLevel(logging.DEBUG)
         root.addHandler(handler)
         logging.getLogger(__name__).warning(
-            "dialog debug logging enabled, output=%s",
+            "dialog debug logging enabled, output=%s (parent_chain / qt.window vs normalized / modals)",
             log_file,
         )
     except Exception:

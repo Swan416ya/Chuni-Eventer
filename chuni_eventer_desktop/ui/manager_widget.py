@@ -1200,7 +1200,7 @@ class ManagerWidget(QWidget):
 
     def _on_table_context_menu(self, pos: QPoint) -> None:
         k = self._kind_key()
-        if k not in ("Chara", "Trophy", "Quest"):
+        if k not in ("Chara", "Trophy", "Quest", "NamePlate"):
             return
         idx = self.table.indexAt(pos)
         if not idx.isValid():
@@ -1264,6 +1264,17 @@ class ManagerWidget(QWidget):
                 lambda checked=False, p=payload: QTimer.singleShot(80, lambda: self._delete_quest_item(p))
             )
             menu.addAction(act_del_q)
+            menu.exec(gpos, ani=True, aniType=MenuAnimationType.DROP_DOWN)
+            return
+
+        if k == "NamePlate":
+            if not isinstance(payload, NamePlateItem):
+                return
+            act_del_np = Action(FIF.DELETE, "删除名牌…", self.table)
+            act_del_np.triggered.connect(
+                lambda checked=False, p=payload: QTimer.singleShot(80, lambda: self._delete_nameplate_item(p))
+            )
+            menu.addAction(act_del_np)
             menu.exec(gpos, ani=True, aniType=MenuAnimationType.DROP_DOWN)
 
     def _delete_trophy_item(self, it: TrophyItem, *, with_chara: bool) -> None:
@@ -1329,6 +1340,41 @@ class ManagerWidget(QWidget):
             self.reload()
 
         fly_question_async(self.window(), "删除任务", body, on_result=_on_confirm, window_modal=True)
+
+    def _delete_nameplate_item(self, it: NamePlateItem) -> None:
+        npdir = it.xml_path.parent
+        if not npdir.is_dir() or not it.xml_path.is_file():
+            fly_message(
+                self.window(),
+                "无法删除",
+                f"未找到名牌目录或 NamePlate.xml：\n{npdir}",
+            )
+            return
+        nm = (it.name.str or "").strip() or "—"
+        body = (
+            f"将永久删除名牌 ID {it.name.id}（{nm}）所在目录：\n"
+            f"• {self._rel_acus_path(npdir)}\n\n"
+            "此操作不可撤销，确定删除？"
+        )
+
+        def _on_confirm(ok: bool) -> None:
+            if not ok:
+                return
+            try:
+                shutil.rmtree(npdir)
+            except Exception as e:
+                fly_critical(self.window(), "删除失败", str(e))
+                return
+            fly_message_async(
+                self.window(),
+                "已删除",
+                f"已移除名牌 {it.name.id} 的目录。",
+                single_button=True,
+                window_modal=False,
+            )
+            self.reload()
+
+        fly_question_async(self.window(), "删除名牌", body, on_result=_on_confirm, window_modal=True)
 
     def _delete_chara_item(self, it: CharaItem) -> None:
         nm = (it.name.str or "").strip() or "—"

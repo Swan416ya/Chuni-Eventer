@@ -8,7 +8,7 @@ import time
 from collections.abc import Callable
 from typing import TypeVar
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QApplication, QDialog, QProgressDialog, QWidget
 
 from qfluentwidgets import MessageBox
@@ -24,46 +24,119 @@ def _dialog_debug_enabled() -> bool:
     return os.getenv("CHUNI_DIALOG_DEBUG", "").strip() in {"1", "true", "TRUE", "yes", "YES"}
 
 
-def _debug_state(tag: str, parent: QWidget | None, *, title: str | None = None) -> None:
+def _dbg_widget_short(w: QWidget | None) -> str:
+    if w is None:
+        return "None"
+    try:
+        nm = (w.objectName() or "").strip() or "-"
+        return f"{type(w).__name__}[{nm}](win={w.isWindow()},en={w.isEnabled()},vis={w.isVisible()})"
+    except Exception:
+        return f"<{type(w).__name__} err>"
+
+
+def _dbg_parent_chain(start: QWidget | None, *, max_hops: int = 24) -> str:
+    if start is None:
+        return "(no parent)"
+    parts: list[str] = []
+    cur: QWidget | None = start
+    for _ in range(max_hops):
+        if cur is None:
+            break
+        parts.append(_dbg_widget_short(cur))
+        cur = cur.parentWidget()
+    return " <- ".join(parts)
+
+
+def _debug_state(
+    tag: str,
+    parent: QWidget | None,
+    *,
+    title: str | None = None,
+    message_box: QWidget | None = None,
+) -> None:
     if not _dialog_debug_enabled():
         return
     try:
-        top = _normalize_parent(parent)
+        norm = _normalize_parent(parent)
+        best = _best_message_parent(parent)
+        qt_win = parent.window() if parent is not None else None
         active = QApplication.activeModalWidget()
+        popup = QApplication.activePopupWidget()
+        aw = QApplication.activeWindow()
+        focus = QApplication.focusWidget()
         log.warning(
-            "[dialog-debug] %s title=%r parent=%s top=%s top_enabled=%s active_modal=%s active_title=%r",
+            "[dialog-debug] %s title=%r\n"
+            "  parent_chain=%s\n"
+            "  qt.window(parent)=%s normalized=%s best=%s\n"
+            "  same_id(qtwin,norm)=%s same_id(norm,best)=%s norm_enabled=%s\n"
+            "  active_modal=%s active_popup=%s active_window=%s focus=%s\n"
+            "  active_boxes=%d",
             tag,
             title,
-            type(parent).__name__ if parent is not None else None,
-            type(top).__name__ if top is not None else None,
-            top.isEnabled() if top is not None else None,
-            type(active).__name__ if active is not None else None,
-            active.windowTitle() if active is not None else None,
+            _dbg_parent_chain(parent),
+            _dbg_widget_short(qt_win),
+            _dbg_widget_short(norm),
+            _dbg_widget_short(best),
+            qt_win is norm,
+            norm is best,
+            norm.isEnabled() if norm is not None else None,
+            _dbg_widget_short(active),
+            _dbg_widget_short(popup),
+            _dbg_widget_short(aw),
+            _dbg_widget_short(focus),
+            len(_ACTIVE_MESSAGE_BOXES),
         )
+        if message_box is not None:
+            try:
+                mod = message_box.windowModality()
+                try:
+                    ism = message_box.isModal()
+                except Exception:
+                    ism = None
+                log.warning(
+                    "[dialog-debug] %s message_box=%s mb.parent=%s modality=%s isModal=%s",
+                    tag,
+                    _dbg_widget_short(message_box),
+                    _dbg_widget_short(message_box.parentWidget()),
+                    mod,
+                    ism,
+                )
+            except Exception:
+                log.exception("[dialog-debug] message_box probe failed tag=%s", tag)
     except Exception:
         log.exception("[dialog-debug] failed to collect state for %s", tag)
 
 
+def _debug_defer(tag: str, parent: QWidget | None, *, title: str | None = None) -> None:
+    if not _dialog_debug_enabled():
+        return
+    log.warning(
+        "[dialog-debug] %s QTimer.singleShot(0) scheduled title=%r caller_parent=%s",
+        tag,
+        title,
+        _dbg_widget_short(parent),
+    )
+
+
 def _normalize_parent(parent: QWidget | None) -> QWidget | None:
+    """
+    用于 MessageBox / 模态的父窗口：必须是带 window handle 的**层级根**窗口。
+
+    不能沿用「沿 parent 找到第一个 isWindow()」：在 MSFluentWindow 里，
+    stackedWidget 等子控件可能 isWindow()==True 却仍有 parent（内部 QWidgetWindow），
+    此时 `QWidget.window()` 会停在这一层，进而触发
+    "StackedWidgetClassWindow must be a top level window" 且模态点击失效。
+    正确做法是沿 parentWidget() 一直走到无 parent 的根，再校验 isWindow()。
+    """
     if parent is None:
         return None
     try:
-        # Always attach to a top-level window to avoid non-top-level modal glitches.
         w: QWidget | None = parent
-        while w is not None and not w.isWindow():
+        while w.parentWidget() is not None:
             w = w.parentWidget()
-        # Require real top-level widget (no parentWidget) to avoid warnings like:
-        # "QWidgetWindow(... ) must be a top level window."
-        if w is not None and w.isWindow() and w.parentWidget() is None:
-            return w
-        if parent.isWindow() and parent.parentWidget() is None:
-            return parent
-        return None
+        return w if w is not None and w.isWindow() else None
     except Exception:
-        try:
-            return parent if parent.isWindow() and parent.parentWidget() is None else None
-        except Exception:
-            return None
+        return None
 
 
 def _best_message_parent(parent: QWidget | None) -> QWidget | None:
@@ -106,6 +179,16 @@ def _run_modal_with_enabled_top(parent: QWidget | None, fn: Callable[[], _T]) ->
     out = fn()
     _debug_state("after_modal_exec", parent)
     return out
+
+
+def _defer_to_next_event_loop(fn: Callable[[], None]) -> None:
+    """
+    推迟到当前事件处理结束后再执行。Fluent 右键菜单等在同一次交付里若立刻
+    open() 一个 WindowModal MessageBox，在 Windows 上会出现「看得见但点不了」；
+    这与启动略慢时（例如 python -X faulthandler）现象不一致，故用单次 0ms
+    定时器与菜单栈 unwind 对齐。
+    """
+    QTimer.singleShot(0, fn)
 
 
 def safe_dismiss_modal_progress_dialog(dlg: QProgressDialog | None) -> None:
@@ -164,43 +247,49 @@ def fly_message_async(
     """
     非阻塞提示框：用于避免连环模态框导致 UI 卡死。
     """
-    box_parent = _best_message_parent(parent)
-    _debug_state("fly_message_async:create", parent, title=title)
-    if box_parent is None:
-        log.warning("fly_message_async skipped: no valid parent title=%r text=%r", title, text)
-        return
-    w = MessageBox(title, text, box_parent)
-    if single_button:
-        w.cancelButton.hide()
-    w.setWindowModality(Qt.WindowModality.WindowModal if window_modal else Qt.WindowModality.NonModal)
+    def _show() -> None:
+        box_parent = _best_message_parent(parent)
+        _debug_state("fly_message_async:create", parent, title=title)
+        if box_parent is None:
+            log.warning("fly_message_async skipped: no valid parent title=%r text=%r", title, text)
+            return
+        w = MessageBox(title, text, box_parent)
+        if single_button:
+            w.cancelButton.hide()
+        w.setWindowModality(Qt.WindowModality.WindowModal if window_modal else Qt.WindowModality.NonModal)
 
-    top = _normalize_parent(parent)
-    if window_modal and top is not None and not top.isEnabled():
-        top.setEnabled(True)
+        top = _normalize_parent(parent)
+        if window_modal and top is not None and not top.isEnabled():
+            top.setEnabled(True)
 
-    _ACTIVE_MESSAGE_BOXES.append(w)
-    ts = time.time()
-    log.debug(
-        "fly_message_async create ts=%.3f title=%r active=%d",
-        ts,
-        title,
-        len(_ACTIVE_MESSAGE_BOXES),
-    )
+        _ACTIVE_MESSAGE_BOXES.append(w)
+        ts = time.time()
+        log.debug(
+            "fly_message_async create ts=%.3f title=%r active=%d",
+            ts,
+            title,
+            len(_ACTIVE_MESSAGE_BOXES),
+        )
 
-    def _on_finished(_code: int) -> None:
-        _debug_state("fly_message_async:finished", parent, title=title)
-        log.debug("fly_message_async finished code=%s title=%r", _code, title)
-        try:
-            _ACTIVE_MESSAGE_BOXES.remove(w)
-        except ValueError:
-            pass
-        log.debug("fly_message_async active_after=%d", len(_ACTIVE_MESSAGE_BOXES))
-        w.deleteLater()
+        def _on_finished(_code: int) -> None:
+            _debug_state("fly_message_async:finished", parent, title=title)
+            log.debug("fly_message_async finished code=%s title=%r", _code, title)
+            try:
+                _ACTIVE_MESSAGE_BOXES.remove(w)
+            except ValueError:
+                pass
+            log.debug("fly_message_async active_after=%d", len(_ACTIVE_MESSAGE_BOXES))
+            w.deleteLater()
 
-    w.destroyed.connect(lambda *_: log.debug("fly_message_async destroyed title=%r", title))
-    w.finished.connect(_on_finished)
-    w.open()
-    log.debug("fly_message_async open called title=%r", title)
+        w.destroyed.connect(lambda *_: log.debug("fly_message_async destroyed title=%r", title))
+        w.finished.connect(_on_finished)
+        _debug_state("fly_message_async:before_open", parent, title=title, message_box=w)
+        w.open()
+        _debug_state("fly_message_async:after_open", parent, title=title, message_box=w)
+        log.debug("fly_message_async open called title=%r", title)
+
+    _debug_defer("fly_message_async", parent, title=title)
+    _defer_to_next_event_loop(_show)
 
 
 def fly_question(
@@ -242,47 +331,53 @@ def fly_question_async(
     非阻塞确认框：避免在复杂层级中使用 exec() 造成卡死。
     on_result(True) 表示确认，False 表示取消/关闭。
     """
-    box_parent = _best_message_parent(parent)
-    _debug_state("fly_question_async:create", parent, title=title)
-    if box_parent is None:
-        log.warning("fly_question_async fallback=False: no valid parent title=%r text=%r", title, text)
-        try:
-            on_result(False)
-        except Exception:
-            log.exception("fly_question_async on_result failed during fallback")
-        return
-    w = MessageBox(title, text, box_parent)
-    w.yesButton.setText(yes_text)
-    w.cancelButton.setText(no_text)
-    w.setWindowModality(
-        Qt.WindowModality.WindowModal if window_modal else Qt.WindowModality.NonModal
-    )
+    def _show() -> None:
+        box_parent = _best_message_parent(parent)
+        _debug_state("fly_question_async:create", parent, title=title)
+        if box_parent is None:
+            log.warning("fly_question_async fallback=False: no valid parent title=%r text=%r", title, text)
+            try:
+                on_result(False)
+            except Exception:
+                log.exception("fly_question_async on_result failed during fallback")
+            return
+        w = MessageBox(title, text, box_parent)
+        w.yesButton.setText(yes_text)
+        w.cancelButton.setText(no_text)
+        w.setWindowModality(
+            Qt.WindowModality.WindowModal if window_modal else Qt.WindowModality.NonModal
+        )
 
-    top = _normalize_parent(parent)
-    if window_modal and top is not None and not top.isEnabled():
-        top.setEnabled(True)
+        top = _normalize_parent(parent)
+        if window_modal and top is not None and not top.isEnabled():
+            top.setEnabled(True)
 
-    _ACTIVE_MESSAGE_BOXES.append(w)
+        _ACTIVE_MESSAGE_BOXES.append(w)
 
-    def _on_finished(code: int) -> None:
-        accepted = code == int(QDialog.DialogCode.Accepted)
-        _debug_state("fly_question_async:finished", parent, title=title)
-        if _dialog_debug_enabled():
-            log.warning(
-                "[dialog-debug] fly_question_async result title=%r code=%s accepted=%s",
-                title,
-                code,
-                bool(accepted),
-            )
-        try:
-            on_result(bool(accepted))
-        except Exception:
-            log.exception("fly_question_async on_result failed")
-        try:
-            _ACTIVE_MESSAGE_BOXES.remove(w)
-        except ValueError:
-            pass
-        w.deleteLater()
+        def _on_finished(code: int) -> None:
+            accepted = code == int(QDialog.DialogCode.Accepted)
+            _debug_state("fly_question_async:finished", parent, title=title)
+            if _dialog_debug_enabled():
+                log.warning(
+                    "[dialog-debug] fly_question_async result title=%r code=%s accepted=%s",
+                    title,
+                    code,
+                    bool(accepted),
+                )
+            try:
+                on_result(bool(accepted))
+            except Exception:
+                log.exception("fly_question_async on_result failed")
+            try:
+                _ACTIVE_MESSAGE_BOXES.remove(w)
+            except ValueError:
+                pass
+            w.deleteLater()
 
-    w.finished.connect(_on_finished)
-    w.open()
+        w.finished.connect(_on_finished)
+        _debug_state("fly_question_async:before_open", parent, title=title, message_box=w)
+        w.open()
+        _debug_state("fly_question_async:after_open", parent, title=title, message_box=w)
+
+    _debug_defer("fly_question_async", parent, title=title)
+    _defer_to_next_event_loop(_show)
