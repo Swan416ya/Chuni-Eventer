@@ -20,4 +20,11 @@ if (-not (Test-Path $cli)) {
     if (Test-Path $Target) { Remove-Item $Target -Recurse -Force -ErrorAction SilentlyContinue }
     throw "Clone finished but project file missing: $cli"
 }
+
+Write-Host "Initializing PenguinTools submodules ..."
+git -C $Target submodule update --init --recursive
+if ($LASTEXITCODE -ne 0) {
+    throw "submodule update failed (exit $LASTEXITCODE). Check network / proxy and rerun."
+}
+
 Write-Host "Done. Next: dotnet publish PenguinTools\PenguinTools.CLI\PenguinTools.CLI.csproj -c Release -p:PublishProfile=WinX64-SelfContained-SingleFile-ExternalAssets"

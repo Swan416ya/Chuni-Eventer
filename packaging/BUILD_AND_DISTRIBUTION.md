@@ -10,6 +10,8 @@ powershell -ExecutionPolicy Bypass -File ".\scripts\setup_penguin_tools.ps1"
 
 该脚本会在仓库根目录准备 `PenguinTools/` 源码，供后续 `dotnet publish PenguinTools.CLI` 使用。若你的 `PenguinTools` 检出不在仓库内，可设置环境变量 `CHUNI_PENGUINTOOLS_ROOT` 指向该检出路径。
 
+`setup_penguin_tools.ps1` 会自动执行 `submodule update --init --recursive`。此外，`build_windows.ps1` 在检测到 `External/muautils/.../mua.exe` 缺失时，会尝试从本仓库 `tools/PenguinTools/mua.exe` 自动兜底复制。
+
 ## 一行命令（推荐）
 
 在仓库根目录执行：

@@ -37,6 +37,27 @@ function Resolve-PenguinToolsRoot {
     return $null
 }
 
+function Ensure-PenguinToolsMua([string]$penguinToolsRoot, [string]$projectRoot) {
+    if (-not $penguinToolsRoot) { return }
+    $expected = Join-Path $penguinToolsRoot "External\muautils\cmake-build-vcpkg\Release\mua.exe"
+    if (Test-Path $expected) { return }
+
+    $fallbackExe = Join-Path $projectRoot "tools\PenguinTools\mua.exe"
+    $fallbackLicense = Join-Path $projectRoot "tools\PenguinTools\mua.LICENSE.txt"
+    if (-not (Test-Path $fallbackExe)) {
+        return
+    }
+
+    Write-Host "  mua.exe missing in PenguinTools submodule output; applying fallback copy from tools\PenguinTools ..."
+    New-Item -ItemType Directory -Path (Split-Path -Parent $expected) -Force | Out-Null
+    Copy-Item $fallbackExe $expected -Force
+
+    $muautilsLicense = Join-Path $penguinToolsRoot "External\muautils\LICENSE"
+    if (Test-Path $fallbackLicense) {
+        Copy-Item $fallbackLicense $muautilsLicense -Force
+    }
+}
+
 $VenvPy = Join-Path $Root ".venv-build\Scripts\python.exe"
 if (-not (Test-Path $VenvPy)) {
     Write-Host "Creating .venv-build ..."
@@ -59,6 +80,7 @@ if (-not $SkipPenguinToolsCli) {
     if (-not $PenguinToolsRoot) {
         throw "PenguinTools source not found. Run scripts\setup_penguin_tools.ps1, or set CHUNI_PENGUINTOOLS_ROOT to a Foahh/PenguinTools checkout."
     }
+    Ensure-PenguinToolsMua -penguinToolsRoot $PenguinToolsRoot -projectRoot $Root
     $PenguinToolsCliProject = Join-Path $PenguinToolsRoot "PenguinTools.CLI\PenguinTools.CLI.csproj"
     $PenguinToolsCliOut = Join-Path $PenguinToolsRoot "PenguinTools.CLI\bin\Release\net10.0\publish\WinX64-SelfContained-SingleFile-ExternalAssets"
     Write-Host "[3/5] Publish PenguinTools.CLI ..."
