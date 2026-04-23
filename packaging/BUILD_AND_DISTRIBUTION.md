@@ -1,14 +1,14 @@
 # Windows 打包与分发
 
-## 前置条件（PenguinBridge）
+## 前置条件（PenguinTools.CLI）
 
-`PenguinBridge` 依赖 [`Foahh/PenguinTools`](https://github.com/Foahh/PenguinTools) 中的 `PenguinTools.Core`。首次在本机构建前请执行一次：
+`Chuni-Eventer` 现通过 [`Foahh/PenguinTools`](https://github.com/Foahh/PenguinTools) 的 `PenguinTools.CLI` 完成 `mgxc / ugc / sus -> c2s` 转换。首次在本机构建前请执行一次：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File ".\scripts\setup_penguin_tools.ps1"
 ```
 
-若跳过此步骤，`dotnet build tools/PenguinBridge/...` 会直接报错（避免生成不含 Core 的“空壳” `PenguinBridge.exe`）。
+该脚本会在仓库根目录准备 `PenguinTools/` 源码，供后续 `dotnet publish PenguinTools.CLI` 使用。若你的 `PenguinTools` 检出不在仓库内，可设置环境变量 `CHUNI_PENGUINTOOLS_ROOT` 指向该检出路径。
 
 ## 一行命令（推荐）
 
@@ -22,7 +22,7 @@ powershell -ExecutionPolicy Bypass -File ".\scripts\build_windows.ps1" -Version 
 
 1. 安装/更新 `.venv-build` 构建依赖
 2. 用 PyInstaller 构建 `dist/ChuniEventer.exe`
-3. 发布 `tools/PenguinBridge`（`win-x64` self-contained，单文件 exe）
+3. 发布 `PenguinTools.CLI`（`WinX64-SelfContained-SingleFile-ExternalAssets`）
 4. 组装分发目录并打 zip
 
 ## 产物位置
@@ -34,14 +34,14 @@ powershell -ExecutionPolicy Bypass -File ".\scripts\build_windows.ps1" -Version 
 分发目录中会包含：
 
 - `ChuniEventer.exe`
-- `.tools/PenguinBridge/` 目录下 **self-contained 发布输出**（含 `PenguinBridge.exe`、`assets.json`、`PenguinTools.Core.dll` 及依赖 dll，不含 pdb）
+- `.tools/PenguinToolsCLI/` 目录下 **self-contained 发布输出**（含 `PenguinTools.CLI.exe` 与其 `assets/` 目录，不含 pdb）
 - （若存在）对应版本的 `GITHUB_RELEASE_vX.Y.Z.md`
 
 ## 可选参数
 
 - `-Version 0.5.0`：设置分发目录和 zip 的版本号
 - `-SkipPyInstaller`：跳过主程序构建（仅重组装）
-- `-SkipBridge`：跳过 bridge 构建（仅在已存在 bridge 产物时使用）
+- `-SkipPenguinToolsCli`：跳过 `PenguinTools.CLI` 发布与打包（保留旧参数名 `-SkipBridge` 作为别名）
 
 ## 校验建议
 
@@ -49,6 +49,6 @@ powershell -ExecutionPolicy Bypass -File ".\scripts\build_windows.ps1" -Version 
 
 1. 启动 `ChuniEventer.exe`
 2. 确认静态图片资源正常显示
-3. 在 pgko 转码提示中确认后端显示为 `C#(PenguinBridge)`（而非 Python 回退）
+3. 在 pgko 或 PJSK 转谱流程中确认实际后端显示为 `PenguinTools.CLI`
 
-> 说明：`PenguinBridge` 已采用 self-contained 发布，分发给最终用户时通常不需要额外安装 .NET Runtime / SDK。
+> 说明：`PenguinTools.CLI` 采用 self-contained 发布，分发给最终用户时通常不需要额外安装 .NET Runtime / SDK；但其 `assets/` 目录必须与可执行文件一起分发。

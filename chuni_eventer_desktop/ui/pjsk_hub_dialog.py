@@ -311,12 +311,11 @@ class PjskHubDialog(FluentCaptionDialog):
 
         card = CardWidget(self)
         c2s_unusable = BodyLabel(
-            "【重要】当前内置的 SUS→c2s 转谱逻辑完全不可用：时间轴、Hold/Slide、流速等与官谱差距极大，"
-            "请勿指望生成的 c2s 可正常游玩。详细说明见仓库内 docs/sus_to_c2s_implementation_detailed_zh.md。"
-            "封面、音频与「转写到 ACUS」中的元数据/ACB 流程与上述转谱无关。"
+            "SUS→c2s 现改为调用 PenguinTools.CLI。"
+            "若本机未正确放置 PenguinTools.CLI 或其 assets 目录，「转写到 ACUS」时会直接报错而不是回退到旧的本地转换器。"
         )
         c2s_unusable.setWordWrap(True)
-        c2s_unusable.setStyleSheet("color: #b91c1c; font-weight: 600;")
+        c2s_unusable.setStyleSheet("color: #0f766e; font-weight: 600;")
 
         top = BodyLabel(
             f"下列为已下载到本地的 PJSK 资源（{self._cache_root.as_posix()}）。"

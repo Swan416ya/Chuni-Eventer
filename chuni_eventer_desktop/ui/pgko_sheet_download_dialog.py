@@ -48,7 +48,7 @@ from ..pgko_to_c2s import (
     suggest_next_pgko_music_id,
     PgkoInstallOptions,
 )
-from ..pgko_cs_bridge import explain_penguin_bridge_lookup, resolve_penguin_bridge
+from ..penguin_tools_cli import explain_penguin_tools_cli_lookup, resolve_penguin_tools_cli
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message, fly_question, fly_warning
 from .fluent_table import apply_fluent_sheet_table
@@ -693,8 +693,7 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
             return
 
         converted: list[tuple[Path, Path, str]] = []
-        cs_ok = 0
-        py_ok = 0
+        cli_ok = 0
         errs: list[str] = []
         for mg in mgxc_list:
             try:
@@ -702,15 +701,13 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
                     PgkoChartPick(path=mg, ext="mgxc")
                 )
                 converted.append((mg, out_i, backend_i))
-                if backend_i == "cs":
-                    cs_ok += 1
-                else:
-                    py_ok += 1
+                if backend_i == "cli":
+                    cli_ok += 1
             except Exception as e:
                 errs.append(f"{mg.name}: {type(e).__name__}: {e}")
 
         out: Path | None = None
-        backend: str = "python"
+        backend: str = "cli"
         if converted:
             if pick is not None:
                 for src_i, out_i, backend_i in converted:
@@ -725,10 +722,8 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
                 if pick is None:
                     raise RuntimeError("未找到可转换的 mgxc 文件")
                 out, backend = convert_pgko_chart_pick_to_c2s_with_backend(pick)
-                if backend == "cs":
-                    cs_ok += 1
-                else:
-                    py_ok += 1
+                if backend == "cli":
+                    cli_ok += 1
         except NotImplementedError as e:
             if pick is not None:
                 self._status.setText(
@@ -741,19 +736,19 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
             fly_critical(self, "转码失败", f"{type(e).__name__}: {e}")
             return
 
-        backend_tip = "C#(PenguinBridge)" if backend == "cs" else "Python(回退)"
-        total_ok = cs_ok + py_ok
+        backend_tip = "PenguinTools.CLI" if backend == "cli" else backend
+        total_ok = cli_ok
         self._status.setText(
-            f"转码完成：{total_ok} 个（C#={cs_ok}, Python={py_ok}），主谱 {out.name}（{backend_tip}）"
+            f"转码完成：{total_ok} 个（CLI={cli_ok}），主谱 {out.name}（{backend_tip}）"
         )
-        if py_ok > 0:
-            bridge = resolve_penguin_bridge()
-            why = "未找到 PenguinBridge.exe" if bridge is None else f"PenguinBridge 调用失败：{bridge}"
-            detail = explain_penguin_bridge_lookup() if bridge is None else ""
+        if total_ok == 0:
+            cli = resolve_penguin_tools_cli()
+            why = "未找到 PenguinTools.CLI" if cli is None else f"PenguinTools.CLI 调用失败：{cli}"
+            detail = explain_penguin_tools_cli_lookup() if cli is None else ""
             fly_warning(
                 self,
-                "C# 转换未生效",
-                f"本次已有 {py_ok} 个谱面回退到 Python 转换。\n原因：{why}\n\n{detail}".strip(),
+                "CLI 转换未生效",
+                f"本次没有任何谱面成功走 PenguinTools.CLI。\n原因：{why}\n\n{detail}".strip(),
             )
         if errs:
             fly_warning(
@@ -920,4 +915,3 @@ class _PgkoInstallConfigDialog(FluentCaptionDialog):
             f"event: {ret.get('eventId')}",
         )
         self.accept()
-

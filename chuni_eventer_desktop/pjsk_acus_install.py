@@ -18,7 +18,7 @@ from typing import Any, Callable
 
 from . import pjsk_audio_chuni as pjsk_ac
 from .dds_convert import DdsToolError, convert_to_bc3_dds
-from .sus_to_c2s import try_convert_sus_to_c2s_bytes
+from .penguin_tools_cli import convert_chart_with_penguin_tools_cli
 
 XSI = "http://www.w3.org/2001/XMLSchema-instance"
 XSD = "http://www.w3.org/2001/XMLSchema"
@@ -217,15 +217,11 @@ def _materialize_c2s_for_slot(
     p_sus = (root / str(rel_sus)).resolve()
     if not p_sus.is_file():
         raise FileNotFoundError(f"缺少 SUS：{p_sus}")
-    text = p_sus.read_text(encoding="utf-8")
-    c2s_bytes = try_convert_sus_to_c2s_bytes(text)
-    if c2s_bytes is None:
-        raise ValueError(f"SUS→c2s 转换失败：{slot}（{rel_sus}）")
     chuni_dir = root / "chuni"
     chuni_dir.mkdir(parents=True, exist_ok=True)
     out = chuni_dir / f"{slot}.c2s"
-    out.write_bytes(c2s_bytes)
-    log(f"已从 SUS 生成 {out.relative_to(root)}")
+    convert_chart_with_penguin_tools_cli(input_path=p_sus, output_path=out)
+    log(f"已通过 PenguinTools.CLI 生成 {out.relative_to(root)}")
     return out
 
 

@@ -10,7 +10,7 @@ from typing import BinaryIO
 from . import pjsk_audio_chuni as pjsk_ac
 from .dds_convert import convert_to_bc3_dds
 from .music_jacket_replace import JACKET_BC3_EDGE, _prepare_square_jacket_png
-from .pgko_cs_bridge import convert_mgxc_with_penguin_bridge
+from .penguin_tools_cli import convert_chart_with_penguin_tools_cli
 from .pjsk_acus_install import (
     append_event_sort,
     append_music_sort,
@@ -1313,9 +1313,9 @@ def convert_pgko_chart_pick_to_c2s_with_backend(
     pick: PgkoChartPick, *, allow_ugc_experimental: bool = False
 ) -> tuple[Path, str]:
     """
-    内置转码（第二版）：
-    - 支持 mgxc -> c2s（BPM/TAP/HOLD/SLIDE + Air/AirHold 基础映射）
-    - ugc 通过同目录/邻近 mgxc 回退
+    统一委托 PenguinTools.CLI：
+    - 支持 mgxc -> c2s
+    - 支持实验性 ugc -> c2s（沿用现有开关）
     """
     source_path = pick.path
     source_ext = pick.ext.lower().strip(".")
@@ -1327,15 +1327,8 @@ def convert_pgko_chart_pick_to_c2s_with_backend(
                 "请先转为 mgxc；若要使用实验性 UGC 直转，请在“设置”中开启对应实验项。"
             )
         out = source_path.with_suffix(".c2s")
-        meta, events, raw_notes = _parse_ugc(source_path)
-        return _emit_c2s_from_semantic(
-            out=out,
-            meta=meta,
-            events=events,
-            raw_notes=raw_notes,
-            source_path=source_path,
-            creator_fallback="UGC import",
-        )
+        convert_chart_with_penguin_tools_cli(input_path=source_path, output_path=out)
+        return out, "cli"
 
     if source_ext != "mgxc":
         nearby = sorted(
@@ -1351,21 +1344,8 @@ def convert_pgko_chart_pick_to_c2s_with_backend(
         )
 
     out = source_path.with_suffix(".c2s")
-    try:
-        convert_mgxc_with_penguin_bridge(input_mgxc=source_path, output_c2s=out)
-        return out, "cs"
-    except Exception:
-        pass
-
-    meta, events, raw_notes = _parse_mgxc(source_path)
-    return _emit_c2s_from_semantic(
-        out=out,
-        meta=meta,
-        events=events,
-        raw_notes=raw_notes,
-        source_path=source_path,
-        creator_fallback="MGXC import",
-    )
+    convert_chart_with_penguin_tools_cli(input_path=source_path, output_path=out)
+    return out, "cli"
 
 
 def convert_pgko_audio_to_chuni_from_pick(
@@ -1560,7 +1540,7 @@ def install_pgko_pick_to_acus(
         slot_map[slot] = c2s_dst
         levels_by_type[slot] = _const_to_level_pair(mm.level_const)
 
-    # 封面一律按邻近 ugc 的 @JACKET 路径选取；与是否走 PenguinBridge 转 c2s 无关，并始终在本步骤重转 DDS（覆盖同名文件）。
+    # 封面一律按邻近 ugc 的 @JACKET 路径选取；与是否由 PenguinTools.CLI 生成 c2s 无关，并始终在本步骤重转 DDS（覆盖同名文件）。
     jacket_raw = _resolve_jacket_path_from_ugc_near(source_path)
     if jacket_raw is None:
         declared = _try_read_ugc_jacket_filename_near(source_path)
@@ -1657,4 +1637,3 @@ def install_pgko_pick_to_acus(
         "cueDir": str(cue_dst),
         "eventId": created_event_id,
     }
-

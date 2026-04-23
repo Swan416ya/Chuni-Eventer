@@ -46,6 +46,6 @@ ffmpeg -version
 
 ## 相关：SUS → c2s 转谱说明
 
-PJSK 下载流程里会用内置规则把 SUS 转成实验性 c2s，**与官谱差距较大**。实现细节、每条事件在文件中的写法与已知缺陷见：
+PJSK 下载流程保存原始 SUS；后续「转写到 ACUS」时会调用 `PenguinTools.CLI` 生成 `c2s`。若该外部工具或其 `assets/` 缺失，转写会直接失败。历史上的本地实验性转换说明见：
 
 `docs/sus_to_c2s_implementation_detailed_zh.md`

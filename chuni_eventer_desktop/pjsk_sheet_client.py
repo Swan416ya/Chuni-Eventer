@@ -677,7 +677,7 @@ def save_pjsk_bundle_to_cache(
         "- sus/ ：原始 SUS（normal / hard / expert / master / append，按曲目实际存在项下载）。\n"
         "- audio/ ：若选择了人声版本，则为完整曲长音频（flac/wav/mp3，视镜像而定）；"
         "环境齐全时另有 48k 修剪 WAV 与 chuni_cue/ 下 ACB·AWB。\n"
-        "- chuni/ ：转写进 ACUS 时由程序从 SUS 生成 c2s 后写入（实验性；不保证与官机一致）。\n"
+        "- chuni/ ：转写进 ACUS 时由程序调用 PenguinTools.CLI 从 SUS 生成 c2s 后写入。\n"
         "- 与 CHUNITHM 槽位对应：normal→BASIC(Easy)，hard→ADVANCED，expert→EXPERT，"
         "master→MASTER；有 append 时→ULTIMA，无 append 则无 ULTIMA 对应文件。\n"
         "详见 manifest.json。\n"
@@ -692,7 +692,7 @@ def save_pjsk_bundle_to_cache(
         "cacheRoot": str(base),
         "outsideAcus": True,
         "slots": manifest_slots,
-        "c2sConversionImplemented": False,
+        "c2sConversionImplemented": True,
     }
     if audio_manifest is not None:
         manifest["audio"] = audio_manifest
