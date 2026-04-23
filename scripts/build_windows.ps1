@@ -37,7 +37,7 @@ function Resolve-PenguinToolsRoot {
     return $null
 }
 
-function Ensure-PenguinToolsMua([string]$penguinToolsRoot, [string]$projectRoot) {
+function Initialize-PenguinToolsMua([string]$penguinToolsRoot, [string]$projectRoot) {
     if (-not $penguinToolsRoot) { return }
     $expected = Join-Path $penguinToolsRoot "External\muautils\cmake-build-vcpkg\Release\mua.exe"
     if (Test-Path $expected) { return }
@@ -80,7 +80,7 @@ if (-not $SkipPenguinToolsCli) {
     if (-not $PenguinToolsRoot) {
         throw "PenguinTools source not found. Run scripts\setup_penguin_tools.ps1, or set CHUNI_PENGUINTOOLS_ROOT to a Foahh/PenguinTools checkout."
     }
-    Ensure-PenguinToolsMua -penguinToolsRoot $PenguinToolsRoot -projectRoot $Root
+    Initialize-PenguinToolsMua -penguinToolsRoot $PenguinToolsRoot -projectRoot $Root
     $PenguinToolsCliProject = Join-Path $PenguinToolsRoot "PenguinTools.CLI\PenguinTools.CLI.csproj"
     $PenguinToolsCliOut = Join-Path $PenguinToolsRoot "PenguinTools.CLI\bin\Release\net10.0\publish\WinX64-SelfContained-SingleFile-ExternalAssets"
     Write-Host "[3/5] Publish PenguinTools.CLI ..."
