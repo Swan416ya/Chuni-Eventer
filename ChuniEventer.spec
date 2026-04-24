@@ -23,7 +23,8 @@ datas = [
 ]
 # 运行时用 LoadImage(ICO) 设置任务栏 HWND 图标；需与 app._app_icon_path 能找到的路径一致。
 if icon_file.is_file():
-    datas.append((str(icon_file), str(ROOT / "chuni_eventer_desktop" / "static" / "logo")))
+    # DEST_DIR 必须为相对路径（PyInstaller 6+ 校验）
+    datas.append((str(icon_file), "chuni_eventer_desktop/static/logo"))
 binaries: list = []
 hiddenimports: list = []
 
