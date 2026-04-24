@@ -9,9 +9,16 @@ from collections.abc import Callable
 from typing import TypeVar
 
 from PyQt6.QtCore import QEventLoop, Qt, QTimer
-from PyQt6.QtWidgets import QApplication, QDialog, QProgressDialog, QWidget
-
-from qfluentwidgets import MessageBox
+from PyQt6.QtWidgets import (
+    QApplication,
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QProgressDialog,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 log = logging.getLogger(__name__)
 
@@ -121,7 +128,7 @@ def _debug_defer(tag: str, parent: QWidget | None, *, title: str | None = None) 
 
 
 def _attach_message_box_debug_watchers(
-    w: MessageBox,
+    w: QWidget,
     *,
     parent: QWidget | None,
     title: str,
@@ -196,6 +203,59 @@ def _attach_message_box_debug_watchers(
         QTimer.singleShot(250, _poll)
     except Exception:
         log.exception("[dialog-debug] attach watchers failed tag=%s title=%r", tag, title)
+
+
+def _create_safe_dialog_widget(
+    *,
+    title: str,
+    text: str,
+    parent: QWidget | None,
+    kind: str,  # "message" | "question"
+    single_button: bool = True,
+    yes_text: str = "确定",
+    no_text: str = "取消",
+) -> QDialog:
+    """
+    Windows fallback dialog shell to avoid intermittent click-loss in QFluent MessageBox.
+    Keep explicit yesButton/cancelButton attrs for debug/watchers compatibility.
+    """
+    d = QDialog(parent)
+    d.setWindowTitle(title)
+    d.setModal(True)
+    d.setObjectName("SafeDialogShell")
+    d.resize(560, 320)
+
+    root = QVBoxLayout(d)
+    root.setContentsMargins(16, 14, 16, 14)
+    root.setSpacing(10)
+
+    body = QLabel(text, d)
+    body.setWordWrap(True)
+    body.setTextInteractionFlags(
+        Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard
+    )
+    body.setObjectName("SafeDialogBody")
+    root.addWidget(body, 1)
+
+    row = QHBoxLayout()
+    row.addStretch(1)
+    yes_btn = QPushButton(yes_text if kind == "question" else "OK", d)
+    cancel_btn = QPushButton(no_text, d)
+
+    yes_btn.clicked.connect(lambda: d.done(int(QDialog.DialogCode.Accepted)))
+    cancel_btn.clicked.connect(lambda: d.done(int(QDialog.DialogCode.Rejected)))
+
+    row.addWidget(cancel_btn)
+    row.addWidget(yes_btn)
+    root.addLayout(row)
+
+    if kind == "message" and single_button:
+        cancel_btn.hide()
+
+    # Compatibility for existing debug hooks.
+    d.yesButton = yes_btn  # type: ignore[attr-defined]
+    d.cancelButton = cancel_btn  # type: ignore[attr-defined]
+    return d
 
 
 def _normalize_parent(parent: QWidget | None) -> QWidget | None:
@@ -316,6 +376,36 @@ def _ensure_enabled_for_dialog_parent(box_parent: QWidget | None) -> None:
                 w.setEnabled(True)
             w = w.parentWidget()
             hops += 1
+    except Exception:
+        pass
+
+
+def _release_qt_input_grabs() -> None:
+    """
+    Defensive: release stale mouse/keyboard grabs before opening a modal dialog.
+    This can happen after complex widget interactions and causes dialog buttons
+    to be visible but never receive click events.
+    """
+    try:
+        mg = QWidget.mouseGrabber()
+        if mg is not None:
+            if _dialog_debug_enabled():
+                log.warning("[dialog-debug] release stale mouse grabber=%s", _dbg_widget_short(mg))
+            try:
+                mg.releaseMouse()
+            except Exception:
+                pass
+    except Exception:
+        pass
+    try:
+        kg = QWidget.keyboardGrabber()
+        if kg is not None:
+            if _dialog_debug_enabled():
+                log.warning("[dialog-debug] release stale keyboard grabber=%s", _dbg_widget_short(kg))
+            try:
+                kg.releaseKeyboard()
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -477,10 +567,15 @@ def fly_message_async(
         if box_parent is None:
             log.warning("fly_message_async skipped: no valid parent title=%r text=%r", title, text)
             return
+        _release_qt_input_grabs()
         _ensure_enabled_for_dialog_parent(box_parent)
-        w = MessageBox(title, text, box_parent)
-        if single_button:
-            w.cancelButton.hide()
+        w = _create_safe_dialog_widget(
+            title=title,
+            text=text,
+            parent=box_parent,
+            kind="message",
+            single_button=single_button,
+        )
         w.setWindowModality(
             Qt.WindowModality.ApplicationModal if window_modal else Qt.WindowModality.NonModal
         )
@@ -549,9 +644,14 @@ def fly_question(
         return False
 
     def _exec() -> bool:
-        w = MessageBox(title, text, box_parent)
-        w.yesButton.setText(yes_text)
-        w.cancelButton.setText(no_text)
+        w = _create_safe_dialog_widget(
+            title=title,
+            text=text,
+            parent=box_parent,
+            kind="question",
+            yes_text=yes_text,
+            no_text=no_text,
+        )
         w.setWindowModality(Qt.WindowModality.ApplicationModal)
         out = {"accepted": False}
         loop = QEventLoop()
@@ -592,10 +692,16 @@ def fly_question_async(
             except Exception:
                 log.exception("fly_question_async on_result failed during fallback")
             return
+        _release_qt_input_grabs()
         _ensure_enabled_for_dialog_parent(box_parent)
-        w = MessageBox(title, text, box_parent)
-        w.yesButton.setText(yes_text)
-        w.cancelButton.setText(no_text)
+        w = _create_safe_dialog_widget(
+            title=title,
+            text=text,
+            parent=box_parent,
+            kind="question",
+            yes_text=yes_text,
+            no_text=no_text,
+        )
         w.setWindowModality(
             Qt.WindowModality.ApplicationModal if window_modal else Qt.WindowModality.NonModal
         )
