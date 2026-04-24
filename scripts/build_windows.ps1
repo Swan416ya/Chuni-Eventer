@@ -82,9 +82,9 @@ if (-not $SkipPenguinToolsCli) {
     }
     Initialize-PenguinToolsMua -penguinToolsRoot $PenguinToolsRoot -projectRoot $Root
     $PenguinToolsCliProject = Join-Path $PenguinToolsRoot "PenguinTools.CLI\PenguinTools.CLI.csproj"
-    $PenguinToolsCliOut = Join-Path $PenguinToolsRoot "PenguinTools.CLI\bin\Release\net10.0\publish\WinX64-SelfContained-SingleFile-ExternalAssets"
+    $PenguinToolsCliOut = Join-Path $PenguinToolsRoot "PenguinTools.CLI\bin\Release\net10.0\publish\WinX64-SelfContained-SingleFile-EmbeddedAssets"
     Write-Host "[3/5] Publish PenguinTools.CLI ..."
-    & dotnet publish $PenguinToolsCliProject -c Release -p:PublishProfile=WinX64-SelfContained-SingleFile-ExternalAssets
+    & dotnet publish $PenguinToolsCliProject -c Release -p:PublishProfile=WinX64-SelfContained-SingleFile-EmbeddedAssets
     if ($LASTEXITCODE -ne 0) {
         throw "dotnet publish PenguinTools.CLI failed (exit $LASTEXITCODE). Run scripts\setup_penguin_tools.ps1, or pass -SkipPenguinToolsCli."
     }

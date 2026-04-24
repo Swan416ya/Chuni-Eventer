@@ -21,7 +21,12 @@ def _candidate_cli_paths() -> list[Path]:
     cwd = Path.cwd().resolve()
     exe_dir = Path(sys.executable).resolve().parent
     sibling_penguin_tools = root.parent / "PenguinTools"
-    bundled_publish = Path("PenguinTools.CLI/bin/Release/net10.0/publish/WinX64-SelfContained-SingleFile-ExternalAssets")
+    bundled_publish_embedded = Path(
+        "PenguinTools.CLI/bin/Release/net10.0/publish/WinX64-SelfContained-SingleFile-EmbeddedAssets"
+    )
+    bundled_publish_external = Path(
+        "PenguinTools.CLI/bin/Release/net10.0/publish/WinX64-SelfContained-SingleFile-ExternalAssets"
+    )
 
     out.extend(
         [
@@ -32,8 +37,10 @@ def _candidate_cli_paths() -> list[Path]:
             (exe_dir / "PenguinTools.CLI.exe").resolve(),
             (cwd / ".tools" / "PenguinToolsCLI" / "PenguinTools.CLI.exe").resolve(),
             (cwd / "PenguinTools.CLI.exe").resolve(),
-            (root / "PenguinTools" / bundled_publish / "PenguinTools.CLI.exe").resolve(),
-            (sibling_penguin_tools / bundled_publish / "PenguinTools.CLI.exe").resolve(),
+            (root / "PenguinTools" / bundled_publish_embedded / "PenguinTools.CLI.exe").resolve(),
+            (sibling_penguin_tools / bundled_publish_embedded / "PenguinTools.CLI.exe").resolve(),
+            (root / "PenguinTools" / bundled_publish_external / "PenguinTools.CLI.exe").resolve(),
+            (sibling_penguin_tools / bundled_publish_external / "PenguinTools.CLI.exe").resolve(),
             (root / "PenguinTools" / "PenguinTools.CLI" / "bin" / "Release" / "net10.0" / "PenguinTools.CLI.dll")
             .resolve(),
             (sibling_penguin_tools / "PenguinTools.CLI" / "bin" / "Release" / "net10.0" / "PenguinTools.CLI.dll")

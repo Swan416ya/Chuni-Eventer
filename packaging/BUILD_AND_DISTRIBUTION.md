@@ -24,7 +24,7 @@ powershell -ExecutionPolicy Bypass -File ".\scripts\build_windows.ps1" -Version 
 
 1. 安装/更新 `.venv-build` 构建依赖
 2. 用 PyInstaller 构建 `dist/ChuniEventer.exe`
-3. 发布 `PenguinTools.CLI`（`WinX64-SelfContained-SingleFile-ExternalAssets`）
+3. 发布 `PenguinTools.CLI`（`WinX64-SelfContained-SingleFile-EmbeddedAssets`）
 4. 组装分发目录并打 zip
 
 ## 产物位置
@@ -36,7 +36,7 @@ powershell -ExecutionPolicy Bypass -File ".\scripts\build_windows.ps1" -Version 
 分发目录中会包含：
 
 - `ChuniEventer.exe`
-- `.tools/PenguinToolsCLI/` 目录下 **self-contained 发布输出**（含 `PenguinTools.CLI.exe` 与其 `assets/` 目录，不含 pdb）
+- `.tools/PenguinToolsCLI/` 目录下 **self-contained 发布输出**（含 `PenguinTools.CLI.exe`；资源内嵌，不含 pdb）
 - （若存在）对应版本的 `GITHUB_RELEASE_vX.Y.Z.md`
 
 ## 可选参数
@@ -53,4 +53,4 @@ powershell -ExecutionPolicy Bypass -File ".\scripts\build_windows.ps1" -Version 
 2. 确认静态图片资源正常显示
 3. 在 pgko 或 PJSK 转谱流程中确认实际后端显示为 `PenguinTools.CLI`
 
-> 说明：`PenguinTools.CLI` 采用 self-contained 发布，分发给最终用户时通常不需要额外安装 .NET Runtime / SDK；但其 `assets/` 目录必须与可执行文件一起分发。
+> 说明：`PenguinTools.CLI` 采用 self-contained 发布，分发给最终用户时通常不需要额外安装 .NET Runtime / SDK。

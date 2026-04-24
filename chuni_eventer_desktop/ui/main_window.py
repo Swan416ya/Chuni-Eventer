@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, Qt, QThread, QTimer, pyqtSignal
-from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QProgressDialog, QVBoxLayout, QWidget
 
 from qfluentwidgets import (
     FluentIcon,
@@ -34,7 +34,13 @@ from .event_add_dialog import EventAddDialog
 from .quest_add_dialog import QuestAddDialog
 from .mapbonus_dialogs import MapBonusEditDialog
 from .stage_add_dialog import StageAddDialog
-from .fluent_dialogs import fly_critical, fly_message, fly_message_async, fly_warning
+from .fluent_dialogs import (
+    fly_critical,
+    fly_message,
+    fly_message_async,
+    fly_warning,
+    safe_dismiss_modal_progress_dialog,
+)
 from .nav_icons import (
     SVG_STAGE_BG,
     SVG_CHARA,
@@ -52,6 +58,7 @@ from .nav_icons import (
 
 class _GameIndexWorker(QObject):
     finished = pyqtSignal(object, str)
+    progress = pyqtSignal(str, int, int)  # msg, cur, total(0=indeterminate)
 
     def __init__(self, game_root: Path, compressonatorcli_path: Path | None) -> None:
         super().__init__()
@@ -59,9 +66,13 @@ class _GameIndexWorker(QObject):
         self._compressonatorcli_path = compressonatorcli_path
 
     def run(self) -> None:
+        def _on_progress(msg: str, cur: int, total: int) -> None:
+            self.progress.emit(str(msg), int(cur), int(total))
+
         idx, err = rebuild_and_save_game_index(
             self._game_root,
             self._compressonatorcli_path,
+            progress=_on_progress,
             prewarm_dds_preview=False,
         )
         self.finished.emit(idx, err)
@@ -165,6 +176,7 @@ class MainWindow(MSFluentWindow):
 
         self._index_thread: QThread | None = None
         self._index_worker: _GameIndexWorker | None = None
+        self._index_progress: QProgressDialog | None = None
         QTimer.singleShot(0, self._ensure_game_index_background)
 
     def _resolve_game_index(self):
@@ -192,23 +204,18 @@ class MainWindow(MSFluentWindow):
 
         self._start_index_thread(gr)
 
-    def _start_index_thread(self, game_root: Path) -> None:
+    def _start_index_thread(self, game_root: Path, compressonatorcli_path: Path | None = None) -> None:
         if self._index_thread is not None:
             return
-        fly_message_async(
-            self,
-            "正在后台建立索引",
-            "已进入主界面，游戏数据索引正在后台构建，完成后会自动可用。",
-            single_button=True,
-            window_modal=False,
-        )
+        self._show_index_progress_dialog("正在扫描游戏数据…")
         thread = QThread(self)
         worker = _GameIndexWorker(
             game_root=game_root,
-            compressonatorcli_path=self._get_tool_path_or_none(),
+            compressonatorcli_path=compressonatorcli_path if compressonatorcli_path is not None else self._get_tool_path_or_none(),
         )
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
+        worker.progress.connect(self._on_background_index_progress)
         worker.finished.connect(self._on_background_index_finished)
         worker.finished.connect(thread.quit)
         thread.finished.connect(worker.deleteLater)
@@ -219,11 +226,14 @@ class MainWindow(MSFluentWindow):
         thread.start()
 
     def _on_background_index_finished(self, idx: object, err: str) -> None:
+        self._hide_index_progress_dialog()
         if not isinstance(idx, GameDataIndex):
-            fly_critical(
+            fly_message_async(
                 self,
                 "游戏索引失败",
                 f"{err or '无法建立游戏索引。'}\n可在【设置】中重新选择目录并点击「重新扫描游戏索引」。",
+                single_button=True,
+                window_modal=True,
             )
             return
         refresh_chara_works_sorts_with_game(self._acus_root, self._cfg.game_root or None)
@@ -233,12 +243,43 @@ class MainWindow(MSFluentWindow):
             f"已缓存游戏内乐曲 {len(idx.music)}、场景 {len(idx.stage)}、"
             f"DDSImage {len(idx.dds_image)}、ddsMap {len(idx.dds_map)} 条（仅 ID 与名称）。",
             single_button=True,
-            window_modal=False,
+            window_modal=True,
         )
 
     def _on_index_thread_stopped(self) -> None:
+        self._hide_index_progress_dialog()
         self._index_thread = None
         self._index_worker = None
+
+    def _show_index_progress_dialog(self, text: str) -> None:
+        self._hide_index_progress_dialog()
+        dlg = QProgressDialog(self)
+        dlg.setWindowTitle("扫描游戏数据")
+        dlg.setLabelText(text)
+        dlg.setRange(0, 0)
+        dlg.setCancelButton(None)
+        dlg.setMinimumDuration(0)
+        # 禁止用户在扫描期间操作其它界面；完成后自动关闭。
+        dlg.setWindowModality(Qt.WindowModality.ApplicationModal)
+        dlg.show()
+        self._index_progress = dlg
+
+    def _on_background_index_progress(self, msg: str, cur: int, total: int) -> None:
+        dlg = self._index_progress
+        if dlg is None:
+            return
+        dlg.setLabelText(msg)
+        if total > 0:
+            dlg.setRange(0, total)
+            dlg.setValue(min(max(cur, 0), total))
+        else:
+            dlg.setRange(0, 0)
+
+    def _hide_index_progress_dialog(self) -> None:
+        if self._index_progress is None:
+            return
+        safe_dismiss_modal_progress_dialog(self._index_progress)
+        self._index_progress = None
 
     def _get_tool_path_or_none(self) -> Path | None:
         return resolve_compressonatorcli_path(self._cfg)
@@ -271,6 +312,12 @@ class MainWindow(MSFluentWindow):
         self._game_music_browser_btn.setVisible(kind == "Music")
         self._manager.set_kind(kind)
 
+    def _restore_current_category_header(self) -> None:
+        idx = self._current_category_index
+        if 0 <= idx < len(self._nav_specs):
+            _rk, _icon, _text, kind, title = self._nav_specs[idx]
+            self._apply_category(kind, title)
+
     def _on_game_music_browser(self) -> None:
         from .game_music_browser_dialog import GameMusicBrowserDialog
 
@@ -298,12 +345,28 @@ class MainWindow(MSFluentWindow):
             cfg=self._cfg,
             acus_root=self._acus_root,
             get_tool_path=self._get_tool_path_or_none,
+            on_request_game_rescan=self._request_game_index_rescan,
             parent=self,
         )
         if dlg.exec() == dlg.DialogCode.Accepted:
             dlg.apply()
             fly_message(self, "已保存", "设置已保存。")
+            gr_raw = (self._cfg.game_root or "").strip()
+            if gr_raw:
+                self._request_game_index_rescan(Path(gr_raw).expanduser(), self._get_tool_path_or_none())
             self._on_refresh()
+
+    def _request_game_index_rescan(self, game_root: Path, compressonatorcli_path: Path | None) -> None:
+        if self._index_thread is not None:
+            fly_message_async(
+                self,
+                "扫描进行中",
+                "已有游戏索引扫描任务在后台运行，请稍候完成。",
+                single_button=True,
+                window_modal=False,
+            )
+            return
+        self._start_index_thread(game_root, compressonatorcli_path)
 
     def _on_refresh(self) -> None:
         self._manager.reload()

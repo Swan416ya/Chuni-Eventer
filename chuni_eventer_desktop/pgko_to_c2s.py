@@ -1433,8 +1433,8 @@ def _slot_from_difficulty(diff: int) -> str:
         1: "ADVANCED",
         2: "EXPERT",
         3: "MASTER",
-        4: "WORLD'S END",
-        5: "ULTIMA",
+        4: "ULTIMA",
+        5: "WORLD'S END",
     }.get(int(diff), "MASTER")
 
 

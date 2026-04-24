@@ -53,7 +53,6 @@ from .fluent_dialogs import (
 from .music_cards_view import MusicCardsView
 from .music_release_tag_dialog import MusicReleaseTagDialog
 from .music_stage_dialog import MusicStageSelectDialog
-from .github_sheet_dialog import GithubSheetDialog
 
 from ..chara_delete import delete_chara_from_acus
 from ..music_delete import execute_music_deletion, plan_music_deletion
@@ -385,9 +384,6 @@ class ManagerWidget(QWidget):
         self.music_cards_view.musicTrophyRequested.connect(self._on_music_trophy_requested)
         self.music_cards_view.musicJacketReplaceRequested.connect(
             self._on_music_jacket_replace_requested
-        )
-        self.music_cards_view.musicGithubUploadRequested.connect(
-            self._on_music_github_upload_requested
         )
         self.music_cards_view.musicStageChangeRequested.connect(
             self._on_music_stage_change_requested
@@ -1032,15 +1028,6 @@ class ManagerWidget(QWidget):
             return
         fly_message(self.window(), "已更新封面", f"已写入：\n{out.name}")
         self.reload()
-
-    def _on_music_github_upload_requested(self, it: object) -> None:
-        if not isinstance(it, MusicItem):
-            return
-        GithubSheetDialog.upload_music_item(
-            parent=self.window(),
-            acus_root=self._acus_root,
-            item=it,
-        )
 
     def _on_music_stage_change_requested(self, it: object) -> None:
         if not isinstance(it, MusicItem):

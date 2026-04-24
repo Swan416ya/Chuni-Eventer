@@ -9,12 +9,11 @@ from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QInputDialog, QVBoxLayout
 
 from qfluentwidgets import BodyLabel, CardWidget, CheckBox, LineEdit, PrimaryPushButton, PushButton
 
-from ..acus_workspace import AcusConfig, refresh_chara_works_sorts_with_game
+from ..acus_workspace import AcusConfig
 from ..dds_convert import DdsToolError, is_bc3_dds, run_cmd, validate_compressonator_tool
 from ..dds_quicktex import encode_image_to_bc3_dds_quicktex, quicktex_available
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
-from .index_progress import run_rebuild_game_index_with_progress
 from .pjsk_hub_dialog import PjskHubDialog
 
 
@@ -25,6 +24,7 @@ class SettingsDialog(FluentCaptionDialog):
         cfg: AcusConfig,
         acus_root: Path,
         get_tool_path: Callable[[], Path | None],
+        on_request_game_rescan: Callable[[Path, Path | None], None] | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent=parent)
@@ -34,6 +34,7 @@ class SettingsDialog(FluentCaptionDialog):
         self._cfg = cfg
         self._acus_root = acus_root.resolve()
         self._get_tool_path = get_tool_path
+        self._on_request_game_rescan = on_request_game_rescan
 
         game_hint = BodyLabel(
             "指定已安装游戏中的 **A001** 数据位置（或包含 `A001` / `Option/A001` 的安装根目录）。"
@@ -173,19 +174,14 @@ class SettingsDialog(FluentCaptionDialog):
                     tool_path = tp
             except OSError:
                 tool_path = None
-        idx, err = run_rebuild_game_index_with_progress(
-            self, game_root=root, compressonatorcli_path=tool_path
-        )
-        if idx is None:
-            fly_critical(self, "扫描失败", err)
+        if self._on_request_game_rescan is None:
+            fly_warning(self, "不可用", "当前窗口未提供后台扫描入口。")
             return
-        refresh_chara_works_sorts_with_game(self._acus_root, root)
+        self._on_request_game_rescan(root, tool_path)
         fly_message(
             self,
-            "扫描完成",
-            f"已索引乐曲 {len(idx.music)}、场景 {len(idx.stage)}、"
-            f"DDSImage {len(idx.dds_image)}、ddsMap {len(idx.dds_map)}。\n"
-            f"数据根：{idx.a001_root}",
+            "已开始后台扫描",
+            "扫描任务已提交，完成后主界面会自动提示结果。",
         )
 
     def _pick_tool(self) -> None:
@@ -318,12 +314,3 @@ class SettingsDialog(FluentCaptionDialog):
         self._cfg.game_root = gr
         self._cfg.enable_pgko_ugc_experimental = bool(self.pgko_exp_checkbox.isChecked())
         self._cfg.save()
-        refresh_chara_works_sorts_with_game(self._acus_root, gr or None)
-        if gr:
-            _idx, err = run_rebuild_game_index_with_progress(
-                self,
-                game_root=Path(gr).expanduser(),
-                compressonatorcli_path=self._get_tool_path(),
-            )
-            if _idx is None and err:
-                fly_warning(self, "游戏索引未更新", err)

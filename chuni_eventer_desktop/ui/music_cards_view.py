@@ -82,7 +82,6 @@ class FlipMusicCard(QFrame):
     deleteRequested = pyqtSignal(object)
     trophyRequested = pyqtSignal(object)
     jacketReplaceRequested = pyqtSignal(object)
-    githubUploadRequested = pyqtSignal(object)
     stageChangeRequested = pyqtSignal(object)
     releaseTagChangeRequested = pyqtSignal(object)
 
@@ -148,7 +147,6 @@ class FlipMusicCard(QFrame):
         act_stage = Action(FIF.ALBUM, "修改背景(Stage)…", self)
         act_release_tag = Action(FIF.TAG, "修改分类(releaseTag)…", self)
         act_trophy = Action(FIF.TAG, "生成课题称号…", self)
-        act_gh = Action(FIF.SYNC, "上传", self)
         act_del = Action(FIF.DELETE, "删除乐曲…", self)
         act_jacket.triggered.connect(
             lambda: QTimer.singleShot(80, lambda: self.jacketReplaceRequested.emit(self._item))
@@ -164,11 +162,6 @@ class FlipMusicCard(QFrame):
         )
         # Delay emit to next event loop tick so menu closes first.
         # Otherwise opening a modal dialog immediately here may appear unclickable.
-        act_gh.triggered.connect(
-            lambda: QTimer.singleShot(80, lambda: self.githubUploadRequested.emit(self._item))
-        )
-        # Delay emit to next event loop tick so menu closes first.
-        # Otherwise opening a modal dialog immediately here may appear unclickable.
         act_del.triggered.connect(
             lambda: QTimer.singleShot(80, lambda: self.deleteRequested.emit(self._item))
         )
@@ -176,7 +169,6 @@ class FlipMusicCard(QFrame):
         menu.addAction(act_stage)
         menu.addAction(act_release_tag)
         menu.addAction(act_trophy)
-        menu.addAction(act_gh)
         menu.addAction(act_del)
         menu.exec(
             event.globalPos(),
@@ -445,7 +437,6 @@ class MusicCardsView(QWidget):
     musicDeleteRequested = pyqtSignal(object)
     musicTrophyRequested = pyqtSignal(object)
     musicJacketReplaceRequested = pyqtSignal(object)
-    musicGithubUploadRequested = pyqtSignal(object)
     musicStageChangeRequested = pyqtSignal(object)
     musicReleaseTagChangeRequested = pyqtSignal(object)
 
@@ -581,7 +572,6 @@ class MusicCardsView(QWidget):
             card.deleteRequested.connect(self.musicDeleteRequested.emit)
             card.trophyRequested.connect(self.musicTrophyRequested.emit)
             card.jacketReplaceRequested.connect(self.musicJacketReplaceRequested.emit)
-            card.githubUploadRequested.connect(self.musicGithubUploadRequested.emit)
             card.stageChangeRequested.connect(self.musicStageChangeRequested.emit)
             card.releaseTagChangeRequested.connect(self.musicReleaseTagChangeRequested.emit)
             self._cards.append(card)

@@ -53,12 +53,7 @@ from ..pgko_to_c2s import (
 )
 from ..penguin_tools_cli import explain_penguin_tools_cli_lookup, resolve_penguin_tools_cli
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
-from .fluent_dialogs import (
-    fly_critical,
-    fly_message_async,
-    fly_question_async,
-    fly_warning,
-)
+from .fluent_dialogs import fly_message_async, fly_question_async, fly_warning
 from .fluent_table import (
     apply_fluent_sheet_table,
     mark_sheet_item_readonly,
@@ -188,6 +183,127 @@ class _InstallPgkoThread(QThread):
                 opts=self._opts,
             )
             self.ok.emit(ret)
+        except Exception as e:
+            self.fail.emit(f"{type(e).__name__}: {e}")
+
+
+def _pgko_convert_worker(output: Path) -> dict[str, object]:
+    """
+    在后台线程执行 mgxc → c2s 与元数据读取；不得访问任何 QWidget。
+    成功返回供 UI 线程使用的纯数据 dict；失败抛异常。
+    """
+    mgxc_list: list[Path] = []
+    if output.is_dir():
+        mgxc_list = sorted(p for p in output.glob("**/*.mgxc") if p.is_file())
+    elif output.is_file() and output.suffix.lower() == ".mgxc":
+        mgxc_list = [output]
+
+    pick = pick_pgko_chart_for_convert(output)
+    if not mgxc_list and pick is None:
+        raise RuntimeError("NO_SOURCE")
+
+    converted: list[tuple[Path, Path, str]] = []
+    cli_ok = 0
+    errs: list[str] = []
+    for mg in mgxc_list:
+        try:
+            out_i, backend_i = convert_pgko_chart_pick_to_c2s_with_backend(
+                PgkoChartPick(path=mg, ext="mgxc")
+            )
+            converted.append((mg, out_i, backend_i))
+            if backend_i == "cli":
+                cli_ok += 1
+        except Exception as e:
+            errs.append(f"{mg.name}: {type(e).__name__}: {e}")
+
+    out: Path | None = None
+    backend: str = "cli"
+    if converted:
+        if pick is not None:
+            for src_i, out_i, backend_i in converted:
+                if src_i.resolve() == pick.path.resolve():
+                    out, backend = out_i, backend_i
+                    break
+        if out is None:
+            _src0, out, backend = converted[0]
+
+    if out is None:
+        if pick is None:
+            raise RuntimeError("未找到可转换的 mgxc 文件")
+        out, backend = convert_pgko_chart_pick_to_c2s_with_backend(pick)
+        if backend == "cli":
+            cli_ok += 1
+
+    total_ok = cli_ok
+    warn_cli = total_ok == 0
+    cli_why = ""
+    cli_detail = ""
+    if warn_cli:
+        cli = resolve_penguin_tools_cli()
+        cli_why = "未找到 PenguinTools.CLI" if cli is None else f"PenguinTools.CLI 调用失败：{cli}"
+        cli_detail = explain_penguin_tools_cli_lookup() if cli is None else ""
+
+    if pick is None:
+        if converted:
+            pick = PgkoChartPick(path=converted[0][0], ext="mgxc")
+        else:
+            raise RuntimeError("缺少用于读取元数据的谱面源")
+    meta = read_pgko_meta_for_pick(pick)
+
+    return {
+        "out": str(out),
+        "backend": backend,
+        "pick_path": str(pick.path),
+        "pick_ext": pick.ext,
+        "meta": meta,
+        "errs": errs,
+        "total_ok": total_ok,
+        "cli_ok": cli_ok,
+        "warn_cli": warn_cli,
+        "cli_why": cli_why,
+        "cli_detail": cli_detail,
+    }
+
+
+class _ConvertPgkoThread(QThread):
+    """mgxc → c2s + 读元数据；避免阻塞 UI 线程（CLI 子进程可能较慢）。"""
+
+    ok = pyqtSignal(dict)
+    fail = pyqtSignal(str)
+
+    def __init__(self, output: Path, parent=None) -> None:
+        super().__init__(parent=parent)
+        self._output = output
+
+    def run(self) -> None:
+        try:
+            self.ok.emit(_pgko_convert_worker(self._output))
+        except NotImplementedError as e:
+            self.fail.emit(f"NOTIMPL:{e}")
+        except RuntimeError as e:
+            if str(e) == "NO_SOURCE":
+                self.fail.emit("NO_SOURCE")
+            else:
+                self.fail.emit(f"{type(e).__name__}: {e}")
+        except Exception as e:
+            self.fail.emit(f"{type(e).__name__}: {e}")
+
+
+class _UgcExperimentalConvertThread(QThread):
+    ok = pyqtSignal(str, str)  # out path str, backend
+    fail = pyqtSignal(str)
+
+    def __init__(self, ugc_path: Path, parent=None) -> None:
+        super().__init__(parent=parent)
+        self._ugc_path = ugc_path
+
+    def run(self) -> None:
+        try:
+            out, backend = convert_pgko_chart_pick_to_c2s_with_backend(
+                PgkoChartPick(path=self._ugc_path, ext="ugc"),
+                allow_ugc_experimental=True,
+            )
+            self.ok.emit(str(out), backend)
         except Exception as e:
             self.fail.emit(f"{type(e).__name__}: {e}")
 
@@ -467,6 +583,8 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
         self._entries: list[PgkoSheetEntry] = []
         self._fetch_thread: _FetchPgkoThread | None = None
         self._download_thread: _DownloadPgkoThread | None = None
+        self._convert_thread: _ConvertPgkoThread | None = None
+        self._ugc_exp_thread: _UgcExperimentalConvertThread | None = None
         self._next_cursor: str | None = None
         self._is_fetching_more = False
         self._seen_bundle_ids: set[str] = set()
@@ -591,6 +709,32 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
         th.finished.connect(_on_finished)
         th.start()
 
+    def _attach_convert_thread(self, th: _ConvertPgkoThread) -> None:
+        self._convert_thread = th
+        th.ok.connect(self._on_convert_pgko_ok)
+        th.fail.connect(self._on_convert_pgko_fail)
+
+        def _on_finished() -> None:
+            if self._convert_thread is th:
+                self._convert_thread = None
+            th.deleteLater()
+
+        th.finished.connect(_on_finished)
+        th.start()
+
+    def _attach_ugc_experimental_thread(self, th: _UgcExperimentalConvertThread) -> None:
+        self._ugc_exp_thread = th
+        th.ok.connect(self._on_ugc_experimental_ok)
+        th.fail.connect(self._on_ugc_experimental_fail)
+
+        def _on_finished() -> None:
+            if self._ugc_exp_thread is th:
+                self._ugc_exp_thread = None
+            th.deleteLater()
+
+        th.finished.connect(_on_finished)
+        th.start()
+
     def _on_ugc_guide(self) -> None:
         cfg = AcusConfig.load()
         _PgkoUgcGuideDialog(
@@ -617,30 +761,21 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
                 f"在以下位置未找到可用于实验性转换的 UGC 文件：\n{output}",
             )
             return
-        src = ugc_list[0]
-        self._status.setText(f"实验性 UGC 转换中：{src.name} ...")
-        try:
-            out, backend = convert_pgko_chart_pick_to_c2s_with_backend(
-                PgkoChartPick(path=src, ext="ugc"),
-                allow_ugc_experimental=True,
-            )
-        except Exception as e:
-            self._status.setText("实验性 UGC 转换失败。")
-            fly_critical(
-                self,
-                "实验性 UGC 转换失败",
-                f"{type(e).__name__}: {e}",
-            )
+        if self._thread_running_safe(self._ugc_exp_thread):
             return
-        self._status.setText(f"实验性 UGC 转换完成：{out.name}（{backend}）")
-        fly_message_async(
-            self,
-            "实验性 UGC 转换完成",
-            f"输入：{src}\n输出：{out}\n后端：{backend}\n\n"
-            "提示：该结果为实验性输出，不保证可用性与一致性。",
-            single_button=True,
-            window_modal=False,
+        src = ugc_list[0]
+        self._status.setText(f"实验性 UGC 转换中：{src.name} …")
+        self._attach_ugc_experimental_thread(_UgcExperimentalConvertThread(src, parent=self))
+
+    def _on_ugc_experimental_ok(self, out_path: str, backend: str) -> None:
+        self._status.setText(
+            f"实验性 UGC 转换完成：{Path(out_path).name}（{backend}）\n\n"
+            f"输出：{out_path}\n\n"
+            "提示：该结果为实验性输出，不保证可用性与一致性。"
         )
+
+    def _on_ugc_experimental_fail(self, msg: str) -> None:
+        self._status.setText(f"实验性 UGC 转换失败。\n\n{msg}")
 
     def _on_refresh(self) -> None:
         if self._thread_running_safe(self._fetch_thread):
@@ -786,104 +921,43 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
 
     def _try_convert_pgko_to_c2s(self, output: Path) -> None:
         _pgko_dlog("_try_convert_pgko_to_c2s:start", output=str(output))
-        mgxc_list: list[Path] = []
-        if output.is_dir():
-            mgxc_list = sorted(p for p in output.glob("**/*.mgxc") if p.is_file())
-        elif output.is_file() and output.suffix.lower() == ".mgxc":
-            mgxc_list = [output]
-
-        pick = pick_pgko_chart_for_convert(output)
-        if not mgxc_list and pick is None:
-            _pgko_dlog("_try_convert_pgko_to_c2s:no_source", output=str(output))
-            fly_warning(
-                self,
-                "未找到谱面文件",
-                f"在以下位置未找到可用谱面：\n{output}\n\n"
-                "说明：暂不支持 ugc 直转，需存在 mgxc 文件。",
-            )
+        if self._thread_running_safe(self._convert_thread):
+            self._status.setText("已有转码任务在进行，请稍候…")
             return
+        self._status.setText("正在转码，请稍候…")
+        self._attach_convert_thread(_ConvertPgkoThread(output, parent=self))
 
-        converted: list[tuple[Path, Path, str]] = []
-        cli_ok = 0
-        errs: list[str] = []
-        for mg in mgxc_list:
-            try:
-                out_i, backend_i = convert_pgko_chart_pick_to_c2s_with_backend(
-                    PgkoChartPick(path=mg, ext="mgxc")
-                )
-                converted.append((mg, out_i, backend_i))
-                if backend_i == "cli":
-                    cli_ok += 1
-            except Exception as e:
-                errs.append(f"{mg.name}: {type(e).__name__}: {e}")
-                _pgko_dlog("_try_convert_pgko_to_c2s:mgxc_fail", mg=str(mg), err=f"{type(e).__name__}: {e}")
-
-        out: Path | None = None
-        backend: str = "cli"
-        if converted:
-            if pick is not None:
-                for src_i, out_i, backend_i in converted:
-                    if src_i.resolve() == pick.path.resolve():
-                        out, backend = out_i, backend_i
-                        break
-            if out is None:
-                _src0, out, backend = converted[0]
-
-        try:
-            if out is None:
-                if pick is None:
-                    raise RuntimeError("未找到可转换的 mgxc 文件")
-                out, backend = convert_pgko_chart_pick_to_c2s_with_backend(pick)
-                if backend == "cli":
-                    cli_ok += 1
-        except NotImplementedError as e:
-            if pick is not None:
-                self._status.setText(
-                    f"已选转码源：{pick.path.name}（{pick.ext}，优先级规则：mgxc > ugc）"
-                )
-            fly_warning(self, "暂不支持该格式", str(e))
-            return
-        except Exception as e:
-            self._status.setText("转码失败。")
-            _pgko_dlog("_try_convert_pgko_to_c2s:hard_fail", err=f"{type(e).__name__}: {e}")
-            self._status.setText(
-                "转码失败。\n\n"
-                f"{type(e).__name__}: {e}"
-            )
-            return
-
+    def _on_convert_pgko_ok(self, d: dict[str, object]) -> None:
+        _pgko_dlog("_on_convert_pgko_ok", out=d.get("out"))
+        out = Path(str(d["out"]))
+        backend = str(d["backend"])
         backend_tip = "PenguinTools.CLI" if backend == "cli" else backend
-        total_ok = cli_ok
-        self._status.setText(
+        total_ok = int(d.get("total_ok") or 0)
+        cli_ok = int(d.get("cli_ok") or 0)
+        errs = d.get("errs") if isinstance(d.get("errs"), list) else []
+        errs_s = [str(x) for x in errs]
+
+        parts: list[str] = [
             f"转码完成：{total_ok} 个（CLI={cli_ok}），主谱 {out.name}（{backend_tip}）"
-        )
-        if total_ok == 0:
-            cli = resolve_penguin_tools_cli()
-            why = "未找到 PenguinTools.CLI" if cli is None else f"PenguinTools.CLI 调用失败：{cli}"
-            detail = explain_penguin_tools_cli_lookup() if cli is None else ""
-            fly_warning(
-                self,
-                "CLI 转换未生效",
-                f"本次没有任何谱面成功走 PenguinTools.CLI。\n原因：{why}\n\n{detail}".strip(),
+        ]
+        if bool(d.get("warn_cli")):
+            why = str(d.get("cli_why") or "")
+            detail = str(d.get("cli_detail") or "").strip()
+            parts.append(
+                "CLI 转换未生效\n"
+                f"原因：{why}\n\n"
+                f"{detail}".strip()
             )
-        if errs:
-            _pgko_dlog("_try_convert_pgko_to_c2s:partial_fail", fail_count=len(errs))
-            fly_warning(
-                self,
-                "部分谱面转换失败",
-                "以下谱面未成功转换（最多显示 10 条）：\n" + "\n".join(errs[:10]),
+        if errs_s:
+            parts.append(
+                "部分谱面转换失败（最多显示 10 条）：\n" + "\n".join(errs_s[:10])
             )
-        try:
-            if pick is None:
-                if converted:
-                    pick = PgkoChartPick(path=converted[0][0], ext="mgxc")
-                else:
-                    raise RuntimeError("缺少用于读取元数据的谱面源")
-            meta = read_pgko_meta_for_pick(pick)
-        except Exception as e:
-            _pgko_dlog("_try_convert_pgko_to_c2s:meta_fail", err=f"{type(e).__name__}: {e}")
-            fly_warning(self, "读取元数据失败", f"{type(e).__name__}: {e}")
-            return
+        self._status.setText("\n\n".join(parts))
+
+        pick = PgkoChartPick(path=Path(str(d["pick_path"])), ext=str(d["pick_ext"]))
+        meta = d.get("meta")
+        if not isinstance(meta, dict):
+            meta = {}
         cfg = AcusConfig.load()
         tool = resolve_compressonatorcli_path(cfg)
         dlg = _PgkoInstallConfigDialog(
@@ -894,15 +968,27 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
             parent=self,
         )
         if dlg.exec() != QDialog.DialogCode.Accepted:
-            _pgko_dlog("_try_convert_pgko_to_c2s:install_cancel", out=str(out))
-            fly_message_async(
-                self,
-                "转码完成",
-                f"输出文件：\n{out}",
-                single_button=True,
-                window_modal=False,
+            _pgko_dlog("_on_convert_pgko_ok:install_cancel", out=str(out))
+            self._status.setText(
+                f"{self._status.text()}\n\n（未导入 ACUS）输出文件：\n{out}"
+            )
+
+    def _on_convert_pgko_fail(self, msg: str) -> None:
+        _pgko_dlog("_on_convert_pgko_fail", msg=msg[:400])
+        if msg == "NO_SOURCE":
+            self._status.setText(
+                "未找到谱面文件。\n\n"
+                "说明：暂不支持 ugc 直转，需存在 mgxc 文件。\n"
+                "请确认解压目录内含有 .mgxc。"
             )
             return
+        if msg.startswith("NOTIMPL:"):
+            self._status.setText(
+                "暂不支持该格式。\n\n"
+                f"{msg[len('NOTIMPL:'):]}"
+            )
+            return
+        self._status.setText(f"转码失败。\n\n{msg}")
 
 
 class _PgkoInstallConfigDialog(FluentCaptionDialog):
@@ -951,7 +1037,7 @@ class _PgkoInstallConfigDialog(FluentCaptionDialog):
         hint = BodyLabel(
             f"曲名: {meta.get('title') or ''}\n"
             f"作者: {meta.get('artist') or meta.get('designer') or ''}\n"
-            f"难度标识: {diff}（4=WE, 5=ULT）\n"
+            f"难度标识: {diff}（0=BAS, 1=ADV, 2=EXP, 3=MAS, 4=ULT, 5=WE）\n"
             "定数将按包内各 mgxc 的 cnst 自动写入，不允许手填。"
         )
         hint.setWordWrap(True)
@@ -1036,18 +1122,16 @@ class _PgkoInstallConfigDialog(FluentCaptionDialog):
             self._status.setText("导入失败：返回结果格式错误")
             self._status.show()
             return
-        host = self.window()
-        _pgko_dlog("_on_install_ok:accept_before", host=_w_short(host))
-        self.accept()
-        _pgko_dlog("_on_install_ok:accept_after")
-        fly_message_async(
-            host,
-            "导入完成",
+        summary = (
+            "导入完成。\n"
             f"musicId: {ret.get('musicId')}\n"
             f"slots: {ret.get('slots')}\n"
             f"Music.xml: {ret.get('musicXml')}\n"
             f"cue: {ret.get('cueDir')}\n"
-            f"event: {ret.get('eventId')}",
-            single_button=True,
-            window_modal=False,
+            f"event: {ret.get('eventId')}"
         )
+        _pgko_dlog("_on_install_ok:accept_before", summary=summary)
+        self.accept()
+        _pgko_dlog("_on_install_ok:accept_after")
+        self._status.setText(summary)
+        self._status.show()
