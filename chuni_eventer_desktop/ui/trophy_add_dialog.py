@@ -28,6 +28,7 @@ from qfluentwidgets import (
     isDarkTheme,
 )
 
+from ..acus_workspace import acus_generated_dir
 from ..dds_convert import DdsToolError, ingest_to_bc3_dds
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message
@@ -428,7 +429,7 @@ class TrophyAddDialog(FluentCaptionDialog):
             edit.setText(p)
 
     def _open_trophy_texture_editor(self) -> None:
-        out_dir = self._acus_root / "_generated" / "trophy_compose_png"
+        out_dir = acus_generated_dir(self._acus_root, "trophy_compose_png")
         parent_win = self.window()
         aw = QApplication.activeWindow()
         print(
@@ -466,7 +467,7 @@ class TrophyAddDialog(FluentCaptionDialog):
             self._sync_rare_ui()
 
     def _open_pjsk_trophy_generator(self) -> None:
-        out_dir = self._acus_root / "_generated" / "trophy_compose_png"
+        out_dir = acus_generated_dir(self._acus_root, "trophy_compose_png")
         parent_win = self.window()
         aw = QApplication.activeWindow()
         print(

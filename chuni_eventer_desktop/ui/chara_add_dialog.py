@@ -28,6 +28,7 @@ from qfluentwidgets import (
     isDarkTheme,
 )
 
+from ..acus_workspace import acus_generated_dir
 from ..chuni_formats import ChuniCharaId
 from ..dds_convert import DdsToolError
 from ..xml_writer import (
@@ -579,7 +580,7 @@ class CharaAddDialog(FluentCaptionDialog):
 
     def _open_quick_compose_dialog(self) -> None:
         static_dir = Path(__file__).resolve().parent.parent / "static" / "tool" / "chara"
-        out_dir = self._acus_root / "_generated" / "chara_quick_png"
+        out_dir = acus_generated_dir(self._acus_root, "chara_quick_png")
         dlg = _CharaQuickComposeDialog(static_chara_dir=static_dir, out_dir=out_dir, parent=self)
         if dlg.exec() != QDialog.DialogCode.Accepted or dlg.generated_paths is None:
             return

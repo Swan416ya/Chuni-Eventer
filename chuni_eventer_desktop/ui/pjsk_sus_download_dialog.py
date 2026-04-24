@@ -6,6 +6,7 @@ from pathlib import Path
 from PyQt6.QtCore import QObject, QPoint, QThread, QTimer, pyqtSignal, Qt
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QDialog,
     QHBoxLayout,
     QHeaderView,
@@ -136,7 +137,7 @@ class PjskSusDownloadDialog(FluentCaptionDialog):
         )
         hint.setWordWrap(True)
 
-        self._filter = QLineEdit(card)
+        self._filter = LineEdit(card)
         self._filter.setPlaceholderText("按曲名或作曲家过滤…")
         self._filter.textChanged.connect(self._apply_filter)
 

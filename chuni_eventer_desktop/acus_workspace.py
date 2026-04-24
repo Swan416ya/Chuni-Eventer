@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import sys
@@ -26,6 +27,24 @@ def acus_root_dir() -> Path:
 
 def app_cache_dir() -> Path:
     return app_root_dir() / ".cache"
+
+
+def acus_workspace_cache_id(acus_root: Path) -> str:
+    """Short stable id from the resolved ACUS path (for cache subdirectories)."""
+    try:
+        raw = str(Path(acus_root).expanduser().resolve(strict=False))
+    except OSError:
+        raw = str(Path(acus_root).expanduser())
+    return hashlib.sha256(raw.encode("utf-8", errors="surrogatepass")).hexdigest()[:16]
+
+
+def acus_generated_dir(acus_root: Path, *sub: str) -> Path:
+    """
+    Intermediate outputs tied to an ACUS workspace: under ``.cache/acus_generated/<id>/…``,
+    not inside the ACUS folder.
+    """
+    base = (app_cache_dir() / "acus_generated" / acus_workspace_cache_id(acus_root)).resolve()
+    return base.joinpath(*sub) if sub else base
 
 
 def _acus_seed_source_dir() -> Path:
