@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from PyQt6.QtCore import Qt
+
 from qframelesswindow import FramelessDialog
 from qfluentwidgets.window import FluentTitleBar
 
@@ -28,6 +30,9 @@ class FluentCaptionDialog(FramelessDialog):
 
     def __init__(self, *, parent=None) -> None:
         super().__init__(parent=parent)
+        # After exec() returns, Qt hides the dialog but may keep a hidden modal window
+        # around; that breaks later in-window MessageBox input on Windows. Destroy on close.
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.setTitleBar(FluentTitleBar(self))
         self.titleBar.maxBtn.hide()
         self.titleBar.minBtn.show()
