@@ -2,12 +2,34 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import shutil
 import sys
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+_cfg_log_logger: logging.Logger | None = None
+
+
+def _cfg_logger() -> logging.Logger:
+    global _cfg_log_logger
+    if _cfg_log_logger is not None:
+        return _cfg_log_logger
+    logger = logging.getLogger("chuni.settings_save")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    try:
+        log_dir = app_cache_dir() / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        handler = logging.FileHandler(log_dir / "settings_save.log", encoding="utf-8")
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        logger.addHandler(handler)
+    except Exception:
+        pass
+    _cfg_log_logger = logger
+    return logger
 
 
 def app_root_dir() -> Path:
@@ -239,6 +261,7 @@ class AcusConfig:
         )
 
     def save(self) -> None:
+        lg = _cfg_logger()
         p = self.path()
         p.parent.mkdir(parents=True, exist_ok=True)
         payload: dict[str, Any] = {
@@ -246,7 +269,15 @@ class AcusConfig:
             "game_root": self.game_root,
             "enable_pgko_ugc_experimental": bool(self.enable_pgko_ugc_experimental),
         }
+        lg.info(
+            "config_save_start path=%s game_root=%s compressonator_set=%s pgko_exp=%s",
+            p,
+            (self.game_root or "").strip(),
+            bool((self.compressonatorcli_path or "").strip()),
+            bool(self.enable_pgko_ugc_experimental),
+        )
         p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        lg.info("config_save_done path=%s", p)
 
 
 def bundled_compressonatorcli_path() -> Path | None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, Qt, QThread, QTimer, pyqtSignal
@@ -15,7 +16,13 @@ from qfluentwidgets import (
     SubtitleLabel,
 )
 
-from ..acus_workspace import AcusConfig, ensure_acus_layout, refresh_chara_works_sorts_with_game, resolve_compressonatorcli_path
+from ..acus_workspace import (
+    AcusConfig,
+    app_cache_dir,
+    ensure_acus_layout,
+    refresh_chara_works_sorts_with_game,
+    resolve_compressonatorcli_path,
+)
 from ..version import APP_VERSION
 from ..game_data_index import GameDataIndex, load_cached_game_index, rebuild_and_save_game_index
 from ..sheet_install import install_zip_to_acus
@@ -56,26 +63,81 @@ from .nav_icons import (
 )
 
 
+_scan_log_logger: logging.Logger | None = None
+
+
+def _scan_logger() -> logging.Logger:
+    global _scan_log_logger
+    if _scan_log_logger is not None:
+        return _scan_log_logger
+    logger = logging.getLogger("chuni.index_scan")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    try:
+        log_dir = app_cache_dir() / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        handler = logging.FileHandler(log_dir / "index_scan.log", encoding="utf-8")
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        logger.addHandler(handler)
+    except Exception:
+        # 日志初始化失败不应影响主流程。
+        pass
+    _scan_log_logger = logger
+    return logger
+
+
 class _GameIndexWorker(QObject):
     finished = pyqtSignal(object, str)
     progress = pyqtSignal(str, int, int)  # msg, cur, total(0=indeterminate)
 
-    def __init__(self, game_root: Path, compressonatorcli_path: Path | None) -> None:
+    def __init__(
+        self,
+        game_root: Path,
+        compressonatorcli_path: Path | None,
+        acus_root: Path,
+    ) -> None:
         super().__init__()
         self._game_root = game_root
         self._compressonatorcli_path = compressonatorcli_path
+        self._acus_root = acus_root
 
     def run(self) -> None:
+        lg = _scan_logger()
+        lg.info("scan_start game_root=%s tool=%s", self._game_root, self._compressonatorcli_path)
+
         def _on_progress(msg: str, cur: int, total: int) -> None:
+            lg.info("scan_progress cur=%s total=%s msg=%s", cur, total, msg)
             self.progress.emit(str(msg), int(cur), int(total))
 
-        idx, err = rebuild_and_save_game_index(
-            self._game_root,
-            self._compressonatorcli_path,
-            progress=_on_progress,
-            prewarm_dds_preview=False,
-        )
-        self.finished.emit(idx, err)
+        try:
+            idx, err = rebuild_and_save_game_index(
+                self._game_root,
+                self._compressonatorcli_path,
+                progress=_on_progress,
+                prewarm_dds_preview=False,
+            )
+            if isinstance(idx, GameDataIndex):
+                _on_progress("正在刷新 ACUS/charaWorks 排序表 XML …", 0, 0)
+                try:
+                    refresh_chara_works_sorts_with_game(self._acus_root, self._game_root)
+                except Exception as e:
+                    lg.exception("scan_finish_with_post_step_error game_root=%s", self._game_root)
+                    self.finished.emit(None, f"索引已完成，但刷新 charaWorks 失败：{e}")
+                    return
+            if isinstance(idx, GameDataIndex):
+                lg.info(
+                    "scan_finish_ok music=%s stage=%s dds_image=%s dds_map=%s",
+                    len(idx.music),
+                    len(idx.stage),
+                    len(idx.dds_image),
+                    len(idx.dds_map),
+                )
+            else:
+                lg.warning("scan_finish_failed err=%s", err)
+            self.finished.emit(idx, err)
+        except Exception:
+            lg.exception("scan_crash_unhandled game_root=%s", self._game_root)
+            self.finished.emit(None, "扫描线程发生未处理异常，请查看 .cache/logs/index_scan.log")
 
 
 class MainWindow(MSFluentWindow):
@@ -206,12 +268,15 @@ class MainWindow(MSFluentWindow):
 
     def _start_index_thread(self, game_root: Path, compressonatorcli_path: Path | None = None) -> None:
         if self._index_thread is not None:
+            _scan_logger().info("scan_skip_already_running game_root=%s", game_root)
             return
+        _scan_logger().info("scan_request game_root=%s", game_root)
         self._show_index_progress_dialog("正在扫描游戏数据…")
         thread = QThread(self)
         worker = _GameIndexWorker(
             game_root=game_root,
             compressonatorcli_path=compressonatorcli_path if compressonatorcli_path is not None else self._get_tool_path_or_none(),
+            acus_root=self._acus_root,
         )
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
@@ -226,8 +291,8 @@ class MainWindow(MSFluentWindow):
         thread.start()
 
     def _on_background_index_finished(self, idx: object, err: str) -> None:
-        self._hide_index_progress_dialog()
         if not isinstance(idx, GameDataIndex):
+            _scan_logger().warning("scan_result_failed err=%s", err)
             fly_message_async(
                 self,
                 "游戏索引失败",
@@ -236,7 +301,7 @@ class MainWindow(MSFluentWindow):
                 window_modal=True,
             )
             return
-        refresh_chara_works_sorts_with_game(self._acus_root, self._cfg.game_root or None)
+        _scan_logger().info("scan_result_ok")
         fly_message_async(
             self,
             "索引完成",
@@ -247,6 +312,7 @@ class MainWindow(MSFluentWindow):
         )
 
     def _on_index_thread_stopped(self) -> None:
+        _scan_logger().info("scan_thread_stopped")
         self._hide_index_progress_dialog()
         self._index_thread = None
         self._index_worker = None
@@ -319,42 +385,57 @@ class MainWindow(MSFluentWindow):
             self._apply_category(kind, title)
 
     def _on_game_music_browser(self) -> None:
-        from .game_music_browser_dialog import GameMusicBrowserDialog
+        try:
+            _scan_logger().info("ui_click_game_music_browser")
+            from .game_music_browser_dialog import GameMusicBrowserDialog
 
-        raw = (self._cfg.game_root or "").strip()
-        if not raw:
-            fly_message(self, "提示", "请先在【设置】中配置「游戏数据目录」。")
-            return
-        dlg = GameMusicBrowserDialog(
-            game_root=Path(raw).expanduser(),
-            get_index=self._resolve_game_index,
-            parent=self,
-        )
-        dlg.exec()
+            raw = (self._cfg.game_root or "").strip()
+            if not raw:
+                fly_message(self, "提示", "请先在【设置】中配置「游戏数据目录」。")
+                return
+            dlg = GameMusicBrowserDialog(
+                game_root=Path(raw).expanduser(),
+                get_index=self._resolve_game_index,
+                parent=self,
+            )
+            dlg.exec()
+        except Exception:
+            _scan_logger().exception("ui_click_game_music_browser_crash")
+            fly_critical(self, "操作失败", "打开游戏乐曲浏览时发生异常，请提供日志。")
 
     def _open_save_patch(self) -> None:
-        dlg = SavePatchDialog(
-            acus_root=self._acus_root,
-            get_tool_path=self._get_tool_path_or_none,
-            parent=self,
-        )
-        dlg.exec()
+        try:
+            _scan_logger().info("ui_click_save_patch")
+            dlg = SavePatchDialog(
+                acus_root=self._acus_root,
+                get_tool_path=self._get_tool_path_or_none,
+                parent=self,
+            )
+            dlg.exec()
+        except Exception:
+            _scan_logger().exception("ui_click_save_patch_crash")
+            fly_critical(self, "操作失败", "打开存档装备时发生异常，请提供日志。")
 
     def _open_settings(self) -> None:
-        dlg = SettingsDialog(
-            cfg=self._cfg,
-            acus_root=self._acus_root,
-            get_tool_path=self._get_tool_path_or_none,
-            on_request_game_rescan=self._request_game_index_rescan,
-            parent=self,
-        )
-        if dlg.exec() == dlg.DialogCode.Accepted:
-            dlg.apply()
-            fly_message(self, "已保存", "设置已保存。")
-            gr_raw = (self._cfg.game_root or "").strip()
-            if gr_raw:
-                self._request_game_index_rescan(Path(gr_raw).expanduser(), self._get_tool_path_or_none())
-            self._on_refresh()
+        try:
+            dlg = SettingsDialog(
+                cfg=self._cfg,
+                acus_root=self._acus_root,
+                get_tool_path=self._get_tool_path_or_none,
+                on_request_game_rescan=self._request_game_index_rescan,
+                parent=self,
+            )
+            _scan_logger().info("settings_dialog_open")
+            if dlg.exec() == dlg.DialogCode.Accepted:
+                _scan_logger().info("settings_save_click accepted=1")
+                _scan_logger().info("settings_save_apply_done")
+                fly_message(self, "已保存", "设置已保存。")
+                self._on_refresh()
+            else:
+                _scan_logger().info("settings_dialog_close_without_save")
+        except Exception:
+            _scan_logger().exception("settings_dialog_crash")
+            fly_critical(self, "操作失败", "打开或保存设置时发生异常，请提供日志。")
 
     def _request_game_index_rescan(self, game_root: Path, compressonatorcli_path: Path | None) -> None:
         if self._index_thread is not None:
@@ -372,8 +453,14 @@ class MainWindow(MSFluentWindow):
         self._manager.reload()
 
     def _on_add(self) -> None:
-        idx = self._current_category_index
-        kind = self._nav_specs[idx][3] if 0 <= idx < len(self._nav_specs) else ""
+        try:
+            idx = self._current_category_index
+            kind = self._nav_specs[idx][3] if 0 <= idx < len(self._nav_specs) else ""
+            _scan_logger().info("ui_click_add kind=%s", kind)
+        except Exception:
+            _scan_logger().exception("ui_click_add_precheck_crash")
+            fly_critical(self, "操作失败", "新增入口初始化失败，请提供日志。")
+            return
         if kind == "Reward":
             gi = self._resolve_game_index()
             music_r, chara_r, trophy_r, np_r, stage_r, default_id = reward_dialog_bundle(

@@ -296,6 +296,35 @@ def _aggregate_stages_dds_from_roots(roots: list[Path]) -> tuple[list[tuple[int,
     )
 
 
+def _aggregate_stages_dds_from_roots_with_progress(
+    *,
+    roots: list[Path],
+    game_root: Path,
+    progress: GameIndexProgress | None,
+) -> tuple[list[tuple[int, str]], list[tuple[int, str]], list[tuple[int, str]]]:
+    """带进度回调的 stage/dds 汇总（便于定位卡点）。"""
+    stage_m: dict[int, str] = {}
+    dds_i_m: dict[int, str] = {}
+    dds_m_m: dict[int, str] = {}
+    total = max(len(roots), 1)
+    for i, r in enumerate(roots):
+        src = _relative_under(game_root, r)
+        _pg(progress, f"正在读取 {src}/stage/**/Stage.xml …", i + 1, total)
+        for s in scan_stages(r):
+            stage_m[s.name.id] = (s.name.str or "").strip() or f"Stage{s.name.id}"
+        _pg(progress, f"正在读取 {src}/ddsImage/**/DDSImage.xml …", i + 1, total)
+        for d in scan_dds_images(r):
+            dds_i_m[d.name.id] = (d.name.str or "").strip() or f"DDSImage{d.name.id}"
+        _pg(progress, f"正在读取 {src}/ddsMap/**/DDSMap.xml …", i + 1, total)
+        for did, dstr in _scan_dds_map_pairs(r):
+            dds_m_m[did] = dstr
+    return (
+        sorted(stage_m.items(), key=lambda x: x[0]),
+        sorted(dds_i_m.items(), key=lambda x: x[0]),
+        sorted(dds_m_m.items(), key=lambda x: x[0]),
+    )
+
+
 def _aggregate_chara_np_trophy_from_roots(
     roots: list[Path],
 ) -> tuple[list[tuple[int, str]], list[tuple[int, str]], list[tuple[int, str]]]:
@@ -308,6 +337,35 @@ def _aggregate_chara_np_trophy_from_roots(
             chara_m[c.name.id] = (c.name.str or "").strip() or f"Chara{c.name.id}"
         for n in scan_nameplates(r):
             np_m[n.name.id] = (n.name.str or "").strip() or f"NamePlate{n.name.id}"
+        for t in scan_trophies(r):
+            tr_m[t.name.id] = (t.name.str or "").strip() or f"Trophy{t.name.id}"
+    return (
+        sorted(chara_m.items(), key=lambda x: x[0]),
+        sorted(np_m.items(), key=lambda x: x[0]),
+        sorted(tr_m.items(), key=lambda x: x[0]),
+    )
+
+
+def _aggregate_chara_np_trophy_from_roots_with_progress(
+    *,
+    roots: list[Path],
+    game_root: Path,
+    progress: GameIndexProgress | None,
+) -> tuple[list[tuple[int, str]], list[tuple[int, str]], list[tuple[int, str]]]:
+    """带进度回调的 chara/namePlate/trophy 汇总（便于定位卡点）。"""
+    chara_m: dict[int, str] = {}
+    np_m: dict[int, str] = {}
+    tr_m: dict[int, str] = {}
+    total = max(len(roots), 1)
+    for i, r in enumerate(roots):
+        src = _relative_under(game_root, r)
+        _pg(progress, f"正在读取 {src}/chara/**/Chara.xml …", i + 1, total)
+        for c in scan_charas(r):
+            chara_m[c.name.id] = (c.name.str or "").strip() or f"Chara{c.name.id}"
+        _pg(progress, f"正在读取 {src}/namePlate/**/NamePlate.xml …", i + 1, total)
+        for n in scan_nameplates(r):
+            np_m[n.name.id] = (n.name.str or "").strip() or f"NamePlate{n.name.id}"
+        _pg(progress, f"正在读取 {src}/trophy/**/Trophy.xml …", i + 1, total)
         for t in scan_trophies(r):
             tr_m[t.name.id] = (t.name.str or "").strip() or f"Trophy{t.name.id}"
     return (
@@ -517,7 +575,7 @@ def build_game_data_index(
         src = _relative_under(gr, pack)
         _pg(
             progress,
-            f"扫描乐曲 ({i + 1}/{nroots})：{src}",
+            f"正在读取 {src}/music/**/Music.xml ({i + 1}/{nroots})…",
             i + 1,
             max(nroots, 1),
         )
@@ -529,9 +587,18 @@ def build_game_data_index(
     merged_catalog = merge_music_catalog_rows(catalog_rows)
     music_pairs = [(int(r["id"]), str(r["title"])) for r in merged_catalog]
 
-    _pg(progress, "汇总舞台 / DDS / 角色 / 称号…", 0, 0)
-    stage_t, dds_i_t, dds_m_t = _aggregate_stages_dds_from_roots(roots)
-    chara_t, np_t, tr_t = _aggregate_chara_np_trophy_from_roots(roots)
+    _pg(progress, "正在汇总 stage/dds 资源 …", 0, 0)
+    stage_t, dds_i_t, dds_m_t = _aggregate_stages_dds_from_roots_with_progress(
+        roots=roots,
+        game_root=gr,
+        progress=progress,
+    )
+    _pg(progress, "正在汇总 chara/namePlate/trophy 资源 …", 0, 0)
+    chara_t, np_t, tr_t = _aggregate_chara_np_trophy_from_roots_with_progress(
+        roots=roots,
+        game_root=gr,
+        progress=progress,
+    )
 
     primary = roots_rel[0] if roots_rel else str(gr)
     return GameDataIndex(
@@ -564,6 +631,7 @@ def rebuild_and_save_game_index(
     prewarm_dds_preview: bool = True,
 ) -> tuple[GameDataIndex | None, str]:
     root = game_root.expanduser().resolve()
+    _pg(progress, "正在检查游戏根目录…", 0, 0)
     roots = enumerate_game_data_roots(root)
     if not roots:
         return None, (
@@ -572,7 +640,7 @@ def rebuild_and_save_game_index(
             "请确认「游戏根目录」指向安装根（例如含 data 与 bin 的文件夹）。"
         )
     idx = build_game_data_index(game_root=root, progress=progress)
-    _pg(progress, "正在写入索引缓存…", 0, 0)
+    _pg(progress, f"正在写入 {index_cache_path().name} …", 0, 0)
     save_game_data_index(idx)
     if prewarm_dds_preview:
         # 预热耗时较大：仅在明确需要时执行，避免拖慢启动链路

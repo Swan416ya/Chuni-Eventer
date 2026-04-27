@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sys
 import tempfile
 from collections.abc import Callable
@@ -9,12 +10,33 @@ from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QInputDialog, QVBoxLayout
 
 from qfluentwidgets import BodyLabel, CardWidget, CheckBox, LineEdit, PrimaryPushButton, PushButton
 
-from ..acus_workspace import AcusConfig
+from ..acus_workspace import AcusConfig, app_cache_dir
 from ..dds_convert import DdsToolError, is_bc3_dds, run_cmd, validate_compressonator_tool
 from ..dds_quicktex import encode_image_to_bc3_dds_quicktex, quicktex_available
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
 from .pjsk_hub_dialog import PjskHubDialog
+
+_settings_log_logger: logging.Logger | None = None
+
+
+def _settings_logger() -> logging.Logger:
+    global _settings_log_logger
+    if _settings_log_logger is not None:
+        return _settings_log_logger
+    logger = logging.getLogger("chuni.settings_dialog")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    try:
+        log_dir = app_cache_dir() / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        handler = logging.FileHandler(log_dir / "settings_save.log", encoding="utf-8")
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        logger.addHandler(handler)
+    except Exception:
+        pass
+    _settings_log_logger = logger
+    return logger
 
 
 class SettingsDialog(FluentCaptionDialog):
@@ -135,7 +157,7 @@ class SettingsDialog(FluentCaptionDialog):
         pgko_layout.addWidget(self.pgko_exp_checkbox)
 
         ok = PrimaryPushButton("保存", self)
-        ok.clicked.connect(self.accept)
+        ok.clicked.connect(self._on_save_clicked)
         cancel = PushButton("取消", self)
         cancel.clicked.connect(self.reject)
 
@@ -178,11 +200,6 @@ class SettingsDialog(FluentCaptionDialog):
             fly_warning(self, "不可用", "当前窗口未提供后台扫描入口。")
             return
         self._on_request_game_rescan(root, tool_path)
-        fly_message(
-            self,
-            "已开始后台扫描",
-            "扫描任务已提交，完成后主界面会自动提示结果。",
-        )
 
     def _pick_tool(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "选择 compressonatorcli")
@@ -292,25 +309,42 @@ class SettingsDialog(FluentCaptionDialog):
             return p if p.is_file() else None
         return self._get_tool_path()
 
-    def apply(self) -> None:
+    def _on_save_clicked(self) -> None:
+        lg = _settings_logger()
+        lg.info("save_button_clicked")
+        try:
+            if self.apply():
+                lg.info("save_button_accept")
+                self.accept()
+        except Exception:
+            lg.exception("save_button_crash")
+            fly_critical(self, "保存失败", "设置保存时发生未处理异常，请提供 settings_save.log。")
+
+    def apply(self) -> bool:
+        lg = _settings_logger()
+        lg.info("apply_start")
         raw = self.compressonator.text().strip()
         if raw:
             p = Path(raw).expanduser()
             try:
                 p = p.resolve(strict=False)
             except OSError:
+                lg.warning("apply_reject_invalid_tool_path_unresolvable raw=%s", raw)
                 fly_warning(self, "路径无效", "无法解析该路径，请检查拼写。")
-                return
+                return False
             if not p.is_file():
+                lg.warning("apply_reject_invalid_tool_path_not_file path=%s", p)
                 fly_warning(
                     self,
                     "路径无效",
                     "DDS 工具必须指向 compressonatorcli 的「可执行文件」本体。\n"
                     "不要填「.」、不要选文件夹；请用「浏览…」选择实际程序文件。",
                 )
-                return
+                return False
         self._cfg.compressonatorcli_path = raw
         gr = self.game_root.text().strip()
         self._cfg.game_root = gr
         self._cfg.enable_pgko_ugc_experimental = bool(self.pgko_exp_checkbox.isChecked())
         self._cfg.save()
+        lg.info("apply_done game_root=%s compressonator_set=%s", gr, bool(raw))
+        return True

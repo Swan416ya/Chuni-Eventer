@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import ctypes
+import faulthandler
 import logging
 import os
 import sys
+import traceback
 from pathlib import Path
 
 from PyQt6.QtGui import QIcon
@@ -90,9 +92,53 @@ def _setup_dialog_debug_logging() -> None:
         pass
 
 
+def _setup_crash_logging() -> None:
+    try:
+        log_dir = app_cache_dir() / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        py_crash_log = log_dir / "python_crash.log"
+        native_crash_log = log_dir / "native_crash.log"
+
+        crash_logger = logging.getLogger("chuni.crash")
+        crash_logger.setLevel(logging.ERROR)
+        crash_logger.propagate = False
+        if not crash_logger.handlers:
+            h = logging.FileHandler(py_crash_log, encoding="utf-8")
+            h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+            crash_logger.addHandler(h)
+
+        def _excepthook(exc_type, exc_value, exc_tb) -> None:
+            crash_logger.error(
+                "unhandled_exception\n%s",
+                "".join(traceback.format_exception(exc_type, exc_value, exc_tb)),
+            )
+            sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+        sys.excepthook = _excepthook
+
+        if hasattr(sys, "unraisablehook"):
+            def _unraisable(unraisable) -> None:
+                try:
+                    crash_logger.error(
+                        "unraisable_exception object=%r exc=%r",
+                        getattr(unraisable, "object", None),
+                        getattr(unraisable, "exc_value", None),
+                    )
+                except Exception:
+                    pass
+            sys.unraisablehook = _unraisable
+
+        # 记录原生崩溃（如访问冲突）时的 Python 栈。
+        native_fp = open(native_crash_log, "a", encoding="utf-8")
+        faulthandler.enable(file=native_fp, all_threads=True)
+    except Exception:
+        pass
+
+
 def main() -> int:
     ensure_pyinstaller_dll_search_path()
     _set_windows_appusermodel_id()
+    _setup_crash_logging()
     _setup_dialog_debug_logging()
     app = QApplication(sys.argv)
     app.setApplicationName("chuni eventer desktop")
