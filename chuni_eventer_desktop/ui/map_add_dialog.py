@@ -1320,6 +1320,8 @@ class RewardCreateDialog(FluentCaptionDialog):
                 "乐曲解锁(Music)",
             ]
         )
+        # 避免下拉只显示约 7 行导致「系统语音」被裁切，需滚动才看见
+        self.reward_kind.setMaxVisibleItems(16)
         self.reward_kind.currentTextChanged.connect(self._sync)
         self.inner_id = LineEdit()
         self.inner_pick = FluentComboBox()
@@ -1490,14 +1492,21 @@ class RewardCreateDialog(FluentCaptionDialog):
             self._match_inner_pick(refs)
 
         ticket_only = kind == "功能票(Ticket)"
-        self._lbl_target_inner.setVisible(ticket_only)
-        self.inner_id.setVisible(ticket_only)
-        self._lbl_target_inner.setText(_reward_create_kind_target_label(kind))
-        self.inner_id.setEnabled(ticket_only)
+        sysvoice_manual = kind == "系统语音(SystemVoice)" and len(refs) == 0
+        self._lbl_target_inner.setVisible(ticket_only or sysvoice_manual)
+        self.inner_id.setVisible(ticket_only or sysvoice_manual)
+        self._lbl_target_inner.setText(
+            "系统语音ID" if sysvoice_manual else _reward_create_kind_target_label(kind)
+        )
+        self.inner_id.setEnabled(ticket_only or sysvoice_manual)
         if kind == "外部奖励ID":
             self.inner_id.setPlaceholderText("外部奖励通常无需填写")
         elif kind == "功能票(Ticket)":
             self.inner_id.setPlaceholderText("填写功能票 ID（TicketData.name.id）")
+        elif sysvoice_manual:
+            self.inner_id.setPlaceholderText(
+                "填写 SystemVoiceData.name.id（ACUS 内尚无 systemVoice/*/SystemVoice.xml 时手填）"
+            )
         else:
             self.inner_id.setPlaceholderText("目标ID")
 
@@ -1530,12 +1539,18 @@ class RewardCreateDialog(FluentCaptionDialog):
                 return
         else:
             refs = self._inner_refs_for_kind(kind)
-            pick = self.inner_pick.currentIndex()
-            if pick <= 0 or pick - 1 >= len(refs):
-                cap = _reward_create_kind_target_label(kind)
-                fly_critical(self, "错误", f"请从列表选择「{cap}」")
-                return
-            inner = refs[pick - 1].id
+            if kind == "系统语音(SystemVoice)" and len(refs) == 0:
+                inner = _safe_int(self.inner_id.text())
+                if inner is None or inner < 0:
+                    fly_critical(self, "错误", "请填写有效的系统语音 ID（SystemVoiceData.name.id）")
+                    return
+            else:
+                pick = self.inner_pick.currentIndex()
+                if pick <= 0 or pick - 1 >= len(refs):
+                    cap = _reward_create_kind_target_label(kind)
+                    fly_critical(self, "错误", f"请从列表选择「{cap}」")
+                    return
+                inner = refs[pick - 1].id
         c = CellData(reward_id=rid, reward_name=name, reward_kind=kind, reward_inner_id=inner)
         if self.has_music.isChecked():
             if self.music_mode.currentText() == "从 ACUS 选择":
