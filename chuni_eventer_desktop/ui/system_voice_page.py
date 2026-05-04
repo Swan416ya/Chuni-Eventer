@@ -101,7 +101,8 @@ class SystemVoicePackPage(QWidget):
 
         title = BodyLabel(
             "请准备恰好 42 条音频，文件名与逻辑序号一致：1～24、35～52（扩展名 mp3/wav/flac 等）。"
-            " ID 从 700 起自动避让 ACUS 与已配置游戏目录内已有资源；Cue 目录为 cueFile(10000+ID)。",
+            " ID 自动避让 ACUS 与已配置游戏目录内已有资源；Cue 目录为 cueFile(10000+ID)；"
+            "预览 DDS 与官方一致为 CHU_UI_SystemVoice_ + 8 位数字 id。",
             self,
         )
         title.setWordWrap(True)

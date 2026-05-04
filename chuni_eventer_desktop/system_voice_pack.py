@@ -41,8 +41,8 @@ def system_voice_dir_name(voice_id: int) -> str:
 
 
 def system_voice_preview_ui_dds_basename(voice_id: int) -> str:
-    """UI 预览贴图文件名（与 opt 内命名一致），例如 700 -> CHU_UI_SystemVoice_0700.dds。"""
-    return f"CHU_UI_SystemVoice_{int(voice_id):04d}.dds"
+    """UI 预览贴图文件名，与 A001 官方一致：``CHU_UI_SystemVoice_`` + **8 位** id（如 62 -> ``00000062``）。"""
+    return f"CHU_UI_SystemVoice_{int(voice_id):08d}.dds"
 
 
 def cue_folder_name(cue_numeric_id: int) -> str:
@@ -255,25 +255,67 @@ def write_cue_file_xml(*, out_dir: Path, cue_numeric_id: int, acb_stem: str) -> 
     tree.write(out_dir / "CueFile.xml", encoding="utf-8", xml_declaration=True)
 
 
+def _xml_text(s: str) -> str:
+    return (
+        (s or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
 def write_system_voice_xml(
     *,
     out_dir: Path,
     voice_id: int,
     display_str: str,
     dds_filename: str,
+    net_open_id: int | None = None,
+    net_open_str: str | None = None,
 ) -> None:
+    """
+    写入与 A001 官方结构一致的 ``SystemVoiceData``（含 ``cue``：指向 ``cueFile`` 内 ACB/AWB stem）。
+
+    缺 ``cue`` 时客户端会回退默认系统语音（如 001）。
+    """
+    from .xml_writer import CHARA_DEFAULT_NET_OPEN_ID, CHARA_DEFAULT_NET_OPEN_STR
+
     dir_name = system_voice_dir_name(voice_id)
     stem = system_voice_stem(voice_id)
-    xsi = "http://www.w3.org/2001/XMLSchema-instance"
-    xsd = "http://www.w3.org/2001/XMLSchema"
-    root = ET.Element("SystemVoiceData", {"xmlns:xsi": xsi, "xmlns:xsd": xsd})
+    cue_id = cue_numeric_id_for_voice(voice_id)
+    no_id = int(CHARA_DEFAULT_NET_OPEN_ID) if net_open_id is None else int(net_open_id)
+    no_str = (CHARA_DEFAULT_NET_OPEN_STR if net_open_str is None else net_open_str).strip()
+    name_s = _xml_text((display_str or "").strip() or stem)
+    sort_s = _xml_text((display_str or "").strip()[:64] or stem)
+
+    root = ET.Element(
+        "SystemVoiceData",
+        {
+            "xmlns:xsd": "http://www.w3.org/2001/XMLSchema",
+            "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+        },
+    )
     ET.SubElement(root, "dataName").text = dir_name
+    net_el = ET.SubElement(root, "netOpenName")
+    ET.SubElement(net_el, "id").text = str(no_id)
+    ET.SubElement(net_el, "str").text = no_str
+    ET.SubElement(net_el, "data")
+    ET.SubElement(root, "disableFlag").text = "false"
     name_el = ET.SubElement(root, "name")
     ET.SubElement(name_el, "id").text = str(int(voice_id))
-    ET.SubElement(name_el, "str").text = display_str.strip() or stem
+    ET.SubElement(name_el, "str").text = name_s
     ET.SubElement(name_el, "data")
+    ET.SubElement(root, "sortName").text = sort_s
+    cue_el = ET.SubElement(root, "cue")
+    ET.SubElement(cue_el, "id").text = str(int(cue_id))
+    ET.SubElement(cue_el, "str").text = stem
+    ET.SubElement(cue_el, "data")
     img = ET.SubElement(root, "image")
     ET.SubElement(img, "path").text = dds_filename
+    ET.SubElement(root, "defaultHave").text = "false"
+    ET.SubElement(root, "explainText").text = "-"
+    ET.SubElement(root, "priority").text = "0"
+    ET.indent(root, space="  ")  # type: ignore[attr-defined]
     tree = ET.ElementTree(root)
     out_dir.mkdir(parents=True, exist_ok=True)
     tree.write(out_dir / "SystemVoice.xml", encoding="utf-8", xml_declaration=True)
@@ -293,7 +335,8 @@ def pack_system_voice_to_acus(
 
     ``preview_source`` 可为 PNG 等常见图片或已是 BC3 的 DDS；经 ``ingest_to_bc3_dds`` 编码后写入
     ``systemVoice/systemVoiceNNNN/``，文件名为 ``CHU_UI_SystemVoice_{id:04d}.dds``，
-    ``SystemVoice.xml`` 内 ``image/path`` 使用同 basename（与同目录下 DDS 相对路径一致）。
+    ``SystemVoice.xml`` 为完整官方字段（含 ``netOpenName`` / ``cue`` / ``sortName`` 等），
+    ``image/path`` 与同目录下 DDS 文件名一致（``CHU_UI_SystemVoice_`` + 8 位 id）。
 
     返回 (system_voice_dir, cue_dir)。
     """
