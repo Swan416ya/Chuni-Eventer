@@ -554,6 +554,7 @@ def _reward_substance_type_label(t: int | None) -> str:
         5: "姓名牌",
         6: "乐曲解锁",
         7: "地图图标",
+        8: "系统语音",
         9: "头像配件",
         13: "场景",
     }.get(t, f"type={t}")
@@ -569,9 +570,12 @@ def _pick_reward_substance(root: ET.Element) -> ET.Element | None:
         t_raw = (sub.findtext("type") or "0").strip()
         t = int(t_raw) if t_raw.isdigit() else 0
         mid = _int_or_none(sub.findtext("music/musicName/id"))
+        svid = _int_or_none(sub.findtext("systemVoice/systemVoiceName/id"))
         score = 0
         if t in (2, 3, 5):
             score += 4
+        if t == 8 and svid is not None and svid >= 0:
+            score += 10
         if mid is not None and mid != -1:
             score += 2
         if score > best_score:
@@ -625,6 +629,10 @@ def _summarize_reward_substance(sub: ET.Element) -> tuple[int | None, str, str, 
         sid = _int_or_none(sub.findtext("stage/stageName/id"))
         if sid is not None and sid != -1:
             parts.append(f"场景ID {sid}")
+    elif t == 8:
+        vid = _int_or_none(sub.findtext("systemVoice/systemVoiceName/id"))
+        if vid is not None and vid != -1:
+            parts.append(f"系统语音ID {vid}")
 
     course_id: int | None = None
     course_str = ""

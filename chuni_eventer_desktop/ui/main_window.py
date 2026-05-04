@@ -572,7 +572,7 @@ class MainWindow(MSFluentWindow):
             return
         if kind == "Reward":
             gi = self._resolve_game_index()
-            music_r, chara_r, trophy_r, np_r, stage_r, default_id = reward_dialog_bundle(
+            music_r, chara_r, trophy_r, np_r, stage_r, sysvoice_r, default_id = reward_dialog_bundle(
                 self._acus_root, game_index=gi
             )
             dlg = RewardCreateDialog(
@@ -582,6 +582,7 @@ class MainWindow(MSFluentWindow):
                 trophy_refs=trophy_r,
                 nameplate_refs=np_r,
                 stage_refs=stage_r,
+                sysvoice_refs=sysvoice_r,
                 parent=self,
             )
             if dlg.exec() == dlg.DialogCode.Accepted and dlg.result_cell is not None:
