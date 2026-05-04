@@ -227,6 +227,7 @@ def ensure_acus_layout(*, game_root: Path | str | None = None) -> Path:
         "trophy",
         "stage",
         "releaseTag",
+        "systemVoice",
     ]:
         (root / d).mkdir(parents=True, exist_ok=True)
     _seed_acus_from_bundled(root)

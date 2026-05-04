@@ -41,6 +41,7 @@ from .event_add_dialog import EventAddDialog
 from .quest_add_dialog import QuestAddDialog
 from .mapbonus_dialogs import MapBonusEditDialog
 from .stage_add_dialog import StageAddDialog
+from .system_voice_page import SystemVoicePackPage
 from .fluent_dialogs import (
     fly_critical,
     fly_message,
@@ -192,6 +193,14 @@ class MainWindow(MSFluentWindow):
 
         self.stackedWidget.addWidget(self._workspace)
 
+        self._sysvoice_page = SystemVoicePackPage(
+            acus_root=self._acus_root,
+            get_tool_path=self._get_tool_path_or_none,
+            get_game_root=lambda: self._cfg.game_root or "",
+            parent=self,
+        )
+        self.stackedWidget.addWidget(self._sysvoice_page)
+
         self._nav_specs: list[tuple[str, object, str, str, str]] = [
             ("nav_chara", nav_qicon(SVG_CHARA), "角色", "Chara", "角色"),
             ("nav_map", nav_qicon(SVG_MAP), "地图", "Map", "地图"),
@@ -213,6 +222,14 @@ class MainWindow(MSFluentWindow):
                 position=NavigationItemPosition.TOP,
             )
 
+        self.navigationInterface.addItem(
+            routeKey="nav_sysvoice",
+            icon=FluentIcon.MUSIC_FOLDER,
+            text="系统语音",
+            onClick=self._open_system_voice_page,
+            position=NavigationItemPosition.BOTTOM,
+            selectable=True,
+        )
         self.navigationInterface.addItem(
             routeKey="nav_save_patch",
             icon=FluentIcon.SAVE,
@@ -402,6 +419,14 @@ class MainWindow(MSFluentWindow):
         except Exception:
             _scan_logger().exception("ui_click_game_music_browser_crash")
             fly_critical(self, "操作失败", "打开游戏乐曲浏览时发生异常，请提供日志。")
+
+    def _open_system_voice_page(self) -> None:
+        try:
+            self.switchTo(self._sysvoice_page)
+            self.navigationInterface.setCurrentItem("nav_sysvoice")
+        except Exception:
+            _scan_logger().exception("ui_open_system_voice_page_crash")
+            fly_critical(self, "操作失败", "打开系统语音页面失败。")
 
     def _open_save_patch(self) -> None:
         try:

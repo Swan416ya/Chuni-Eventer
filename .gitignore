@@ -33,6 +33,7 @@ A001/
 
 # scripts/setup_penguin_tools.ps1 克隆的依赖（构建 PenguinBridge 用，勿提交）
 PenguinTools/
+audio_test/
 
 # 做视频用的ppt和相关素材
 docs/Introduction/

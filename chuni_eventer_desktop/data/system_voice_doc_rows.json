@@ -1,0 +1,242 @@
+[
+  {
+    "id": 1,
+    "desc": "Full Combo"
+  },
+  {
+    "id": 2,
+    "desc": "All Justice"
+  },
+  {
+    "id": 3,
+    "desc": "1000 Chain"
+  },
+  {
+    "id": 4,
+    "desc": "2000 Chain"
+  },
+  {
+    "id": 5,
+    "desc": "3000 Chain"
+  },
+  {
+    "id": 6,
+    "desc": "4000 Chain"
+  },
+  {
+    "id": 7,
+    "desc": "5000 Chain"
+  },
+  {
+    "id": 8,
+    "desc": "Full Chain"
+  },
+  {
+    "id": 9,
+    "desc": "New Record"
+  },
+  {
+    "id": 10,
+    "desc": "All Clear"
+  },
+  {
+    "id": 11,
+    "desc": "Rank D"
+  },
+  {
+    "id": 12,
+    "desc": "Rank C"
+  },
+  {
+    "id": 13,
+    "desc": "Rank B"
+  },
+  {
+    "id": 14,
+    "desc": "Rank BB"
+  },
+  {
+    "id": 15,
+    "desc": "Rank BBB"
+  },
+  {
+    "id": 16,
+    "desc": "Rank A"
+  },
+  {
+    "id": 17,
+    "desc": "Rank AA"
+  },
+  {
+    "id": 18,
+    "desc": "Rank AAA"
+  },
+  {
+    "id": 19,
+    "desc": "Rank S"
+  },
+  {
+    "id": 20,
+    "desc": "Rank S+"
+  },
+  {
+    "id": 21,
+    "desc": "Rank SS"
+  },
+  {
+    "id": 22,
+    "desc": "Rank SS+"
+  },
+  {
+    "id": 23,
+    "desc": "Rank SSS"
+  },
+  {
+    "id": 24,
+    "desc": "Rank SSS+"
+  },
+  {
+    "id": 25,
+    "desc": "战败"
+  },
+  {
+    "id": 26,
+    "desc": "日常"
+  },
+  {
+    "id": 27,
+    "desc": "还能打"
+  },
+  {
+    "id": 28,
+    "desc": "不服"
+  },
+  {
+    "id": 29,
+    "desc": "自由发挥1"
+  },
+  {
+    "id": 30,
+    "desc": "自由发挥2"
+  },
+  {
+    "id": 31,
+    "desc": "自由发挥3"
+  },
+  {
+    "id": 32,
+    "desc": "自由发挥4"
+  },
+  {
+    "id": 33,
+    "desc": "自由发挥5"
+  },
+  {
+    "id": 34,
+    "desc": "自由发挥6"
+  },
+  {
+    "id": 35,
+    "desc": "SEGA"
+  },
+  {
+    "id": 36,
+    "desc": "CHUNITHM"
+  },
+  {
+    "id": 37,
+    "desc": "选择模式"
+  },
+  {
+    "id": 38,
+    "desc": "选择地图"
+  },
+  {
+    "id": 39,
+    "desc": "选择段位"
+  },
+  {
+    "id": 40,
+    "desc": "选择票卷"
+  },
+  {
+    "id": 41,
+    "desc": "WELCOME TO CHUNITHM!"
+  },
+  {
+    "id": 42,
+    "desc": "输入姓名"
+  },
+  {
+    "id": 43,
+    "desc": "按类型排序"
+  },
+  {
+    "id": 44,
+    "desc": "按版本排序"
+  },
+  {
+    "id": 45,
+    "desc": "按乐曲名排序"
+  },
+  {
+    "id": 46,
+    "desc": "界限突破"
+  },
+  {
+    "id": 47,
+    "desc": "任务完成"
+  },
+  {
+    "id": 48,
+    "desc": "段位结果"
+  },
+  {
+    "id": 49,
+    "desc": "段位徽章更新"
+  },
+  {
+    "id": 50,
+    "desc": "CONTINUE？"
+  },
+  {
+    "id": 51,
+    "desc": "续关"
+  },
+  {
+    "id": 52,
+    "desc": "SEE YOU NEXT PLAY!"
+  },
+  {
+    "id": 53,
+    "desc": "自由发挥7"
+  },
+  {
+    "id": 54,
+    "desc": "自由发挥8"
+  },
+  {
+    "id": 55,
+    "desc": "自由发挥9"
+  },
+  {
+    "id": 56,
+    "desc": "自由发挥10"
+  },
+  {
+    "id": 57,
+    "desc": "表白"
+  },
+  {
+    "id": 58,
+    "desc": "赢了"
+  },
+  {
+    "id": 59,
+    "desc": "重伤"
+  },
+  {
+    "id": 60,
+    "desc": "似了"
+  }
+]
