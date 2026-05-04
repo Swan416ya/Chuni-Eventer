@@ -15,7 +15,12 @@ a = Analysis(
     pathex=[str(project_root)],
     binaries=[],
     datas=[],
-    hiddenimports=[],
+    hiddenimports=[
+        "PyCriCodecsEx.acb",
+        "PyCriCodecsEx.awb",
+        "PyCriCodecsEx.hca",
+        "PyCriCodecsEx.chunk",
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

@@ -14,7 +14,7 @@ pip install -r requirements.txt
 
 | 包 | 作用 |
 |----|------|
-| `PyCriCodecsEx` | 将 48 kHz WAV 编码为加密 HCA，并生成中二用 `musicXXXX.acb` / `.awb`（与 PenguinTools 思路一致） |
+| `PyCriCodecsEx` | 将 48 kHz WAV 编码为加密 HCA，并生成中二用 `musicXXXX.acb` / `.awb`（与 PenguinTools 思路一致）；**系统语音** `systemvoiceXXXX.acb/.awb` 亦由本库同一管线（`repack_system_voice_acb`）生成，**不调用**外部 ACB 打包 exe |
 | `quicktex` | 将 `封面.png` 转为 BC3(DXT5) 夹克 DDS（可不装 **compressonator**，二选一即可） |
 
 其余 UI 依赖见 `requirements.txt` 全文。
@@ -43,6 +43,13 @@ ffmpeg -version
 ```
 
 若第一句报错，请执行 `pip install PyCriCodecsEx`；若 `ffmpeg` 找不到，请检查 PATH。
+
+## 系统语音（桌面端「系统语音」打包）
+
+- **ACB / AWB**：与上表相同，依赖 **`PyCriCodecsEx`**；在仓库内由 `chuni_eventer_desktop/repack_system_voice_acb.py` 对模板 ACB 做二进制修补并写出新 AWB（HCA 密钥与乐曲管线一致）。
+- **模板文件**：优先使用仓库 `audio_test/test/cueFile010062/` 下的 `systemvoice0062.acb/.awb`；若缺失则使用随包 `chuni_eventer_desktop/data/system_voice_0062_template/`（已列入 `ChuniEventer.spec` 的 `datas`，与 exe 一并分发）。
+- **源音频转 WAV**：依赖 **ffmpeg**（PATH），与上节相同。
+- **预览 DDS**：走 Pillow / quicktex / compressonatorcli（与 UI 其它 DDS 一致），**与 ACB 生成无关**。
 
 ## 相关：SUS → c2s 转谱说明
 

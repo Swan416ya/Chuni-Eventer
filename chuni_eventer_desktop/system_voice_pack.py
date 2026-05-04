@@ -45,11 +45,6 @@ def system_voice_preview_ui_dds_basename(voice_id: int) -> str:
     return f"CHU_UI_SystemVoice_{int(voice_id):04d}.dds"
 
 
-def system_voice_opt_dds_dir(acus_root: Path) -> Path:
-    """ACUS 内与数据包 opt 镜像对应的目录。"""
-    return acus_root / "data" / "A000" / "opt" / "systemVoice"
-
-
 def cue_folder_name(cue_numeric_id: int) -> str:
     return f"cueFile{int(cue_numeric_id):06d}"
 
@@ -297,8 +292,8 @@ def pack_system_voice_to_acus(
     将 42 条音频打包进 ACUS，并写入 systemVoice / cueFile 目录。
 
     ``preview_source`` 可为 PNG 等常见图片或已是 BC3 的 DDS；经 ``ingest_to_bc3_dds`` 编码后写入
-    ``systemVoice/.../`` 与 ``data/A000/opt/systemVoice/``，文件名 ``CHU_UI_SystemVoice_{id:04d}.dds``，
-    ``SystemVoice.xml`` 内 ``image/path`` 使用同 basename（与资源目录内文件相对路径一致）。
+    ``systemVoice/systemVoiceNNNN/``，文件名为 ``CHU_UI_SystemVoice_{id:04d}.dds``，
+    ``SystemVoice.xml`` 内 ``image/path`` 使用同 basename（与同目录下 DDS 相对路径一致）。
 
     返回 (system_voice_dir, cue_dir)。
     """
@@ -341,9 +336,6 @@ def pack_system_voice_to_acus(
         if not is_bc3_dds(tmp_dds):
             raise DdsToolError("预览图编码后不是 BC3(DXT5) DDS，请检查源图或 DDS 工具。")
         shutil.copy2(tmp_dds, sv_dir / dds_name)
-        opt_dir = system_voice_opt_dds_dir(acus_root)
-        opt_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(tmp_dds, opt_dir / dds_name)
         write_system_voice_xml(out_dir=sv_dir, voice_id=voice_id, display_str=display_name, dds_filename=dds_name)
         return sv_dir, cue_dir
     finally:

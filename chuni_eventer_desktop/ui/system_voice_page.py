@@ -25,7 +25,6 @@ from ..system_voice_pack import (
     load_doc_descriptions,
     pack_system_voice_to_acus,
     system_voice_dir_name,
-    system_voice_opt_dds_dir,
     system_voice_preview_ui_dds_basename,
     validate_voice_folder,
 )
@@ -67,9 +66,8 @@ class _PackWorker(QObject):
                 tool_path=self._tool_path,
             )
             ddsn = system_voice_preview_ui_dds_basename(self._voice_id)
-            opt_p = system_voice_opt_dds_dir(self._acus_root) / ddsn
             self.done.emit(
-                f"已写入：\n• {sv}\n• {cue}\n• {opt_p}（opt 镜像）\n\n"
+                f"已写入：\n• {sv}（含预览 {ddsn}）\n• {cue}\n\n"
                 f"系统语音 ID：{self._voice_id}（{system_voice_dir_name(self._voice_id)}）\n"
                 f"Cue：{cue_folder_name(cue_numeric_id_for_voice(self._voice_id))}"
             )

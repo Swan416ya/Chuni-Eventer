@@ -56,6 +56,7 @@ from .music_stage_dialog import MusicStageSelectDialog
 
 from ..chara_delete import delete_chara_from_acus
 from ..music_delete import execute_music_deletion, plan_music_deletion
+from ..map_export_bundle import export_map_bundle_to_zip
 from ..trophy_delete import execute_trophy_deletion, plan_trophy_deletion
 from ..acus_scan import (
     CharaItem,
@@ -1230,7 +1231,7 @@ class ManagerWidget(QWidget):
 
     def _on_table_context_menu(self, pos: QPoint) -> None:
         k = self._kind_key()
-        if k not in ("Chara", "Trophy", "Quest", "NamePlate"):
+        if k not in ("Chara", "Trophy", "Quest", "NamePlate", "Map"):
             return
         idx = self.table.indexAt(pos)
         if not idx.isValid():
@@ -1247,6 +1248,17 @@ class ManagerWidget(QWidget):
         vf.setPointSize(max(12, vf.pointSize()))
         menu.view.setFont(vf)
         gpos = self.table.viewport().mapToGlobal(pos)
+
+        if k == "Map":
+            if not isinstance(payload, MapItem):
+                return
+            act_export = Action(FIF.SAVE, "导出地图资源包(Zip)…", self.table)
+            act_export.triggered.connect(
+                lambda checked=False, p=payload: QTimer.singleShot(80, lambda: self._export_map_bundle_zip(p))
+            )
+            menu.addAction(act_export)
+            menu.exec(gpos, ani=True, aniType=MenuAnimationType.DROP_DOWN)
+            return
 
         if k == "Chara":
             if not isinstance(payload, CharaItem):
@@ -1306,6 +1318,34 @@ class ManagerWidget(QWidget):
             )
             menu.addAction(act_del_np)
             menu.exec(gpos, ani=True, aniType=MenuAnimationType.DROP_DOWN)
+
+    def _export_map_bundle_zip(self, it: MapItem) -> None:
+        default_name = f"map{it.name.id:08d}_acus_bundle.zip"
+        path, _ = QFileDialog.getSaveFileName(
+            self.window(),
+            "导出地图及 ACUS 内关联资源",
+            default_name,
+            "ZIP 归档 (*.zip)",
+        )
+        if not (path or "").strip():
+            return
+        outp = Path(path).expanduser()
+        if outp.suffix.lower() != ".zip":
+            outp = outp.with_suffix(".zip")
+        try:
+            n = export_map_bundle_to_zip(
+                acus_root=self._acus_root,
+                map_xml_path=it.xml_path,
+                output_zip=outp,
+            )
+        except Exception as e:
+            fly_critical(self.window(), "导出失败", str(e))
+            return
+        fly_message(
+            self.window(),
+            "导出完成",
+            f"已写入 {n} 个文件。\n包内为相对 ACUS 根的目录结构（如 map/、mapArea/、reward/、chara/ 等）。\n{outp}",
+        )
 
     def _delete_trophy_item(self, it: TrophyItem, *, with_chara: bool) -> None:
         try:

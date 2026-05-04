@@ -230,7 +230,6 @@ def ensure_acus_layout(*, game_root: Path | str | None = None) -> Path:
         "systemVoice",
     ]:
         (root / d).mkdir(parents=True, exist_ok=True)
-    (root / "data" / "A000" / "opt" / "systemVoice").mkdir(parents=True, exist_ok=True)
     _seed_acus_from_bundled(root)
     # 启动链路只做轻量目录准备，避免同步扫描游戏目录导致首屏阻塞。
     # works sort 刷新改为在主界面可交互后由后台任务触发。
