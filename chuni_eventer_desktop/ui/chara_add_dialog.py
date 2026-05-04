@@ -55,6 +55,27 @@ from .works_dialogs import (
 )
 
 
+def _skin_id_locked_field_style() -> str:
+    """只读皮肤 ID 行：浅灰底，与 Fluent 明暗主题协调。"""
+    if isDarkTheme():
+        bg, bd, fg = "#374151", "#4B5563", "#E5E7EB"
+    else:
+        bg, bd, fg = "#E5E7EB", "#D1D5DB", "#4B5563"
+    return (
+        "QLineEdit#skinIdLockedField {"
+        f"background-color: {bg};"
+        f"color: {fg};"
+        f"border: 1px solid {bd};"
+        "border-radius: 5px;"
+        "padding-left: 10px;"
+        "}"
+    )
+
+
+def _muted_label_style() -> str:
+    return f"color: {'#9CA3AF' if isDarkTheme() else '#6B7280'};"
+
+
 def _set_idstr(node: ET.Element, val_id: int, val_str: str) -> None:
     id_el = node.find("id")
     if id_el is None:
@@ -423,19 +444,21 @@ class CharaAddDialog(FluentCaptionDialog):
         self.base = LineEdit(self)
         self.base.setPlaceholderText("角色基ID（例如 2469）")
         self.variant = LineEdit(self)
-        self.variant.setPlaceholderText("变体 0-9（例如 0）")
+        self.variant.setPlaceholderText("皮肤 ID 0~9（例如 0）")
         if self._locked_variant is not None:
+            self.variant.setObjectName("skinIdLockedField")
             self.variant.setText(str(self._locked_variant))
             self.variant.setReadOnly(True)
             self.variant.setClearButtonEnabled(False)
+            self.variant.setStyleSheet(_skin_id_locked_field_style())
             if variant_lock_reason == "new_chara":
-                self.variant.setToolTip("新建主角色时立绘变体固定为 0，不可修改。")
+                self.variant.setToolTip("新建主角色时皮肤 ID 固定为 0，不可修改。")
             elif variant_lock_reason == "chara_variant_add":
                 self.variant.setToolTip(
-                    "下一可用变体序号已按立绘槽位自动分配，不可修改。"
+                    "下一可用皮肤 ID 已按立绘槽位自动分配，不可修改。"
                 )
             else:
-                self.variant.setToolTip("正在编辑的变体序号，不可修改。")
+                self.variant.setToolTip("正在编辑的皮肤 ID，不可修改。")
         self.cid_preview = LineEdit(self)
         self.cid_preview.setReadOnly(True)
 
@@ -460,7 +483,13 @@ class CharaAddDialog(FluentCaptionDialog):
         id_lay.setSpacing(10)
         id_lay.addWidget(BodyLabel("ID 与名称", self))
         id_lay.addWidget(self._row("基 ID", self.base))
-        id_lay.addWidget(self._row("变体", self.variant))
+        id_lay.addWidget(
+            self._row(
+                "皮肤 ID",
+                self.variant,
+                label_muted=self._locked_variant is not None,
+            )
+        )
         id_lay.addWidget(self._row("最终 ID", self.cid_preview))
         id_lay.addWidget(self._row("角色名", wrap_name_input_with_preview(self.name, parent=self)))
         id_lay.addWidget(self._row("绘师（可选）", self.illustrator))
@@ -567,13 +596,21 @@ class CharaAddDialog(FluentCaptionDialog):
 
         self.setWindowTitle("编辑角色" if self.base.isReadOnly() else "新增角色")
 
-    def _row(self, label: str, field: QWidget) -> QWidget:
+    def _row(
+        self,
+        label: str,
+        field: QWidget,
+        *,
+        label_muted: bool = False,
+    ) -> QWidget:
         w = QWidget(self)
         h = QHBoxLayout(w)
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(12)
         lb = BodyLabel(label, self)
         lb.setMinimumWidth(108)
+        if label_muted:
+            lb.setStyleSheet(_muted_label_style())
         h.addWidget(lb, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         h.addWidget(field, 1)
         return w
@@ -643,15 +680,15 @@ class CharaAddDialog(FluentCaptionDialog):
         else:
             var_txt = self.variant.text().strip()
             if not var_txt:
-                fly_critical(self, "错误", "请填写变体（0-9）")
+                fly_critical(self, "错误", "请填写皮肤 ID（0~9）")
                 return
             try:
                 var = int(var_txt)
             except ValueError:
-                fly_critical(self, "错误", "变体必须是整数（0-9）")
+                fly_critical(self, "错误", "皮肤 ID 必须是整数（0~9）")
                 return
             if var < 0 or var > 9:
-                fly_critical(self, "错误", "变体必须在 0-9 之间")
+                fly_critical(self, "错误", "皮肤 ID 必须在 0~9 之间")
                 return
 
         try:

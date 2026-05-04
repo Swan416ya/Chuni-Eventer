@@ -649,16 +649,6 @@ class MainWindow(MSFluentWindow):
             return
 
         if kind == "SystemVoice":
-            tool_sv = self._get_tool_path_or_none()
-            if tool_sv is None and not quicktex_available():
-                fly_critical(
-                    self,
-                    "无法生成预览 DDS",
-                    "请任选其一：\n"
-                    "• 运行 pip install quicktex（推荐，可不装 compressonator）\n"
-                    "• 或在【设置】里配置 compressonatorcli 可执行文件路径",
-                )
-                return
             dlg = SystemVoicePackDialog(
                 acus_root=self._acus_root,
                 get_tool_path=self._get_tool_path_or_none,

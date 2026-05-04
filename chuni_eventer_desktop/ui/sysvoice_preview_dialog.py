@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import tempfile
+from datetime import datetime
 from pathlib import Path
 
 from PyQt6.QtCore import QPoint, Qt
@@ -16,14 +16,14 @@ from PyQt6.QtWidgets import (
 
 from qfluentwidgets import BodyLabel, CardWidget, PrimaryPushButton, PushButton
 
-from ..dds_convert import DdsToolError, convert_to_bc3_dds
+from ..acus_workspace import acus_generated_dir
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical
 
 CANVAS_W = 400
 CANVAS_H = 256
 
-# 自上往下第几行（从 1 计数）整段透明：中立绘擦除 + 最终合成再清一次
+# 自上往下扫描行号（从 1 计数）：仅擦掉中立绘在该带内的像素；back / front 保持完整。
 _SYSVOICE_TRANSPARENT_ROW_1_FIRST = 194
 _SYSVOICE_TRANSPARENT_ROW_1_LAST = 296
 
@@ -34,8 +34,8 @@ def _static_sysvoice_dir() -> Path:
 
 def _transparent_band_rect_0based() -> tuple[int, int, int, int] | None:
     """
-    返回 (x, y, w, h) 画布坐标系下需整段透明的矩形；行号为从 1 计数的扫描行。
-    高度不足时底边钳制到画布内。
+    返回 (x, y, w, h)：仅用于中立绘层擦除；行号从 1 计数（第 1 行即 y=0）。
+    画布高不足时底行钳在 CANVAS_H-1。
     """
     y0 = _SYSVOICE_TRANSPARENT_ROW_1_FIRST - 1
     y1 = _SYSVOICE_TRANSPARENT_ROW_1_LAST - 1
@@ -134,11 +134,6 @@ class SysvoiceComposeWidget(QWidget):
             p.drawImage(0, 0, mid_layer)
         if not self._front.isNull():
             p.drawPixmap(0, 0, self._front)
-        band = _transparent_band_rect_0based()
-        if band is not None:
-            bx, by, bw, bh = band
-            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
-            p.fillRect(bx, by, bw, bh, Qt.GlobalColor.transparent)
         p.end()
         return out
 
@@ -181,21 +176,20 @@ class SysvoiceComposeWidget(QWidget):
 
 
 class SysvoicePreviewDialog(FluentCaptionDialog):
-    """合成预览并导出 BC3 DDS（400×256）。"""
+    """合成 400×256 预览并导出 PNG；打包时再经工具链转为 BC3 并写入 ACUS（与角色立绘流程一致）。"""
 
-    def __init__(self, *, tool_path: Path | None, parent=None) -> None:
+    def __init__(self, *, acus_root: Path | None = None, parent=None) -> None:
         super().__init__(parent=parent)
         self.setWindowTitle("系统语音预览图")
         self.setModal(True)
         self.resize(520, 420)
-        self._tool = tool_path
-        self.result_dds_path: Path | None = None
+        self._acus_root = acus_root
+        self.result_png_path: Path | None = None
 
         hint = BodyLabel(
             "底层为 back.png，中间为立绘（可拖动、滚轮缩放），再叠 front.png。"
-            " 导出时自上往下第 194～296 行（从 1 计数）整段强制透明："
-            " 先擦掉该带内的立绘，再对成图同一带清屏（白条等一并去掉；画布高 256 时底边钳在 256 行）。"
-            " 输出 400×256 BC3 DDS。",
+            " 自上往下第 194～296 行（从 1 计数；高 256 时底边钳在画布内）仅擦掉立绘在该带内的像素，"
+            " back 与 front 两图层保持完整。点「生成 PNG」后路径会填回打包页；写入 ACUS 时在后台转为 BC3 DDS。",
             self,
         )
         hint.setWordWrap(True)
@@ -209,7 +203,7 @@ class SysvoicePreviewDialog(FluentCaptionDialog):
 
         pick = PushButton("选择立绘…", self)
         pick.clicked.connect(self._on_pick)
-        gen = PrimaryPushButton("生成 DDS…", self)
+        gen = PrimaryPushButton("生成 PNG…", self)
         gen.clicked.connect(self._on_generate)
         cancel = PushButton("关闭", self)
         cancel.clicked.connect(self.reject)
@@ -262,24 +256,22 @@ class SysvoicePreviewDialog(FluentCaptionDialog):
         if img.isNull():
             fly_critical(self, "错误", "合成失败。")
             return
-        path, _ = QFileDialog.getSaveFileName(
-            self,
-            "保存预览 DDS",
-            "systemvoice_preview.dds",
-            "DDS (*.dds)",
-        )
-        if not path:
-            return
-        out = Path(path).expanduser()
+        if self._acus_root is not None:
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            out = acus_generated_dir(self._acus_root, "sysvoice_compose", f"compose_{stamp}.png")
+        else:
+            path, _ = QFileDialog.getSaveFileName(
+                self,
+                "保存预览 PNG",
+                "systemvoice_preview.png",
+                "PNG (*.png)",
+            )
+            if not path:
+                return
+            out = Path(path).expanduser()
         out.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            with tempfile.TemporaryDirectory(prefix="sysvoice_png_") as td:
-                png = Path(td) / "compose.png"
-                if not img.save(str(png), "PNG"):
-                    raise RuntimeError("无法写入临时 PNG。")
-                convert_to_bc3_dds(tool_path=self._tool, input_image=png, output_dds=out)
-        except (DdsToolError, OSError, RuntimeError) as e:
-            fly_critical(self, "DDS 失败", str(e))
+        if not img.save(str(out), "PNG"):
+            fly_critical(self, "错误", "无法写入 PNG。")
             return
-        self.result_dds_path = out
+        self.result_png_path = out
         self.accept()

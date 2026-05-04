@@ -25,6 +25,8 @@ from ..system_voice_pack import (
     load_doc_descriptions,
     pack_system_voice_to_acus,
     system_voice_dir_name,
+    system_voice_opt_dds_dir,
+    system_voice_preview_ui_dds_basename,
     validate_voice_folder,
 )
 from .fluent_dialogs import fly_critical, fly_message
@@ -43,14 +45,16 @@ class _PackWorker(QObject):
         audio_folder: Path,
         voice_id: int,
         display_name: str,
-        preview_dds: Path,
+        preview_source: Path,
+        tool_path: Path | None,
     ) -> None:
         super().__init__()
         self._acus_root = acus_root
         self._audio_folder = audio_folder
         self._voice_id = voice_id
         self._display_name = display_name
-        self._preview_dds = preview_dds
+        self._preview_source = preview_source
+        self._tool_path = tool_path
 
     def run(self) -> None:
         try:
@@ -59,10 +63,13 @@ class _PackWorker(QObject):
                 audio_folder=self._audio_folder,
                 voice_id=self._voice_id,
                 display_name=self._display_name,
-                preview_dds=self._preview_dds,
+                preview_source=self._preview_source,
+                tool_path=self._tool_path,
             )
+            ddsn = system_voice_preview_ui_dds_basename(self._voice_id)
+            opt_p = system_voice_opt_dds_dir(self._acus_root) / ddsn
             self.done.emit(
-                f"已写入：\n• {sv}\n• {cue}\n\n"
+                f"已写入：\n• {sv}\n• {cue}\n• {opt_p}（opt 镜像）\n\n"
                 f"系统语音 ID：{self._voice_id}（{system_voice_dir_name(self._voice_id)}）\n"
                 f"Cue：{cue_folder_name(cue_numeric_id_for_voice(self._voice_id))}"
             )
@@ -88,7 +95,6 @@ class SystemVoicePackPage(QWidget):
         self._get_tool_path = get_tool_path
         self._get_game_root = get_game_root
         self._audio_folder: Path | None = None
-        self._preview_dds: Path | None = None
         self._voice_id: int | None = None
         self._thread: QThread | None = None
         self._worker: _PackWorker | None = None
@@ -110,6 +116,13 @@ class SystemVoicePackPage(QWidget):
         self._name_edit.setPlaceholderText("游戏内显示名（写入 SystemVoice.xml）")
         self._name_edit.setText("自定义系统语音")
 
+        self._preview_edit = LineEdit(self)
+        self._preview_edit.setPlaceholderText("400×256 预览：自选 PNG / BC3 DDS，或点「预览图编辑器」生成 PNG（打包时再转 DDS）")
+
+        browse_prev = PushButton("浏览…", self)
+        browse_prev.setToolTip("选择已做好的 PNG 或 BC3 DDS")
+        browse_prev.clicked.connect(self._on_preview_browse)
+
         browse = PushButton("选择文件夹…", self)
         browse.clicked.connect(self._on_browse)
         refresh_id = PushButton("重新分配 ID", self)
@@ -117,6 +130,7 @@ class SystemVoicePackPage(QWidget):
         refresh_id.clicked.connect(self._refresh_ids)
 
         prev_btn = PushButton("预览图编辑器…", self)
+        prev_btn.setToolTip("合成 400×256 后导出 PNG；与新增角色立绘流程一致，打包步骤统一转 BC3 并写入 ACUS")
         prev_btn.clicked.connect(self._on_preview_dialog)
 
         self._pack_btn = PrimaryPushButton("转码并写入 ACUS", self)
@@ -173,7 +187,12 @@ class SystemVoicePackPage(QWidget):
         cv.addWidget(self._id_label)
         cv.addLayout(top_row)
         cv.addLayout(name_row)
-        cv.addWidget(prev_btn)
+        pv_row = QHBoxLayout()
+        pv_row.addWidget(QLabel("预览图", self))
+        pv_row.addWidget(self._preview_edit, stretch=1)
+        pv_row.addWidget(browse_prev)
+        pv_row.addWidget(prev_btn)
+        cv.addLayout(pv_row)
         cv.addWidget(self._status)
         cv.addWidget(self._pack_btn)
 
@@ -231,13 +250,24 @@ class SystemVoicePackPage(QWidget):
         else:
             self._status.setText(f"已选择：{folder}\n42 条音频已齐。")
 
+    def _on_preview_browse(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self.window(),
+            "选择预览图",
+            str(self._acus_root),
+            "图片与 DDS (*.png *.jpg *.jpeg *.webp *.bmp *.dds);;所有文件 (*.*)",
+        )
+        if not path:
+            return
+        self._preview_edit.setText(str(Path(path).expanduser()))
+
     def _on_preview_dialog(self) -> None:
-        dlg = SysvoicePreviewDialog(tool_path=self._get_tool_path(), parent=self.window())
+        dlg = SysvoicePreviewDialog(acus_root=self._acus_root, parent=self.window())
         if dlg.exec() != dlg.DialogCode.Accepted:
             return
-        if dlg.result_dds_path and dlg.result_dds_path.is_file():
-            self._preview_dds = dlg.result_dds_path
-            self._status.setText(f"已生成预览 DDS：{self._preview_dds}")
+        if dlg.result_png_path and dlg.result_png_path.is_file():
+            self._preview_edit.setText(str(dlg.result_png_path.resolve()))
+            self._status.setText(f"已写入合成 PNG：{dlg.result_png_path}")
 
     def _on_pack(self) -> None:
         if self._voice_id is None:
@@ -253,8 +283,10 @@ class SystemVoicePackPage(QWidget):
         if extra:
             fly_critical(self.window(), "多余文件", "请移除表外文件后再打包：" + ", ".join(extra[:30]))
             return
-        if self._preview_dds is None or not self._preview_dds.is_file():
-            fly_critical(self.window(), "错误", "请先用「预览图编辑器」生成 BC3 DDS。")
+        prev_raw = self._preview_edit.text().strip()
+        preview_src = Path(prev_raw).expanduser() if prev_raw else None
+        if preview_src is None or not preview_src.is_file():
+            fly_critical(self.window(), "错误", "请填写预览图路径（浏览选择 PNG/DDS，或使用「预览图编辑器」生成 PNG）。")
             return
         self._pack_btn.setEnabled(False)
         self._thread = QThread(self)
@@ -263,7 +295,8 @@ class SystemVoicePackPage(QWidget):
             audio_folder=self._audio_folder,
             voice_id=self._voice_id,
             display_name=self._name_edit.text().strip(),
-            preview_dds=self._preview_dds,
+            preview_source=preview_src,
+            tool_path=self._get_tool_path(),
         )
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
@@ -280,7 +313,7 @@ class SystemVoicePackPage(QWidget):
         fly_message(self.window(), "完成", msg)
         self.packed.emit()
         self._refresh_ids()
-        self._preview_dds = None
+        self._preview_edit.clear()
 
     def _on_pack_failed(self, msg: str) -> None:
         fly_critical(self.window(), "打包失败", msg)
