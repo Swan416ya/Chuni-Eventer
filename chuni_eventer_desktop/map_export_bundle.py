@@ -4,6 +4,9 @@
 
 含：地图解锁类 Event（``substances/map/mapName/id`` 与 Map.xml ``name/id`` 一致时，整包 ``event/event…/`` 目录）。
 不含 ``event/EventSort.xml``（全局排序表）；合并到其他 ACUS 时需自行把对应事件条目并入目标 EventSort。
+
+在首轮收集后，会对包内已纳入的 **XML** 做 **引用闭包**：解析 ``path`` 相对路径及常见 ``*Name/id``，
+反复加入 chara/ddsImage、ddsMap、Music/cueFile/stage、MapBonus、Event 等关联目录，直至不再增长（有轮数上限）。
 """
 from __future__ import annotations
 
@@ -12,6 +15,9 @@ import zipfile
 from pathlib import Path
 from typing import Iterable
 
+from .chuni_formats import ChuniCharaId
+from .mapbonus_xml import FIELD_PATHS
+from .music_delete import _resolve_cue_dir, _resolve_stage_dir
 from .system_voice_pack import cue_folder_name, cue_numeric_id_for_voice, system_voice_dir_name
 
 
@@ -212,6 +218,37 @@ def _enqueue_events_referencing_map(acus_root: Path, map_id: int, into: set[Path
         pass
 
 
+def _apply_map_xml_tree(
+    acus_root: Path, root: ET.Element, into: set[Path], seen_reward: set[int]
+) -> None:
+    """根据已解析的 MapData 根节点，纳入 mapArea / 层奖励 / 音乐 / ddsMap 及地图解锁 Event。"""
+    map_id = _safe_int(root.findtext("name/id") or "")
+    if map_id is not None and map_id >= 0:
+        _enqueue_events_referencing_map(acus_root, map_id, into)
+    for info in root.findall("infos/MapDataAreaInfo"):
+        aid = _safe_int(info.findtext("mapAreaName/id") or "")
+        if aid is not None and aid >= 0:
+            _enqueue_maparea(acus_root, aid, into, seen_reward)
+
+        rid = _safe_int(info.findtext("rewardName/id") or "")
+        if rid is not None:
+            _enqueue_reward_chain(acus_root, rid, into, seen_reward)
+
+        mid = _safe_int(info.findtext("musicName/id") or "")
+        if mid is not None and mid >= 0:
+            d = _resource_dir_by_xml_glob(acus_root, "music/**/Music.xml", mid)
+            if d is not None:
+                _add_dir_all_files(acus_root, d, into)
+
+        did = _safe_int(info.findtext("ddsMapName/id") or "")
+        if did is not None and did >= 0:
+            for pat in ("ddsMap/**/DDSMap.xml", "ddsMap/**/DdsMap.xml"):
+                d = _resource_dir_by_xml_glob(acus_root, pat, did)
+                if d is not None:
+                    _add_dir_all_files(acus_root, d, into)
+                    break
+
+
 def _enqueue_maparea(acus_root: Path, area_id: int, into: set[Path], seen_reward: set[int]) -> None:
     if area_id < 0:
         return
@@ -237,9 +274,309 @@ def _enqueue_maparea(acus_root: Path, area_id: int, into: set[Path], seen_reward
         pass
 
 
+_MAX_CLOSURE_PASSES = 400
+
+
+def _enqueue_path_texts_in_tree(acus_root: Path, base_dir: Path, root: ET.Element, into: set[Path]) -> None:
+    """将树中所有 ``<path>`` 文本视为相对 ``base_dir`` 的文件或目录，若在 ACUS 内则纳入。"""
+    ar = acus_root.resolve()
+    for el in root.iter():
+        if (el.tag or "") != "path":
+            continue
+        raw = (el.text or "").strip()
+        if not raw:
+            continue
+        try:
+            cand = (base_dir / raw).resolve()
+        except OSError:
+            continue
+        try:
+            cand.relative_to(ar)
+        except ValueError:
+            continue
+        if cand.is_file():
+            into.add(cand)
+        elif cand.is_dir():
+            _add_dir_all_files(acus_root, cand, into)
+
+
+def _enqueue_release_tag_by_id(acus_root: Path, rt_id: int, into: set[Path]) -> None:
+    if rt_id is None or rt_id < 0:
+        return
+    d = _resource_dir_by_xml_glob(acus_root, "releaseTag/**/ReleaseTag.xml", rt_id)
+    if d is not None:
+        _add_dir_all_files(acus_root, d, into)
+
+
+def _enqueue_netopen_by_id(acus_root: Path, no_id: int, into: set[Path]) -> None:
+    if no_id is None or no_id < 0:
+        return
+    for pat in ("netOpen/**/NetOpen.xml", "netopen/**/NetOpen.xml"):
+        d = _resource_dir_by_xml_glob(acus_root, pat, no_id)
+        if d is not None:
+            _add_dir_all_files(acus_root, d, into)
+            return
+
+
+def _enqueue_gauge_by_id(acus_root: Path, gid: int, into: set[Path]) -> None:
+    if gid is None or gid < 0:
+        return
+    for pat in ("gauge/**/Gauge.xml", "gauge/**/gauge.xml"):
+        d = _resource_dir_by_xml_glob(acus_root, pat, gid)
+        if d is not None:
+            _add_dir_all_files(acus_root, d, into)
+            return
+
+
+def _enqueue_time_table_by_id(acus_root: Path, tid: int, into: set[Path]) -> None:
+    if tid is None or tid < 0:
+        return
+    for pat in ("timeTable/**/TimeTable.xml", "timeTable/**/Timetable.xml"):
+        d = _resource_dir_by_xml_glob(acus_root, pat, tid)
+        if d is not None:
+            _add_dir_all_files(acus_root, d, into)
+            return
+
+
+def _enqueue_event_dir_by_id(acus_root: Path, eid: int, into: set[Path]) -> None:
+    if eid is None or eid < 0:
+        return
+    ed = acus_root / "event" / f"event{eid:08d}"
+    _add_dir_all_files(acus_root, ed, into)
+
+
+def _expand_mapbonus_substances_closure(acus_root: Path, root: ET.Element, into: set[Path], seen_reward: set[int]) -> None:
+    for sub in root.findall("substances/list/MapBonusSubstanceData"):
+        for fld, (outer, leaf) in FIELD_PATHS.items():
+            tid = _safe_int(sub.findtext(f"{outer}/{leaf}/id") or "")
+            if tid is None or tid < 0:
+                continue
+            if fld == "chara":
+                d = _resource_dir_by_xml_glob(acus_root, "chara/**/Chara.xml", tid)
+                if d is not None:
+                    _add_dir_all_files(acus_root, d, into)
+            elif fld == "music":
+                d = _resource_dir_by_xml_glob(acus_root, "music/**/Music.xml", tid)
+                if d is not None:
+                    _add_dir_all_files(acus_root, d, into)
+            elif fld == "musicWorks":
+                _enqueue_release_tag_by_id(acus_root, tid, into)
+            elif fld == "charaWorks":
+                cwd = acus_root / "charaWorks" / f"charaWorks{tid:06d}"
+                _add_dir_all_files(acus_root, cwd, into)
+            elif fld == "skill":
+                d = _resource_dir_by_xml_glob(acus_root, "skill/**/Skill.xml", tid)
+                if d is not None:
+                    _add_dir_all_files(acus_root, d, into)
+            elif fld == "skillCategory":
+                d = _resource_dir_by_xml_glob(acus_root, "skillCategory/**/SkillCategory.xml", tid)
+                if d is not None:
+                    _add_dir_all_files(acus_root, d, into)
+            elif fld == "musicGenre":
+                d = _resource_dir_by_xml_glob(acus_root, "musicGenre/**/MusicGenre.xml", tid)
+                if d is not None:
+                    _add_dir_all_files(acus_root, d, into)
+            elif fld == "musicLabel":
+                d = _resource_dir_by_xml_glob(acus_root, "musicLabel/**/MusicLabel.xml", tid)
+                if d is not None:
+                    _add_dir_all_files(acus_root, d, into)
+
+
+def _expand_chara_xml_closure(
+    acus_root: Path, root: ET.Element, xml_path: Path, into: set[Path], seen_reward: set[int]
+) -> None:
+    base = xml_path.parent
+    _enqueue_path_texts_in_tree(acus_root, base, root, into)
+    cid_raw = _safe_int(root.findtext("name/id") or "")
+    if cid_raw is not None and cid_raw >= 0:
+        try:
+            cid_fmt = ChuniCharaId(cid_raw)
+            dds_dir = acus_root / "ddsImage" / f"ddsImage{cid_fmt.raw6}"
+            _add_dir_all_files(acus_root, dds_dir, into)
+        except Exception:
+            pass
+    for n in range(1, 10):
+        sec = root.find(f"addImages{n}")
+        if sec is None:
+            continue
+        aid = _safe_int(sec.findtext("charaName/id") or "")
+        if aid is not None and aid >= 0:
+            d = _resource_dir_by_xml_glob(acus_root, "chara/**/Chara.xml", aid)
+            if d is not None:
+                _add_dir_all_files(acus_root, d, into)
+    wi = _safe_int(root.findtext("works/id") or "")
+    if wi is not None and wi >= 0:
+        cwd = acus_root / "charaWorks" / f"charaWorks{wi:06d}"
+        _add_dir_all_files(acus_root, cwd, into)
+    ri = _safe_int(root.findtext("releaseTagName/id") or "")
+    _enqueue_release_tag_by_id(acus_root, ri if ri is not None else -1, into)
+    ni = _safe_int(root.findtext("netOpenName/id") or "")
+    _enqueue_netopen_by_id(acus_root, ni if ni is not None else -1, into)
+    for rank in root.findall("ranks/CharaRankData"):
+        rsid = _safe_int(rank.findtext("rewardSkillSeed/rewardSkillSeed/id") or "")
+        if rsid is not None and rsid >= 0:
+            _enqueue_reward_chain(acus_root, rsid, into, seen_reward)
+
+
+def _expand_music_xml_closure(acus_root: Path, root: ET.Element, into: set[Path]) -> None:
+    rt = _safe_int(root.findtext("releaseTagName/id") or "")
+    _enqueue_release_tag_by_id(acus_root, rt if rt is not None else -1, into)
+    nt = _safe_int(root.findtext("netOpenName/id") or "")
+    _enqueue_netopen_by_id(acus_root, nt if nt is not None else -1, into)
+    st = _safe_int(root.findtext("stageName/id") or "")
+    if st is not None and st > 0:
+        sd = _resolve_stage_dir(acus_root, st)
+        if sd is not None:
+            _add_dir_all_files(acus_root, sd, into)
+    cf = _safe_int(root.findtext("cueFileName/id") or "")
+    if cf is not None and cf > 0:
+        cd = _resolve_cue_dir(acus_root, cf)
+        if cd is not None:
+            _add_dir_all_files(acus_root, cd, into)
+
+
+def _expand_stage_xml_closure(acus_root: Path, root: ET.Element, into: set[Path]) -> None:
+    rt = _safe_int(root.findtext("releaseTagName/id") or "")
+    _enqueue_release_tag_by_id(acus_root, rt if rt is not None else -1, into)
+    nt = _safe_int(root.findtext("netOpenName/id") or "")
+    _enqueue_netopen_by_id(acus_root, nt if nt is not None else -1, into)
+    nfl = _safe_int(root.findtext("notesFieldLine/id") or "")
+    if nfl is not None and nfl >= 0:
+        for pat in ("notesFieldLine/**/NotesFieldLine.xml", "notesFieldLine/**/NoteFieldLine.xml"):
+            d = _resource_dir_by_xml_glob(acus_root, pat, nfl)
+            if d is not None:
+                _add_dir_all_files(acus_root, d, into)
+                break
+
+
+def _expand_map_data_closure(acus_root: Path, root: ET.Element, into: set[Path]) -> None:
+    tt = _safe_int(root.findtext("timeTableName/id") or "")
+    _enqueue_time_table_by_id(acus_root, tt if tt is not None else -1, into)
+    se = _safe_int(root.findtext("stopReleaseEventName/id") or "")
+    _enqueue_event_dir_by_id(acus_root, se if se is not None else -1, into)
+    for info in root.findall("infos/MapDataAreaInfo"):
+        gid = _safe_int(info.findtext("gaugeName/id") or "")
+        _enqueue_gauge_by_id(acus_root, gid if gid is not None else -1, into)
+
+
+def _expand_event_xml_closure(acus_root: Path, root: ET.Element, xml_path: Path, into: set[Path], seen_reward: set[int]) -> None:
+    base = xml_path.parent
+    _enqueue_path_texts_in_tree(acus_root, base, root, into)
+    nt = _safe_int(root.findtext("netOpenName/id") or "")
+    _enqueue_netopen_by_id(acus_root, nt if nt is not None else -1, into)
+    bid = _safe_int(root.findtext("ddsBannerName/id") or "")
+    if bid is not None and bid >= 0:
+        for pat in ("ddsBanner/**/DDSBanner.xml", "ddsBanner/**/DdsBanner.xml"):
+            d = _resource_dir_by_xml_glob(acus_root, pat, bid)
+            if d is not None:
+                _add_dir_all_files(acus_root, d, into)
+                break
+    subs = root.find("substances")
+    if subs is not None:
+        mid = _safe_int(subs.findtext("map/mapName/id") or "")
+        if mid is not None and mid >= 0:
+            mdir = map_xml_dir_for_map_id(acus_root, mid)
+            if mdir is not None:
+                _add_dir_all_files(acus_root, mdir, into)
+    for sid in root.findall(".//musicNames/list/StringID"):
+        mid = _safe_int(sid.findtext("id") or "")
+        if mid is not None and mid >= 0:
+            d = _resource_dir_by_xml_glob(acus_root, "music/**/Music.xml", mid)
+            if d is not None:
+                _add_dir_all_files(acus_root, d, into)
+
+
+def map_xml_dir_for_map_id(acus_root: Path, map_id: int) -> Path | None:
+    """解析 ``map/**/Map.xml`` 中 ``name/id`` 为 ``map_id`` 的目录（用于 Event 引用其它地图时一并导出）。"""
+    if map_id < 0:
+        return None
+    d = _resource_dir_by_xml_glob(acus_root, "map/**/Map.xml", map_id)
+    return d
+
+
+def _expand_one_xml_for_closure(
+    acus_root: Path, xml_path: Path, into: set[Path], seen_reward: set[int]
+) -> None:
+    try:
+        root = ET.parse(xml_path).getroot()
+    except Exception:
+        return
+    tag = (root.tag or "").strip()
+    base = xml_path.parent
+    name = xml_path.name
+
+    if name == "Chara.xml" or tag == "CharaData":
+        _expand_chara_xml_closure(acus_root, root, xml_path, into, seen_reward)
+        return
+    if name == "Music.xml" or tag.endswith("MusicData") or tag == "MusicData":
+        _enqueue_path_texts_in_tree(acus_root, base, root, into)
+        _expand_music_xml_closure(acus_root, root, into)
+        return
+    if name == "DDSMap.xml" or tag.endswith("DDSMapData") or tag == "DDSMapData":
+        _enqueue_path_texts_in_tree(acus_root, base, root, into)
+        return
+    if name == "DDSImage.xml" or tag.endswith("DDSImageData") or tag == "DDSImageData":
+        _enqueue_path_texts_in_tree(acus_root, base, root, into)
+        ni = _safe_int(root.findtext("netOpenName/id") or "")
+        _enqueue_netopen_by_id(acus_root, ni if ni is not None else -1, into)
+        return
+    if name == "Stage.xml" or tag.endswith("StageData") or tag == "StageData":
+        _enqueue_path_texts_in_tree(acus_root, base, root, into)
+        _expand_stage_xml_closure(acus_root, root, into)
+        return
+    if name == "MapBonus.xml" or tag.endswith("MapBonusData") or tag == "MapBonusData":
+        _expand_mapbonus_substances_closure(acus_root, root, into, seen_reward)
+        _enqueue_path_texts_in_tree(acus_root, base, root, into)
+        return
+    if name == "Reward.xml" or tag.endswith("RewardData") or tag == "RewardData":
+        _enqueue_path_texts_in_tree(acus_root, base, root, into)
+        try:
+            _expand_reward_substances(acus_root, root, into)
+        except Exception:
+            pass
+        return
+    if name == "Event.xml" or tag.endswith("EventData") or tag == "EventData":
+        _expand_event_xml_closure(acus_root, root, xml_path, into, seen_reward)
+        return
+    if name == "Map.xml" or tag.endswith("MapData") or tag == "MapData":
+        _enqueue_path_texts_in_tree(acus_root, base, root, into)
+        _expand_map_data_closure(acus_root, root, into)
+        _apply_map_xml_tree(acus_root, root, into, seen_reward)
+        return
+    if name in ("Trophy.xml", "NamePlate.xml", "Ticket.xml", "SystemVoice.xml", "AvatarAccessory.xml", "MapArea.xml"):
+        _enqueue_path_texts_in_tree(acus_root, base, root, into)
+        return
+    if name == "CueFile.xml" or "CueFile" in tag:
+        _enqueue_path_texts_in_tree(acus_root, base, root, into)
+        return
+
+    _enqueue_path_texts_in_tree(acus_root, base, root, into)
+
+
+def _closure_expand_acus_references(acus_root: Path, into: set[Path], seen_reward: set[int]) -> None:
+    """对已收集集合内的 XML 反复解析引用，直到不再增长（轮数上限）。"""
+    ar = acus_root.resolve()
+    seen_xml: set[Path] = set()
+    for _ in range(_MAX_CLOSURE_PASSES):
+        before = len(into)
+        xml_list = [
+            p.resolve()
+            for p in into
+            if p.is_file() and p.suffix.lower() == ".xml" and _is_under_acus(acus_root, p)
+        ]
+        for xp in sorted(xml_list):
+            if xp in seen_xml:
+                continue
+            seen_xml.add(xp)
+            _expand_one_xml_for_closure(acus_root, xp, into, seen_reward)
+        if len(into) == before:
+            break
+
+
 def collect_map_bundle_files(*, acus_root: Path, map_xml_path: Path) -> list[Path]:
     """
-    收集 map 目录、Map.xml 引用的 mapArea/ddsMap、各层 reward 及 reward 物质在 ACUS 内存在的实体目录/文件。
+    收集 map 目录、Map.xml 引用的 mapArea/ddsMap、各层 reward 及 reward 物质在 ACUS 内存在的实体目录/文件；
+    并对已纳入的 XML 做引用闭包（chara↔ddsImage、Music↔cue/stage、MapBonus、Event 内 path/乐曲等），直至饱和。
     返回去重后的绝对路径列表（仅文件）。
     """
     acus_root = acus_root.resolve()
@@ -257,32 +594,9 @@ def collect_map_bundle_files(*, acus_root: Path, map_xml_path: Path) -> list[Pat
     except Exception as e:
         raise ValueError(f"无法解析 Map.xml：{e}") from e
 
-    map_id = _safe_int(root.findtext("name/id") or "")
-    if map_id is not None and map_id >= 0:
-        _enqueue_events_referencing_map(acus_root, map_id, into)
+    _apply_map_xml_tree(acus_root, root, into, seen_reward)
 
-    for info in root.findall("infos/MapDataAreaInfo"):
-        aid = _safe_int(info.findtext("mapAreaName/id") or "")
-        if aid is not None and aid >= 0:
-            _enqueue_maparea(acus_root, aid, into, seen_reward)
-
-        rid = _safe_int(info.findtext("rewardName/id") or "")
-        if rid is not None:
-            _enqueue_reward_chain(acus_root, rid, into, seen_reward)
-
-        mid = _safe_int(info.findtext("musicName/id") or "")
-        if mid is not None and mid >= 0:
-            d = _resource_dir_by_xml_glob(acus_root, "music/**/Music.xml", mid)
-            if d is not None:
-                _add_dir_all_files(acus_root, d, into)
-
-        did = _safe_int(info.findtext("ddsMapName/id") or "")
-        if did is not None and did >= 0:
-            for pat in ("ddsMap/**/DDSMap.xml", "ddsMap/**/DdsMap.xml"):
-                d = _resource_dir_by_xml_glob(acus_root, pat, did)
-                if d is not None:
-                    _add_dir_all_files(acus_root, d, into)
-                    break
+    _closure_expand_acus_references(acus_root, into, seen_reward)
 
     return sorted(into)
 
