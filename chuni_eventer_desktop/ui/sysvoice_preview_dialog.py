@@ -23,9 +23,30 @@ from .fluent_dialogs import fly_critical
 CANVAS_W = 400
 CANVAS_H = 256
 
+# 自上往下第几行（从 1 计数）整段透明：中立绘擦除 + 最终合成再清一次
+_SYSVOICE_TRANSPARENT_ROW_1_FIRST = 194
+_SYSVOICE_TRANSPARENT_ROW_1_LAST = 296
+
 
 def _static_sysvoice_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "static" / "tool" / "sysvoice"
+
+
+def _transparent_band_rect_0based() -> tuple[int, int, int, int] | None:
+    """
+    返回 (x, y, w, h) 画布坐标系下需整段透明的矩形；行号为从 1 计数的扫描行。
+    高度不足时底边钳制到画布内。
+    """
+    y0 = _SYSVOICE_TRANSPARENT_ROW_1_FIRST - 1
+    y1 = _SYSVOICE_TRANSPARENT_ROW_1_LAST - 1
+    if y0 >= CANVAS_H:
+        return None
+    y0 = max(0, y0)
+    y1 = min(y1, CANVAS_H - 1)
+    if y1 < y0:
+        return None
+    h = y1 - y0 + 1
+    return (0, y0, CANVAS_W, h)
 
 
 class SysvoiceComposeWidget(QWidget):
@@ -97,9 +118,27 @@ class SysvoiceComposeWidget(QWidget):
                 Qt.AspectRatioMode.IgnoreAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
-            p.drawPixmap(int(self._ox), int(self._oy), scaled)
+            mid_layer = QImage(CANVAS_W, CANVAS_H, QImage.Format.Format_ARGB32)
+            mid_layer.fill(Qt.GlobalColor.transparent)
+            pmid = QPainter(mid_layer)
+            pmid.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+            pmid.drawPixmap(int(self._ox), int(self._oy), scaled)
+            pmid.end()
+            band = _transparent_band_rect_0based()
+            if band is not None:
+                bx, by, bw, bh = band
+                pm2 = QPainter(mid_layer)
+                pm2.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
+                pm2.fillRect(bx, by, bw, bh, Qt.GlobalColor.transparent)
+                pm2.end()
+            p.drawImage(0, 0, mid_layer)
         if not self._front.isNull():
             p.drawPixmap(0, 0, self._front)
+        band = _transparent_band_rect_0based()
+        if band is not None:
+            bx, by, bw, bh = band
+            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
+            p.fillRect(bx, by, bw, bh, Qt.GlobalColor.transparent)
         p.end()
         return out
 
@@ -153,8 +192,10 @@ class SysvoicePreviewDialog(FluentCaptionDialog):
         self.result_dds_path: Path | None = None
 
         hint = BodyLabel(
-            "底层为工具内置 back.png，顶层为 front.png；中间层为自选立绘。"
-            " 在画面上拖动调整位置，滚轮缩放。输出 400×256 BC3 DDS。",
+            "底层为 back.png，中间为立绘（可拖动、滚轮缩放），再叠 front.png。"
+            " 导出时自上往下第 194～296 行（从 1 计数）整段强制透明："
+            " 先擦掉该带内的立绘，再对成图同一带清屏（白条等一并去掉；画布高 256 时底边钳在 256 行）。"
+            " 输出 400×256 BC3 DDS。",
             self,
         )
         hint.setWordWrap(True)

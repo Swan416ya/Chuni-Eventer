@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, Qt, QThread, QTimer, pyqtSignal
-from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QProgressDialog, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QProgressDialog, QStackedWidget, QVBoxLayout, QWidget
 
 from qfluentwidgets import (
     FluentIcon,
@@ -13,6 +13,7 @@ from qfluentwidgets import (
     PrimaryPushButton,
     PushButton,
     SearchLineEdit,
+    SegmentedWidget,
     SubtitleLabel,
 )
 
@@ -41,7 +42,7 @@ from .event_add_dialog import EventAddDialog
 from .quest_add_dialog import QuestAddDialog
 from .mapbonus_dialogs import MapBonusEditDialog
 from .stage_add_dialog import StageAddDialog
-from .system_voice_page import SystemVoicePackPage
+from .system_voice_pack_dialog import SystemVoicePackDialog
 from .fluent_dialogs import (
     fly_critical,
     fly_message,
@@ -52,19 +53,28 @@ from .fluent_dialogs import (
 from .nav_icons import (
     SVG_STAGE_BG,
     SVG_CHARA,
-    SVG_EVENT,
     SVG_MAP,
-    SVG_MAPBONUS,
     SVG_MUSIC,
     SVG_NAMEPLATE,
-    SVG_QUEST,
-    SVG_REWARD,
     SVG_TROPHY,
     nav_qicon,
 )
 
 
 _scan_log_logger: logging.Logger | None = None
+
+# 启动窗口高度：在原先 720 基础上为左侧导航多预留约 2 个 Tab 项的垂直空间（Fluent 侧栏单项约 48～56px）。
+_DEFAULT_MAIN_WINDOW_WIDTH = 1160
+_DEFAULT_MAIN_WINDOW_HEIGHT = 720 + 2 * 52
+
+# 「其他」分段 routeKey -> (ManagerWidget kind, 标题)
+_OTHERS_ROUTE_KIND: dict[str, tuple[str, str]] = {
+    "event": ("Event", "事件"),
+    "quest": ("Quest", "任务"),
+    "reward": ("Reward", "奖励"),
+    "mapbonus": ("MapBonus", "加成"),
+    "sysvoice": ("SystemVoice", "系统语音"),
+}
 
 
 def _scan_logger() -> logging.Logger:
@@ -147,10 +157,11 @@ class MainWindow(MSFluentWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(f"Chuni Eventer v{APP_VERSION}")
-        self.resize(1160, 720)
+        self.resize(_DEFAULT_MAIN_WINDOW_WIDTH, _DEFAULT_MAIN_WINDOW_HEIGHT)
 
         self._cfg = AcusConfig.load()
         self._acus_root = ensure_acus_layout(game_root=self._cfg.game_root or None)
+        self._in_others_mode = False
 
         self._workspace = QWidget()
         self._workspace.setObjectName("acusWorkspace")
@@ -189,31 +200,56 @@ class MainWindow(MSFluentWindow):
             embedded=True,
         )
         self._search.textChanged.connect(self._manager.set_search_text)
-        wlay.addWidget(self._manager, stretch=1)
+
+        self._primary_body = QWidget(self._workspace)
+        pl = QVBoxLayout(self._primary_body)
+        pl.setContentsMargins(0, 0, 0, 0)
+        pl.setSpacing(0)
+        pl.addWidget(self._manager, stretch=1)
+
+        self._page_others = QWidget(self._workspace)
+        ol = QVBoxLayout(self._page_others)
+        ol.setContentsMargins(0, 8, 0, 0)
+        ol.setSpacing(8)
+        self._others_seg = SegmentedWidget(self._page_others)
+        self._others_seg.addItem("event", "事件")
+        self._others_seg.addItem("quest", "任务")
+        self._others_seg.addItem("reward", "奖励")
+        self._others_seg.addItem("mapbonus", "加成")
+        self._others_seg.addItem("sysvoice", "系统语音")
+        self._others_seg.currentItemChanged.connect(self._on_others_segment_changed)
+        ol.addWidget(self._others_seg)
+        self._others_manager_slot = QWidget(self._page_others)
+        self._others_manager_layout = QVBoxLayout(self._others_manager_slot)
+        self._others_manager_layout.setContentsMargins(0, 0, 0, 0)
+        ol.addWidget(self._others_manager_slot, stretch=1)
+
+        self._content_stack = QStackedWidget(self._workspace)
+        self._content_stack.addWidget(self._primary_body)
+        self._content_stack.addWidget(self._page_others)
+        wlay.addWidget(self._content_stack, stretch=1)
 
         self.stackedWidget.addWidget(self._workspace)
-
-        self._sysvoice_page = SystemVoicePackPage(
-            acus_root=self._acus_root,
-            get_tool_path=self._get_tool_path_or_none,
-            get_game_root=lambda: self._cfg.game_root or "",
-            parent=self,
-        )
-        self.stackedWidget.addWidget(self._sysvoice_page)
 
         self._nav_specs: list[tuple[str, object, str, str, str]] = [
             ("nav_chara", nav_qicon(SVG_CHARA), "角色", "Chara", "角色"),
             ("nav_map", nav_qicon(SVG_MAP), "地图", "Map", "地图"),
-            ("nav_event", nav_qicon(SVG_EVENT), "事件", "Event", "事件"),
-            ("nav_quest", nav_qicon(SVG_QUEST), "任务", "Quest", "任务"),
             ("nav_music", nav_qicon(SVG_MUSIC), "歌曲", "Music", "歌曲"),
             ("nav_stage", nav_qicon(SVG_STAGE_BG), "背景", "Stage", "背景"),
             ("nav_trophy", nav_qicon(SVG_TROPHY), "称号", "Trophy", "称号"),
             ("nav_nameplate", nav_qicon(SVG_NAMEPLATE), "名牌", "NamePlate", "名牌"),
-            ("nav_reward", nav_qicon(SVG_REWARD), "奖励", "Reward", "奖励"),
-            ("nav_mapbonus", nav_qicon(SVG_MAPBONUS), "加成", "MapBonus", "加成"),
+            ("nav_others", FluentIcon.APPLICATION, "其他", "__Others__", "其他"),
         ]
         for route_key, icon, text, kind, title in self._nav_specs:
+            if kind == "__Others__":
+                self.navigationInterface.addItem(
+                    routeKey=route_key,
+                    icon=icon,
+                    text=text,
+                    onClick=lambda r=route_key: self._enter_others_mode(r),
+                    position=NavigationItemPosition.TOP,
+                )
+                continue
             self.navigationInterface.addItem(
                 routeKey=route_key,
                 icon=icon,
@@ -222,14 +258,6 @@ class MainWindow(MSFluentWindow):
                 position=NavigationItemPosition.TOP,
             )
 
-        self.navigationInterface.addItem(
-            routeKey="nav_sysvoice",
-            icon=FluentIcon.MUSIC_FOLDER,
-            text="系统语音",
-            onClick=self._open_system_voice_page,
-            position=NavigationItemPosition.BOTTOM,
-            selectable=True,
-        )
         self.navigationInterface.addItem(
             routeKey="nav_save_patch",
             icon=FluentIcon.SAVE,
@@ -248,7 +276,7 @@ class MainWindow(MSFluentWindow):
         )
 
         self.switchTo(self._workspace)
-        self._current_category_index = 4
+        self._current_category_index = 2
         self.navigationInterface.setCurrentItem("nav_music")
         # 延后到事件循环下一轮再扫 ACUS / 建歌曲卡片，让窗口先完成 show()，体感启动更快
         QTimer.singleShot(0, lambda: self._apply_category("Music", "歌曲"))
@@ -367,9 +395,63 @@ class MainWindow(MSFluentWindow):
     def _get_tool_path_or_none(self) -> Path | None:
         return resolve_compressonatorcli_path(self._cfg)
 
+    def _mount_manager_primary(self) -> None:
+        if self._manager.parentWidget() is self._primary_body:
+            return
+        old = self._manager.parentWidget()
+        if old is not None:
+            lay = old.layout()
+            if lay is not None:
+                lay.removeWidget(self._manager)
+        pl = self._primary_body.layout()
+        if isinstance(pl, QVBoxLayout):
+            pl.addWidget(self._manager, stretch=1)
+
+    def _mount_manager_others(self) -> None:
+        if self._manager.parentWidget() is self._others_manager_slot:
+            return
+        old = self._manager.parentWidget()
+        if old is not None:
+            lay = old.layout()
+            if lay is not None:
+                lay.removeWidget(self._manager)
+        self._others_manager_layout.addWidget(self._manager, stretch=1)
+
+    def _exit_others_mode(self) -> None:
+        if not self._in_others_mode:
+            return
+        self._in_others_mode = False
+        self._content_stack.setCurrentWidget(self._primary_body)
+        self._mount_manager_primary()
+
+    def _enter_others_mode(self, route_key: str) -> None:
+        self.switchTo(self._workspace)
+        self.navigationInterface.setCurrentItem(route_key)
+        self._in_others_mode = True
+        self._current_category_index = -1
+        self._content_stack.setCurrentWidget(self._page_others)
+        self._mount_manager_others()
+        self._others_seg.blockSignals(True)
+        if not self._others_seg.currentRouteKey():
+            self._others_seg.setCurrentItem("event")
+        self._others_seg.blockSignals(False)
+        rk = self._others_seg.currentRouteKey() or "event"
+        kind, title = _OTHERS_ROUTE_KIND[rk]
+        self._apply_category(kind, title)
+
+    def _on_others_segment_changed(self, route_key: str) -> None:
+        if not self._in_others_mode:
+            return
+        pair = _OTHERS_ROUTE_KIND.get(route_key)
+        if not pair:
+            return
+        kind, title = pair
+        self._apply_category(kind, title)
+
     def _select_category(self, route_key: str, kind: str, title: str) -> None:
         self.switchTo(self._workspace)
         self.navigationInterface.setCurrentItem(route_key)
+        self._exit_others_mode()
         for i, (rk, *_rest) in enumerate(self._nav_specs):
             if rk == route_key:
                 self._current_category_index = i
@@ -390,16 +472,23 @@ class MainWindow(MSFluentWindow):
             "Reward": "搜索奖励…",
             "Stage": "搜索背景（Stage）…",
             "MapBonus": "搜索 MapBonus…",
+            "SystemVoice": "搜索系统语音 ID、名称…",
         }
         self._search.setPlaceholderText(placeholders.get(kind, "搜索当前列表…"))
         self._game_music_browser_btn.setVisible(kind == "Music")
         self._manager.set_kind(kind)
 
     def _restore_current_category_header(self) -> None:
+        if self._in_others_mode:
+            rk = self._others_seg.currentRouteKey() or "event"
+            kind, title = _OTHERS_ROUTE_KIND.get(rk, ("Event", "事件"))
+            self._apply_category(kind, title)
+            return
         idx = self._current_category_index
         if 0 <= idx < len(self._nav_specs):
             _rk, _icon, _text, kind, title = self._nav_specs[idx]
-            self._apply_category(kind, title)
+            if kind != "__Others__":
+                self._apply_category(kind, title)
 
     def _on_game_music_browser(self) -> None:
         try:
@@ -419,14 +508,6 @@ class MainWindow(MSFluentWindow):
         except Exception:
             _scan_logger().exception("ui_click_game_music_browser_crash")
             fly_critical(self, "操作失败", "打开游戏乐曲浏览时发生异常，请提供日志。")
-
-    def _open_system_voice_page(self) -> None:
-        try:
-            self.switchTo(self._sysvoice_page)
-            self.navigationInterface.setCurrentItem("nav_sysvoice")
-        except Exception:
-            _scan_logger().exception("ui_open_system_voice_page_crash")
-            fly_critical(self, "操作失败", "打开系统语音页面失败。")
 
     def _open_save_patch(self) -> None:
         try:
@@ -479,8 +560,11 @@ class MainWindow(MSFluentWindow):
 
     def _on_add(self) -> None:
         try:
-            idx = self._current_category_index
-            kind = self._nav_specs[idx][3] if 0 <= idx < len(self._nav_specs) else ""
+            if self._in_others_mode:
+                kind = self._manager._kind_key()
+            else:
+                idx = self._current_category_index
+                kind = self._nav_specs[idx][3] if 0 <= idx < len(self._nav_specs) else ""
             _scan_logger().info("ui_click_add kind=%s", kind)
         except Exception:
             _scan_logger().exception("ui_click_add_precheck_crash")
@@ -564,6 +648,27 @@ class MainWindow(MSFluentWindow):
                 self._on_refresh()
             return
 
+        if kind == "SystemVoice":
+            tool_sv = self._get_tool_path_or_none()
+            if tool_sv is None and not quicktex_available():
+                fly_critical(
+                    self,
+                    "无法生成预览 DDS",
+                    "请任选其一：\n"
+                    "• 运行 pip install quicktex（推荐，可不装 compressonator）\n"
+                    "• 或在【设置】里配置 compressonatorcli 可执行文件路径",
+                )
+                return
+            dlg = SystemVoicePackDialog(
+                acus_root=self._acus_root,
+                get_tool_path=self._get_tool_path_or_none,
+                get_game_root=lambda: self._cfg.game_root or "",
+                parent=self,
+            )
+            dlg.packed.connect(self._on_refresh)
+            dlg.exec()
+            return
+
         if kind == "Stage":
             dlg = StageAddDialog(
                 acus_root=self._acus_root,
@@ -587,7 +692,13 @@ class MainWindow(MSFluentWindow):
             return
 
         if kind == "Chara":
-            dlg = CharaAddDialog(acus_root=self._acus_root, tool_path=tool, parent=self)
+            dlg = CharaAddDialog(
+                acus_root=self._acus_root,
+                tool_path=tool,
+                parent=self,
+                locked_variant=0,
+                variant_lock_reason="new_chara",
+            )
             if dlg.exec() == dlg.DialogCode.Accepted:
                 self._on_refresh()
         elif kind == "Map":
@@ -611,6 +722,6 @@ class MainWindow(MSFluentWindow):
             fly_warning(
                 self,
                 "未实现",
-                "当前已实现【新增角色】【新增地图】【新增事件】【新增任务】【新增歌曲课题称号】【新增称号】【新增名牌】【新增奖励】。"
+                "当前已实现【新增角色】【新增地图】【新增事件】【新增任务】【新增歌曲课题称号】【新增称号】【新增名牌】【新增奖励】【系统语音打包向导】。"
                 "DDSImage 请直接在 ACUS 目录维护或用其它工具。",
             )

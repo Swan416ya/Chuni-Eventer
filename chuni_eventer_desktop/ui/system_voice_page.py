@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -28,6 +28,7 @@ from ..system_voice_pack import (
     validate_voice_folder,
 )
 from .fluent_dialogs import fly_critical, fly_message
+from .fluent_table import apply_fluent_sheet_table, sheet_list_hint_muted_colors
 from .sysvoice_preview_dialog import SysvoicePreviewDialog
 
 
@@ -71,6 +72,8 @@ class _PackWorker(QObject):
 
 class SystemVoicePackPage(QWidget):
     """42 条系统语音打包 + 预览图说明。"""
+
+    packed = pyqtSignal()
 
     def __init__(
         self,
@@ -122,20 +125,36 @@ class SystemVoicePackPage(QWidget):
         self._status = QLabel("", self)
         self._status.setWordWrap(True)
 
+        table_tip = BodyLabel(
+            "共 42 条：左列为建议文件名（示例形如 50.mp4/50.wav，实际任选 mp3、wav、flac 等一种扩展名即可）；"
+            "右列为对照表说明。",
+            self,
+        )
+        table_tip.setWordWrap(True)
+        sheet_list_hint_muted_colors(table_tip)
+
         self._table = QTableWidget(self)
-        self._table.setColumnCount(3)
-        self._table.setHorizontalHeaderLabels(["槽位", "文件序号", "说明（对照表）"])
-        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self._table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
-        for slot_idx, lid in enumerate(LOGICAL_IDS_42):
-            self._table.insertRow(slot_idx)
-            self._table.setItem(slot_idx, 0, QTableWidgetItem(str(slot_idx + 1)))
-            self._table.setItem(slot_idx, 1, QTableWidgetItem(str(lid)))
-            self._table.setItem(slot_idx, 2, QTableWidgetItem(desc_map.get(lid, "")))
+        self._table.setColumnCount(2)
+        self._table.setHorizontalHeaderLabels(["文件名", "说明"])
+        apply_fluent_sheet_table(self._table)
+        hh = self._table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        for lid in LOGICAL_IDS_42:
+            row = self._table.rowCount()
+            self._table.insertRow(row)
+            name_cell = QTableWidgetItem(f"{lid}.mp4/{lid}.wav")
+            desc_cell = QTableWidgetItem(desc_map.get(lid, ""))
+            self._table.setItem(row, 0, name_cell)
+            self._table.setItem(row, 1, desc_cell)
         self._table.resizeRowsToContents()
+
+        list_card = CardWidget(self)
+        list_lay = QVBoxLayout(list_card)
+        list_lay.setContentsMargins(16, 14, 16, 14)
+        list_lay.setSpacing(8)
+        list_lay.addWidget(table_tip)
+        list_lay.addWidget(self._table, stretch=1)
 
         top_row = QHBoxLayout()
         top_row.addWidget(self._folder_edit, stretch=1)
@@ -162,8 +181,7 @@ class SystemVoicePackPage(QWidget):
         lay.setContentsMargins(24, 16, 24, 16)
         lay.setSpacing(12)
         lay.addWidget(card)
-        lay.addWidget(BodyLabel("逻辑序号与文案对照", self))
-        lay.addWidget(self._table, stretch=1)
+        lay.addWidget(list_card, stretch=1)
 
         self._refresh_ids()
 
@@ -260,6 +278,7 @@ class SystemVoicePackPage(QWidget):
 
     def _on_pack_done(self, msg: str) -> None:
         fly_message(self.window(), "完成", msg)
+        self.packed.emit()
         self._refresh_ids()
         self._preview_dds = None
 

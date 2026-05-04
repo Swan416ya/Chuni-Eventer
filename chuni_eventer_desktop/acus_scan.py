@@ -111,6 +111,16 @@ class MapBonusItem:
 
 
 @dataclass(frozen=True)
+class SystemVoiceItem:
+    """ACUS ``systemVoice/systemVoiceNNNN/SystemVoice.xml`` 列表项。"""
+
+    xml_path: Path
+    name: IdStr
+    preview_relpath: str
+    cue_numeric_id: int | None
+
+
+@dataclass(frozen=True)
 class EventItem:
     xml_path: Path
     name: IdStr
@@ -186,6 +196,63 @@ class QuestItem:
 
 def iter_xml_files(root: Path, rel_glob: str) -> Iterable[Path]:
     yield from root.glob(rel_glob)
+
+
+def infer_system_voice_cue_numeric_id(acus_root: Path, voice_id: int) -> int | None:
+    """
+    在 ``cueFile`` 下查找与 ``systemvoice{voice_id:04d}.acb`` 同名的条目，返回 CueFile.xml 内 ``name/id``。
+    优先 ``cueFile{10000+voice_id:06d}``，否则线性扫描。
+    """
+    stem = f"systemvoice{int(voice_id):04d}"
+    cf_root = acus_root / "cueFile"
+    if not cf_root.is_dir():
+        return None
+    preferred = cf_root / f"cueFile{10000 + int(voice_id):06d}"
+    if (preferred / f"{stem}.acb").is_file():
+        xf = preferred / "CueFile.xml"
+        if xf.is_file():
+            try:
+                r = ET.parse(xf).getroot()
+                raw = (r.findtext("name/id") or "").strip()
+                if raw.isdigit():
+                    return int(raw)
+            except Exception:
+                pass
+        return 10000 + int(voice_id)
+    for d in sorted(cf_root.iterdir()):
+        if not d.is_dir():
+            continue
+        if not d.name.lower().startswith("cuefile"):
+            continue
+        if not (d / f"{stem}.acb").is_file():
+            continue
+        xf = d / "CueFile.xml"
+        if not xf.is_file():
+            continue
+        try:
+            r = ET.parse(xf).getroot()
+            raw = (r.findtext("name/id") or "").strip()
+            if raw.isdigit():
+                return int(raw)
+        except Exception:
+            continue
+    return None
+
+
+def scan_system_voices(acus_root: Path) -> list[SystemVoiceItem]:
+    items: list[SystemVoiceItem] = []
+    for p in iter_xml_files(acus_root, "systemVoice/**/SystemVoice.xml"):
+        try:
+            r = ET.parse(p).getroot()
+            name = _get_idstr(r.find("name"))
+            if not name:
+                continue
+            prev = (r.findtext("image/path") or "").strip()
+            cue_id = infer_system_voice_cue_numeric_id(acus_root, name.id)
+            items.append(SystemVoiceItem(p, name, prev, cue_id))
+        except Exception:
+            continue
+    return sorted(items, key=lambda x: x.name.id)
 
 
 def scan_dds_images(acus_root: Path) -> list[DdsImageItem]:

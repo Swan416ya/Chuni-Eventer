@@ -399,17 +399,43 @@ class _CharaQuickComposeDialog(FluentCaptionDialog):
 
 
 class CharaAddDialog(FluentCaptionDialog):
-    def __init__(self, *, acus_root: Path, tool_path: Path | None, parent=None) -> None:
+    def __init__(
+        self,
+        *,
+        acus_root: Path,
+        tool_path: Path | None,
+        parent=None,
+        locked_variant: int | None = None,
+        variant_lock_reason: str | None = None,
+    ) -> None:
         super().__init__(parent=parent)
         self.setModal(True)
         self.resize(540, 680)
         self._acus_root = acus_root
         self._tool = tool_path
+        self._locked_variant: int | None = None
+        if locked_variant is not None:
+            lv = int(locked_variant)
+            if lv < 0 or lv > 9:
+                raise ValueError("locked_variant 须在 0-9 之间")
+            self._locked_variant = lv
 
         self.base = LineEdit(self)
         self.base.setPlaceholderText("角色基ID（例如 2469）")
         self.variant = LineEdit(self)
         self.variant.setPlaceholderText("变体 0-9（例如 0）")
+        if self._locked_variant is not None:
+            self.variant.setText(str(self._locked_variant))
+            self.variant.setReadOnly(True)
+            self.variant.setClearButtonEnabled(False)
+            if variant_lock_reason == "new_chara":
+                self.variant.setToolTip("新建主角色时立绘变体固定为 0，不可修改。")
+            elif variant_lock_reason == "chara_variant_add":
+                self.variant.setToolTip(
+                    "下一可用变体序号已按立绘槽位自动分配，不可修改。"
+                )
+            else:
+                self.variant.setToolTip("正在编辑的变体序号，不可修改。")
         self.cid_preview = LineEdit(self)
         self.cid_preview.setReadOnly(True)
 
@@ -592,7 +618,10 @@ class CharaAddDialog(FluentCaptionDialog):
     def _update_preview(self) -> None:
         try:
             base = int(self.base.text().strip())
-            var = int(self.variant.text().strip())
+            if self._locked_variant is not None:
+                var = self._locked_variant
+            else:
+                var = int(self.variant.text().strip())
             if var < 0 or var > 9:
                 raise ValueError()
             self.cid_preview.setText(str(base * 10 + var))
@@ -601,26 +630,29 @@ class CharaAddDialog(FluentCaptionDialog):
 
     def _run(self) -> None:
         base_txt = self.base.text().strip()
-        var_txt = self.variant.text().strip()
         if not base_txt:
             fly_critical(self, "错误", "请填写基 ID")
-            return
-        if not var_txt:
-            fly_critical(self, "错误", "请填写变体（0-9）")
             return
         try:
             base = int(base_txt)
         except ValueError:
             fly_critical(self, "错误", "基 ID 必须是整数")
             return
-        try:
-            var = int(var_txt)
-        except ValueError:
-            fly_critical(self, "错误", "变体必须是整数（0-9）")
-            return
-        if var < 0 or var > 9:
-            fly_critical(self, "错误", "变体必须在 0-9 之间")
-            return
+        if self._locked_variant is not None:
+            var = self._locked_variant
+        else:
+            var_txt = self.variant.text().strip()
+            if not var_txt:
+                fly_critical(self, "错误", "请填写变体（0-9）")
+                return
+            try:
+                var = int(var_txt)
+            except ValueError:
+                fly_critical(self, "错误", "变体必须是整数（0-9）")
+                return
+            if var < 0 or var > 9:
+                fly_critical(self, "错误", "变体必须在 0-9 之间")
+                return
 
         try:
             cid_raw = base * 10 + var

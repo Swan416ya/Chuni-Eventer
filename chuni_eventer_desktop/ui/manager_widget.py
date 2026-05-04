@@ -69,6 +69,7 @@ from ..acus_scan import (
     QuestItem,
     RewardItem,
     StageItem,
+    SystemVoiceItem,
     TrophyItem,
     scan_charas,
     scan_dds_images,
@@ -80,6 +81,7 @@ from ..acus_scan import (
     scan_quests,
     scan_rewards,
     scan_stages,
+    scan_system_voices,
     scan_trophies,
 )
 from ..dds_preview import dds_to_pixmap
@@ -101,6 +103,7 @@ _KIND_DEFS: tuple[tuple[str, str], ...] = (
     ("奖励", "Reward"),
     ("加成", "MapBonus"),
     ("DDS 贴图", "DDSImage"),
+    ("系统语音", "SystemVoice"),
 )
 
 
@@ -466,6 +469,8 @@ class ManagerWidget(QWidget):
             self.model.setHorizontalHeaderLabels(["ID", "名称", "奖励类型", "关联目标", "来源(XML)"])
         elif k == "MapBonus":
             self.model.setHorizontalHeaderLabels(["ID", "名称", "条件数", "type摘要", "来源(XML)"])
+        elif k == "SystemVoice":
+            self.model.setHorizontalHeaderLabels(["ID", "名称", "CueFile(id)", "预览图", "来源(XML)"])
         elif k == "Stage":
             self.model.setHorizontalHeaderLabels(["ID", "名称", "判定线", "预览图", "来源(XML)"])
         elif k == "Chara":
@@ -532,6 +537,11 @@ class ManagerWidget(QWidget):
             self._items = items
             for it in items:
                 self._append_mapbonus_row(it)
+        elif k == "SystemVoice":
+            items = scan_system_voices(self._acus_root)
+            self._items = items
+            for it in items:
+                self._append_system_voice_row(it)
         elif k == "Stage":
             items = scan_stages(self._acus_root)
             self._items = items
@@ -551,11 +561,13 @@ class ManagerWidget(QWidget):
                 for i, c in enumerate(cols):
                     c.setEditable(False)
                     self.model.setItem(row, i, c)
-        else:
+        elif k == "DDSImage":
             items = scan_dds_images(self._acus_root)
             self._items = items
             for it in items:
                 self._append_row(it.name.id, it.name.str, "DDSImage", it.xml_path, it)
+        else:
+            self._items = []
 
         if k == "Music":
             self._main_stack.setCurrentIndex(1)
@@ -743,6 +755,16 @@ class ManagerWidget(QWidget):
                 ("type 摘要", it.type_summary or "—"),
                 ("XML", self._rel_acus_path(it.xml_path)),
             ]
+        if isinstance(it, SystemVoiceItem):
+            cue = str(it.cue_numeric_id) if it.cue_numeric_id is not None else "—"
+            pv = it.preview_relpath.strip() or "—"
+            return [
+                ("显示名", it.name.str or "—"),
+                ("系统语音 ID", str(it.name.id)),
+                ("关联 CueFile id", cue),
+                ("预览图路径", pv),
+                ("XML", self._rel_acus_path(it.xml_path)),
+            ]
         return [("类型", type(it).__name__), ("摘要", str(it))]
 
     def _chara_attr_rows(self, it: CharaItem, meta: dict[str, str]) -> list[tuple[str, str]]:
@@ -772,6 +794,9 @@ class ManagerWidget(QWidget):
             return it.promo_dds_path
         if isinstance(it, TrophyItem) and it.image_path.strip():
             p = it.xml_path.parent / it.image_path.strip()
+            return p if p.is_file() else None
+        if isinstance(it, SystemVoiceItem) and it.preview_relpath.strip():
+            p = it.xml_path.parent / it.preview_relpath.strip()
             return p if p.is_file() else None
         return None
 
@@ -925,6 +950,24 @@ class ManagerWidget(QWidget):
             QStandardItem(it.name.str),
             QStandardItem(str(it.substance_count)),
             QStandardItem(it.type_summary),
+            QStandardItem(src),
+        ]
+        cols[0].setData(it, Qt.ItemDataRole.UserRole)
+        for i, c in enumerate(cols):
+            c.setEditable(False)
+            self.model.setItem(row, i, c)
+
+    def _append_system_voice_row(self, it: SystemVoiceItem) -> None:
+        row = self.model.rowCount()
+        self.model.insertRow(row)
+        src = str(it.xml_path.relative_to(self._acus_root))
+        cue = str(it.cue_numeric_id) if it.cue_numeric_id is not None else "—"
+        pv = it.preview_relpath.strip() or "—"
+        cols = [
+            QStandardItem(str(it.name.id)),
+            QStandardItem(it.name.str),
+            QStandardItem(cue),
+            QStandardItem(pv),
             QStandardItem(src),
         ]
         cols[0].setData(it, Qt.ItemDataRole.UserRole)
@@ -1601,11 +1644,15 @@ class ManagerWidget(QWidget):
             )
             return
         base = it.name.id // 10
-        dlg = CharaAddDialog(acus_root=self._acus_root, tool_path=tool, parent=self.window())
+        dlg = CharaAddDialog(
+            acus_root=self._acus_root,
+            tool_path=tool,
+            parent=self.window(),
+            locked_variant=variant_slot,
+            variant_lock_reason="chara_variant_edit",
+        )
         dlg.base.setText(str(base))
-        dlg.variant.setText(str(variant_slot))
         dlg.base.setReadOnly(True)
-        dlg.variant.setReadOnly(True)
         nm = chara_variant_display_name(master, variant_slot)
         if nm:
             dlg.name.setText(nm)
@@ -1641,11 +1688,15 @@ class ManagerWidget(QWidget):
             )
             return
         base = it.name.id // 10
-        dlg = CharaAddDialog(acus_root=self._acus_root, tool_path=tool, parent=self.window())
+        dlg = CharaAddDialog(
+            acus_root=self._acus_root,
+            tool_path=tool,
+            parent=self.window(),
+            locked_variant=slot,
+            variant_lock_reason="chara_variant_add",
+        )
         dlg.base.setText(str(base))
-        dlg.variant.setText(str(slot))
         dlg.base.setReadOnly(True)
-        dlg.variant.setReadOnly(True)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.reload()
 
