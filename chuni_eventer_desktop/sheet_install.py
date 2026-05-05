@@ -51,6 +51,15 @@ _LEAF_FOLDER_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
 )
 
 
+def _is_readme_root_entry(name: str) -> bool:
+    """压缩包根目录下的说明文件（如 readme.txt、README.md），不参与 ACUS 落盘。"""
+    n = _norm_posix(name).strip().rstrip("/")
+    if not n or "/" in n:
+        return False
+    low = n.lower()
+    return low == "readme" or low.startswith("readme.")
+
+
 def _is_junk_member(name: str) -> bool:
     n = name.replace("\\", "/").strip()
     if not n:
@@ -85,12 +94,24 @@ def _acus_parent_for_leaf_folder(first_segment: str) -> str | None:
     return None
 
 
+def _decode_readme_bytes(raw: bytes) -> str:
+    for enc in ("utf-8-sig", "utf-8", "gbk", "cp932"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", errors="replace")
+
+
 def _map_internal_to_rel(p: str) -> Path:
     """
     将归档内路径（已去 ACUS 前缀）映射为相对于 ACUS 根的路径。
     """
     p = _norm_posix(p)
     if not p or p == ".":
+        return Path(".")
+    fparts = [x for x in p.split("/") if x != ""]
+    if len(fparts) == 1 and _is_readme_root_entry(fparts[0]):
         return Path(".")
     parts = p.split("/")
     head = parts[0]
@@ -258,6 +279,82 @@ def _install_7z_core(archive: Path, acus_root: Path) -> list[str]:
         return _install_from_flat_dir(td, acus_root)
     finally:
         shutil.rmtree(td, ignore_errors=True)
+
+
+def peek_root_readme_from_archive(archive_path: Path) -> str | None:
+    """
+    若归档根目录存在 readme 类文件（readme、readme.txt、README.md 等），返回解码后的全文；
+    否则返回 None。用于导入前弹窗提示；安装逻辑会跳过此类文件。
+    """
+    p = archive_path.expanduser().resolve()
+    if not p.is_file():
+        return None
+
+    def _pick_root_readme_names(namelist: list[str]) -> list[str]:
+        cands: list[str] = []
+        for name in namelist:
+            if _is_junk_member(name) or name.endswith("/"):
+                continue
+            fp = [x for x in _norm_posix(name).split("/") if x != ""]
+            if len(fp) == 1 and _is_readme_root_entry(fp[0]):
+                cands.append(name)
+        return cands
+
+    if zipfile.is_zipfile(p):
+        with zipfile.ZipFile(p, "r") as zf:
+            cands = _pick_root_readme_names(zf.namelist())
+            if not cands:
+                return None
+            name = sorted(cands, key=lambda x: x.lower())[0]
+            with zf.open(name, "r") as f:
+                return _decode_readme_bytes(f.read())
+
+    if tarfile.is_tarfile(p):
+        with tarfile.open(p, "r:*") as tf:
+            names = [m.name for m in tf.getmembers() if m.isfile()]
+            cands = _pick_root_readme_names(names)
+            if not cands:
+                return None
+            name = sorted(cands, key=lambda x: x.lower())[0]
+            m = tf.getmember(name)
+            f = tf.extractfile(m)
+            if f is None:
+                return None
+            try:
+                return _decode_readme_bytes(f.read())
+            finally:
+                f.close()
+
+    try:
+        import py7zr
+    except ImportError:
+        py7zr = None  # type: ignore[assignment]
+
+    if py7zr is not None and py7zr.is_7zfile(p):
+        with py7zr.SevenZipFile(p, "r") as z:
+            cands = _pick_root_readme_names(list(z.getnames()))
+        if not cands:
+            return None
+        name = sorted(cands, key=lambda x: x.lower())[0]
+        td = Path(tempfile.mkdtemp(prefix="chuni_r7z_readme_"))
+        try:
+            with py7zr.SevenZipFile(p, "r") as z:
+                z.extract(path=td, targets=[name])
+            target = (td / Path(name).as_posix()).resolve()
+            if not target.is_file():
+                for f in td.rglob("*"):
+                    if f.is_file() and f.name.lower() == Path(name).name.lower():
+                        target = f.resolve()
+                        break
+            if not target.is_file():
+                return None
+            if not str(target).startswith(str(td.resolve())):
+                return None
+            return _decode_readme_bytes(target.read_bytes())
+        finally:
+            shutil.rmtree(td, ignore_errors=True)
+
+    return None
 
 
 def install_zip_to_acus(archive_path: Path, acus_root: Path) -> list[str]:

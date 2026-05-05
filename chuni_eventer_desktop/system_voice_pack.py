@@ -55,9 +55,15 @@ def cue_numeric_id_for_voice(voice_id: int) -> int:
 
 
 def resolve_system_voice_42_template_acb() -> Path:
-    """开发树：audio_test；可选：exe 旁 audio_test；随包 data（若日后打入）。"""
+    """
+    解析 42 槽流式 ACB 模板（与同目录 AWB 配对）。
+
+    顺序：随包种子 ``data/system_voice_seed/cueFile010700``（发行版）→
+    ``data/system_voice_0062_template`` → 开发树 ``audio_test`` → exe 旁 ``audio_test``。
+    """
     here = Path(__file__).resolve().parent
     candidates = [
+        here / "data" / "system_voice_seed" / "cueFile" / "cueFile010700" / "systemvoice0700.acb",
         here / "data" / "system_voice_0062_template" / "systemvoice0062.acb",
         here.parent / "audio_test" / "test" / "cueFile010062" / "systemvoice0062.acb",
         app_root_dir() / "audio_test" / "test" / "cueFile010062" / "systemvoice0062.acb",
@@ -65,10 +71,15 @@ def resolve_system_voice_42_template_acb() -> Path:
     for p in candidates:
         if p.is_file():
             return p
+    seed = here / "data" / "system_voice_seed" / "cueFile" / "cueFile010700" / "systemvoice0700.acb"
     raise FileNotFoundError(
-        "找不到 42 槽模板 systemvoice0062.acb。\n"
-        "请保留仓库内 audio_test/test/cueFile010062/，或将模板复制到 "
-        "chuni_eventer_desktop/data/system_voice_0062_template/。"
+        "找不到 42 槽系统语音 ACB 模板（需与同 stem 的 .awb 同目录）。\n"
+        f"已查找（含）：{seed}\n"
+        "维护者请在本机含 systemVoice0700 / cueFile010700 的 ACUS 根目录执行：\n"
+        "  python scripts/refresh_system_voice_seed.py <ACUS根目录>\n"
+        "并提交生成的 chuni_eventer_desktop/data/system_voice_seed/。\n"
+        "或保留 audio_test/test/cueFile010062/systemvoice0062.acb，或放置 "
+        "chuni_eventer_desktop/data/system_voice_0062_template/systemvoice0062.acb。"
     )
 
 

@@ -17,9 +17,11 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMessageBox,
+    QPlainTextEdit,
     QProgressDialog,
     QPushButton,
     QSizePolicy,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -778,6 +780,40 @@ def safe_dismiss_modal_progress_dialog(dlg: QProgressDialog | None) -> None:
     except RuntimeError:
         return
     QApplication.processEvents()
+
+
+def show_archive_readme_dialog(parent: QWidget | None, body: str) -> None:
+    """
+    同步模态框：展示压缩包根目录 readme 全文。用于 Swan / 本地导入前；
+    须在主线程调用（导入线程内请先切回主线程再调）。
+    """
+    box_parent = _resolve_dialog_parent_now(parent)
+    if box_parent is None:
+        log.warning("show_archive_readme_dialog skipped: no valid parent")
+        return
+    _release_qt_input_grabs()
+    _ensure_enabled_for_dialog_parent(box_parent)
+    dlg = QDialog(box_parent)
+    dlg.setWindowTitle("压缩包说明（readme）")
+    dlg.setModal(True)
+    dlg.setWindowModality(Qt.WindowModality.WindowModal)
+    dlg.resize(560, 420)
+    lay = QVBoxLayout(dlg)
+    tip = QLabel(
+        "该谱面包根目录带有说明文件，内容如下。关闭本窗口后将照常导入其余文件（不会写入此 readme）。",
+        dlg,
+    )
+    tip.setWordWrap(True)
+    edit = QPlainTextEdit(dlg)
+    edit.setReadOnly(True)
+    edit.setPlainText(body)
+    edit.setTabChangesFocus(True)
+    btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok, parent=dlg)
+    btns.accepted.connect(dlg.accept)
+    lay.addWidget(tip)
+    lay.addWidget(edit, stretch=1)
+    lay.addWidget(btns)
+    dlg.exec()
 
 
 def fly_message(parent: QWidget | None, title: str, text: str, *, single_button: bool = True) -> None:

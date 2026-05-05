@@ -1,0 +1,2 @@
+发行版内置 42 槽系统语音重打包模板：cueFile010700（systemvoice0700.acb/.awb）与可选 systemVoice0700（预览/XML 参考）。
+维护者从本机 ACUS 填充：python scripts/refresh_system_voice_seed.py <ACUS根目录>

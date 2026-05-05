@@ -26,7 +26,7 @@ from ..acus_workspace import (
 )
 from ..version import APP_VERSION
 from ..game_data_index import GameDataIndex, load_cached_game_index, rebuild_and_save_game_index
-from ..sheet_install import install_zip_to_acus
+from ..sheet_install import install_zip_to_acus, peek_root_readme_from_archive
 from ..dds_quicktex import quicktex_available
 from .manager_widget import ManagerWidget
 from .settings_dialog import SettingsDialog
@@ -48,6 +48,7 @@ from .fluent_dialogs import (
     fly_message,
     fly_message_async,
     fly_warning,
+    show_archive_readme_dialog,
     safe_dismiss_modal_progress_dialog,
 )
 from .nav_icons import (
@@ -612,6 +613,9 @@ class MainWindow(MSFluentWindow):
                     return
                 zp = Path(path).expanduser().resolve()
                 try:
+                    readme = peek_root_readme_from_archive(zp)
+                    if readme is not None and readme.strip():
+                        show_archive_readme_dialog(self, readme)
                     written = install_zip_to_acus(zp, self._acus_root)
                     fly_message(
                         self,

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<SystemVoiceData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dataName>systemVoice0700</dataName>
+  <netOpenName>
+    <id>2800</id>
+    <str>v2_45 00_0</str>
+    <data />
+  </netOpenName>
+  <disableFlag>false</disableFlag>
+  <name>
+    <id>700</id>
+    <str>gugugaga</str>
+    <data />
+  </name>
+  <sortName>ミ</sortName>
+  <cue>
+    <id>10700</id>
+    <str>systemvoice0700</str>
+    <data />
+  </cue>
+  <image>
+    <path>CHU_UI_SystemVoice_00000700.dds</path>
+  </image>
+  <defaultHave>false</defaultHave>
+  <explainText>-</explainText>
+  <priority>0</priority>
+</SystemVoiceData>

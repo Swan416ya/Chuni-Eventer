@@ -24,7 +24,7 @@ from .fluent_table import (
     sheet_list_hint_muted_colors,
 )
 
-from ..sheet_install import install_zip_to_acus
+from ..sheet_install import install_zip_to_acus, peek_root_readme_from_archive
 from ..swan_sheet_client import (
     SWAN_SHEET_API_BASE_URL,
     SheetListEntry,
@@ -37,6 +37,7 @@ from .fluent_dialogs import (
     fly_message,
     fly_warning,
     safe_dismiss_modal_progress_dialog,
+    show_archive_readme_dialog,
 )
 
 
@@ -58,38 +59,60 @@ class _FetchSheetsThread(QThread):
             self.fail.emit(str(e))
 
 
-class _InstallSheetThread(QThread):
-    ok = pyqtSignal(str)
+class _DownloadSheetThread(QThread):
+    """仅下载到临时文件；readme 弹窗与解压须在主线程顺序执行。"""
+
+    ok = pyqtSignal(object)  # Path
     fail = pyqtSignal(str)
     phase = pyqtSignal(str)
 
-    def __init__(self, base_url: str, content_id: int, acus_root: Path, parent=None) -> None:
+    def __init__(self, base_url: str, content_id: int, parent=None) -> None:
         super().__init__(parent=parent)
         self._base = base_url
         self._cid = content_id
-        self._acus = acus_root
 
     def run(self) -> None:
+        tmp: Path | None = None
         try:
             self.phase.emit("正在下载谱面包…")
             data = download_sheet_archive(self._base, self._cid)
-            self.phase.emit("正在解压并写入 ACUS…")
-            # 不写死 .zip：服务端可能是 zip/tar/7z/rar 等任意包；由 sheet_install 嗅探/解压
             fd, path = tempfile.mkstemp(prefix="chuni_swan_")
             os.close(fd)
             tmp = Path(path)
-            try:
-                tmp.write_bytes(data)
-                written = install_zip_to_acus(tmp, self._acus)
-                n = len(written)
-                self.ok.emit(f"已写入 {n} 个文件到 ACUS。")
-            finally:
+            tmp.write_bytes(data)
+            self.ok.emit(tmp)
+        except Exception as e:
+            if tmp is not None:
                 try:
                     tmp.unlink(missing_ok=True)
                 except OSError:
                     pass
+            self.fail.emit(str(e))
+
+
+class _InstallLocalArchiveThread(QThread):
+    ok = pyqtSignal(str)
+    fail = pyqtSignal(str)
+    phase = pyqtSignal(str)
+
+    def __init__(self, archive: Path, acus_root: Path, parent=None) -> None:
+        super().__init__(parent=parent)
+        self._archive = archive
+        self._acus = acus_root
+
+    def run(self) -> None:
+        try:
+            self.phase.emit("正在解压并写入 ACUS…")
+            written = install_zip_to_acus(self._archive, self._acus)
+            n = len(written)
+            self.ok.emit(f"已写入 {n} 个文件到 ACUS。")
         except Exception as e:
             self.fail.emit(str(e))
+        finally:
+            try:
+                self._archive.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 class SwanSheetDownloadDialog(FluentCaptionDialog):
@@ -102,7 +125,8 @@ class SwanSheetDownloadDialog(FluentCaptionDialog):
         self._base_url = SWAN_SHEET_API_BASE_URL
         self._entries: list[SheetListEntry] = []
         self._fetch_thread: _FetchSheetsThread | None = None
-        self._install_thread: _InstallSheetThread | None = None
+        self._download_thread: _DownloadSheetThread | None = None
+        self._install_thread: _InstallLocalArchiveThread | None = None
         self._progress_dialog: QProgressDialog | None = None
 
         card = CardWidget(self)
@@ -230,7 +254,12 @@ class SwanSheetDownloadDialog(FluentCaptionDialog):
             self._fetch_thread = None
         th.deleteLater()
 
-    def _finalize_install_thread(self, th: _InstallSheetThread) -> None:
+    def _finalize_download_thread(self, th: _DownloadSheetThread) -> None:
+        if self._download_thread is th:
+            self._download_thread = None
+        th.deleteLater()
+
+    def _finalize_install_thread(self, th: _InstallLocalArchiveThread) -> None:
         self._close_progress()
         if self._install_thread is th:
             self._install_thread = None
@@ -248,7 +277,9 @@ class SwanSheetDownloadDialog(FluentCaptionDialog):
             fly_warning(self, "未选择", "请先在表格中选择一条铺面。")
             return
         base = self._base_url
-        if self._install_thread and self._install_thread.isRunning():
+        if (self._download_thread and self._download_thread.isRunning()) or (
+            self._install_thread and self._install_thread.isRunning()
+        ):
             return
         self._status.setText(f"正在下载并安装：{e.music_name or e.title or '所选条目'} …")
         self._close_progress()
@@ -256,18 +287,44 @@ class SwanSheetDownloadDialog(FluentCaptionDialog):
             "Swan 站",
             "正在下载谱面包…",
         )
-        th = _InstallSheetThread(base, e.content_id, self._acus_root, parent=self)
-        self._install_thread = th
+        th = _DownloadSheetThread(base, e.content_id, parent=self)
+        self._download_thread = th
         th.phase.connect(self._on_install_phase)
-        th.ok.connect(self._on_install_ok)
-        th.fail.connect(self._on_install_fail)
-        th.finished.connect(lambda t=th: self._finalize_install_thread(t))
+        th.ok.connect(self._on_download_ok)
+        th.fail.connect(self._on_download_fail)
+        th.finished.connect(lambda t=th: self._finalize_download_thread(t))
         th.start()
 
     def _on_install_phase(self, msg: str) -> None:
         if self._progress_dialog is not None:
             self._progress_dialog.setLabelText(msg)
             QApplication.processEvents()
+
+    def _on_download_ok(self, tmp: object) -> None:
+        if not isinstance(tmp, Path):
+            self._close_progress()
+            fly_critical(self, "下载失败", "内部错误：临时文件路径无效。")
+            return
+        self._close_progress()
+        readme = peek_root_readme_from_archive(tmp)
+        if readme is not None and readme.strip():
+            show_archive_readme_dialog(self, readme)
+        self._progress_dialog = self._open_progress(
+            "Swan 站",
+            "正在解压并写入 ACUS…",
+        )
+        ith = _InstallLocalArchiveThread(tmp, self._acus_root, parent=self)
+        self._install_thread = ith
+        ith.phase.connect(self._on_install_phase)
+        ith.ok.connect(self._on_install_ok)
+        ith.fail.connect(self._on_install_fail)
+        ith.finished.connect(lambda t=ith: self._finalize_install_thread(t))
+        ith.start()
+
+    def _on_download_fail(self, msg: str) -> None:
+        self._close_progress()
+        self._status.setText("下载失败。")
+        fly_critical(self, "下载失败", msg)
 
     def _on_install_ok(self, msg: str) -> None:
         self._close_progress()
