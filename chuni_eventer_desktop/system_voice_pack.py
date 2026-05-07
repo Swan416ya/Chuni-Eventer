@@ -41,8 +41,34 @@ def system_voice_dir_name(voice_id: int) -> str:
 
 
 def system_voice_preview_ui_dds_basename(voice_id: int) -> str:
-    """UI 预览贴图文件名，与 A001 官方一致：``CHU_UI_SystemVoice_`` + **8 位** id（如 62 -> ``00000062``）。"""
+    """UI 预览贴图文件名，与 A001 官方一致：``CHU_UI_SystemVoice_`` + **8 位十进制 id**（如 62→``00000062``，700→``00000700``）。"""
     return f"CHU_UI_SystemVoice_{int(voice_id):08d}.dds"
+
+
+def _remove_stale_system_voice_preview_dds(sv_dir: Path, voice_id: int, canonical: str) -> None:
+    """删除旧版误用的 4 位等命名，避免与 ``image/path`` 不一致导致客户端不加载。"""
+    if not sv_dir.is_dir():
+        return
+    vid = int(voice_id)
+    stale_names = (
+        f"CHU_UI_SystemVoice_{vid:04d}.dds",
+        f"CHU_UI_SystemVoice_{vid}.dds",
+    )
+    for name in stale_names:
+        if name == canonical:
+            continue
+        p = sv_dir / name
+        try:
+            if p.is_file():
+                p.unlink()
+        except OSError:
+            pass
+    try:
+        for p in sv_dir.glob("CHU_UI_SystemVoice_*.dds"):
+            if p.is_file() and p.name != canonical:
+                p.unlink()
+    except OSError:
+        pass
 
 
 def cue_folder_name(cue_numeric_id: int) -> str:
@@ -345,9 +371,9 @@ def pack_system_voice_to_acus(
     将 42 条音频打包进 ACUS，并写入 systemVoice / cueFile 目录。
 
     ``preview_source`` 可为 PNG 等常见图片或已是 BC3 的 DDS；经 ``ingest_to_bc3_dds`` 编码后写入
-    ``systemVoice/systemVoiceNNNN/``，文件名为 ``CHU_UI_SystemVoice_{id:04d}.dds``，
+    ``systemVoice/systemVoiceNNNN/``，文件名为 ``CHU_UI_SystemVoice_`` + **8 位** id 的 ``.dds``，
     ``SystemVoice.xml`` 为完整官方字段（含 ``netOpenName`` / ``cue`` / ``sortName`` 等），
-    ``image/path`` 与同目录下 DDS 文件名一致（``CHU_UI_SystemVoice_`` + 8 位 id）。
+    ``image/path`` 与上述 DDS 同名；并会删除同目录下旧版 ``…_0700.dds`` 等错误文件名。
 
     返回 (system_voice_dir, cue_dir)。
     """
@@ -385,6 +411,7 @@ def pack_system_voice_to_acus(
         if not preview_source.is_file():
             raise FileNotFoundError(f"预览图不存在：{preview_source}")
         dds_name = system_voice_preview_ui_dds_basename(voice_id)
+        _remove_stale_system_voice_preview_dds(sv_dir, voice_id, dds_name)
         tmp_dds = work / dds_name
         ingest_to_bc3_dds(tool_path=tool_path, input_path=preview_source, output_dds=tmp_dds)
         if not is_bc3_dds(tmp_dds):
