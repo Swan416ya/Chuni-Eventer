@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QAbstractItemView, QTableWidget, QTableWidgetItem, QVBoxLayout
+from PyQt6.QtWidgets import QAbstractItemView, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 
 from qfluentwidgets import FluentStyleSheet, setCustomStyleSheet
 
@@ -56,3 +56,46 @@ def sheet_list_hint_muted_colors(widget: object) -> None:
 
 def mark_sheet_item_readonly(item: QTableWidgetItem) -> None:
     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+
+
+def apply_fluent_tableview_header_style(table: QWidget, *, object_name: str) -> None:
+    """
+    qfluentwidgets TableView 默认表头为整条直角灰底；与数据区圆角块协调：
+    透明表头容器、分段圆角 section、文字水平垂直居中。
+    """
+    name = (object_name or "FluentTableHdr").strip() or "FluentTableHdr"
+    table.setObjectName(name)
+    hh_fn = getattr(table, "horizontalHeader", None)
+    if not callable(hh_fn):
+        return
+    hh = hh_fn()
+    hh.setDefaultAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+    _light = f"""
+#{name} QHeaderView {{
+    background-color: transparent;
+}}
+#{name} QHeaderView::section {{
+    background-color: rgba(0, 0, 0, 0.06);
+    color: #374151;
+    font-weight: 500;
+    padding: 8px 8px;
+    border: none;
+    border-radius: 6px;
+    margin: 4px 3px;
+}}
+"""
+    _dark = f"""
+#{name} QHeaderView {{
+    background-color: transparent;
+}}
+#{name} QHeaderView::section {{
+    background-color: rgba(255, 255, 255, 0.08);
+    color: #e5e7eb;
+    font-weight: 500;
+    padding: 8px 8px;
+    border: none;
+    border-radius: 6px;
+    margin: 4px 3px;
+}}
+"""
+    setCustomStyleSheet(table, _light, _dark)

@@ -15,11 +15,20 @@ SWAN_SHEET_API_BASE_URL = "https://api.swan416.top"
 
 @dataclass(frozen=True)
 class SheetListEntry:
+    """与 SwanSite 前端 Charts 卡片一致：曲名 title||musicName，曲师 artistName，备注 summary。"""
+
     content_id: int
     title: str
     music_name: str
     artist_name: str
+    summary: str
     package_url: str
+
+    def song_display(self) -> str:
+        """主标题与 `ChartsView.normalizeChartItem` 相同：优先网页 title，否则 sheet.musicName。"""
+        t = (self.title or "").strip()
+        m = (self.music_name or "").strip()
+        return t or m or "—"
 
 
 def _join_url(base: str, path: str) -> str:
@@ -61,7 +70,7 @@ def _http_get_bytes(url: str, timeout: float = 120.0) -> bytes:
 def list_downloadable_sheets(base_url: str) -> list[SheetListEntry]:
     """
     GET /api/contents?contentType=SHEET — SwanSite CoreContentController.
-    仅保留带 packageUrl 的谱面条目。
+    仅保留带 packageUrl 的谱面条目。顶层 `summary` 为站点「备注」（CoreContent.summary）。
     """
     url = _join_url(base_url, "/api/contents?contentType=SHEET")
     data = _http_get_json(url)
@@ -85,19 +94,28 @@ def list_downloadable_sheets(base_url: str) -> list[SheetListEntry]:
         pkg = (sheet.get("packageUrl") or sheet.get("package_url") or "").strip()
         if not pkg:
             continue
-        title = (row.get("title") or "").strip()
-        music_name = (sheet.get("musicName") or sheet.get("music_name") or "").strip()
-        artist_name = (sheet.get("artistName") or sheet.get("artist_name") or "").strip()
+        def _cell_str(v: object) -> str:
+            if v is None:
+                return ""
+            if isinstance(v, str):
+                return v.strip()
+            return str(v).strip()
+
+        title = _cell_str(row.get("title"))
+        music_name = _cell_str(sheet.get("musicName") or sheet.get("music_name"))
+        artist_name = _cell_str(sheet.get("artistName") or sheet.get("artist_name"))
+        summary = _cell_str(row.get("summary"))
         out.append(
             SheetListEntry(
                 content_id=content_id,
                 title=title,
-                music_name=music_name or title,
+                music_name=music_name,
                 artist_name=artist_name,
+                summary=summary,
                 package_url=pkg,
             )
         )
-    out.sort(key=lambda e: (e.music_name.lower(), e.content_id))
+    out.sort(key=lambda e: (e.song_display().lower(), e.content_id))
     return out
 
 

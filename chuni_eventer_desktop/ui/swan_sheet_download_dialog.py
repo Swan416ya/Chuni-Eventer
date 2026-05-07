@@ -4,22 +4,20 @@ import os
 import tempfile
 from pathlib import Path
 
-from PyQt6.QtCore import QThread, QTimer, pyqtSignal, Qt
+from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal
+from PyQt6.QtGui import QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QApplication,
+    QAbstractItemView,
     QHBoxLayout,
-    QHeaderView,
     QProgressDialog,
-    QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
 )
 
-from qfluentwidgets import BodyLabel, CardWidget, PrimaryPushButton, PushButton
+from qfluentwidgets import BodyLabel, CardWidget, PrimaryPushButton, PushButton, TableView
 
 from .fluent_table import (
-    apply_fluent_sheet_table,
-    mark_sheet_item_readonly,
+    apply_fluent_tableview_header_style,
     sheet_list_card_layout_margins,
     sheet_list_hint_muted_colors,
 )
@@ -41,6 +39,12 @@ from .fluent_dialogs import (
 )
 
 
+def _readonly_item(text: str) -> QStandardItem:
+    it = QStandardItem(text)
+    it.setEditable(False)
+    return it
+
+
 class _FetchSheetsThread(QThread):
     ok = pyqtSignal(list)
     fail = pyqtSignal(str)
@@ -52,7 +56,7 @@ class _FetchSheetsThread(QThread):
 
     def run(self) -> None:
         try:
-            self.phase.emit("正在连接 Swan 站…")
+            self.phase.emit("正在连接 SwanSite…")
             rows = list_downloadable_sheets(self._base)
             self.ok.emit(rows)
         except Exception as e:
@@ -118,7 +122,7 @@ class _InstallLocalArchiveThread(QThread):
 class SwanSheetDownloadDialog(FluentCaptionDialog):
     def __init__(self, *, acus_root: Path, parent=None) -> None:
         super().__init__(parent=parent)
-        self.setWindowTitle("从 Swan 站下载铺面")
+        self.setWindowTitle("SwanSite")
         self.setModal(True)
         self.resize(720, 520)
         self._acus_root = acus_root
@@ -138,14 +142,21 @@ class SwanSheetDownloadDialog(FluentCaptionDialog):
         hint.setWordWrap(True)
         sheet_list_hint_muted_colors(hint)
 
-        self._table = QTableWidget(0, 3, self)
-        apply_fluent_sheet_table(self._table)
-        self._table.setHorizontalHeaderLabels(["曲名", "艺术家", "网页标题"])
-        hh = self._table.horizontalHeader()
-        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        self._table.itemDoubleClicked.connect(lambda _it: self._on_install())
+        self._model = QStandardItemModel(0, 3, self)
+        self._model.setHorizontalHeaderLabels(["曲名", "作曲家", "备注"])
+
+        self._table = TableView(self)
+        self._table.setModel(self._model)
+        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self._table.setAlternatingRowColors(True)
+        self._table.setSortingEnabled(True)
+        self._table.verticalHeader().setVisible(False)
+        self._table.horizontalHeader().setStretchLastSection(True)
+        apply_fluent_tableview_header_style(self._table, object_name="SwanSheetTable")
+        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._table.setShowGrid(False)
+        self._table.doubleClicked.connect(lambda _idx: self._on_install())
 
         self._status = BodyLabel("点击「刷新列表」加载。", card)
         self._status.setWordWrap(True)
@@ -201,10 +212,10 @@ class SwanSheetDownloadDialog(FluentCaptionDialog):
         if self._fetch_thread and self._fetch_thread.isRunning():
             return
         self._status.setText("正在加载列表…")
-        self._table.setRowCount(0)
+        self._model.removeRows(0, self._model.rowCount())
         self._entries.clear()
         self._close_progress()
-        self._progress_dialog = self._open_progress("Swan 站", "正在获取铺面列表…")
+        self._progress_dialog = self._open_progress("SwanSite", "正在获取铺面列表…")
         th = _FetchSheetsThread(base, parent=self)
         self._fetch_thread = th
         th.phase.connect(self._on_fetch_phase)
@@ -219,29 +230,33 @@ class SwanSheetDownloadDialog(FluentCaptionDialog):
             QApplication.processEvents()
 
     def _on_fetch_ok(self, rows: object) -> None:
-        if not isinstance(rows, list):
-            self._status.setText("列表格式错误。")
-            return
-        self._entries = [r for r in rows if isinstance(r, SheetListEntry)]
-        self._table.setRowCount(len(self._entries))
-        for i, e in enumerate(self._entries):
-            c0 = QTableWidgetItem(e.music_name)
-            c0.setData(Qt.ItemDataRole.UserRole, e.content_id)
-            mark_sheet_item_readonly(c0)
-            self._table.setItem(i, 0, c0)
-            c1 = QTableWidgetItem(e.artist_name)
-            mark_sheet_item_readonly(c1)
-            self._table.setItem(i, 1, c1)
-            c2 = QTableWidgetItem(e.title)
-            mark_sheet_item_readonly(c2)
-            self._table.setItem(i, 2, c2)
-            for c in range(3):
-                it = self._table.item(i, c)
-                if it:
-                    it.setTextAlignment(
-                        int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
-                    )
-        self._status.setText(f"共 {len(self._entries)} 条可下载铺面。")
+        self._close_progress()
+        try:
+            if not isinstance(rows, list):
+                self._status.setText("列表格式错误。")
+                return
+            self._entries = [r for r in rows if isinstance(r, SheetListEntry)]
+            self._table.setSortingEnabled(False)
+            try:
+                self._model.removeRows(0, self._model.rowCount())
+                for i, e in enumerate(self._entries):
+                    self._model.insertRow(i)
+                    c0 = _readonly_item(e.song_display())
+                    c0.setData(e.content_id, Qt.ItemDataRole.UserRole)
+                    c0.setTextAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+                    self._model.setItem(i, 0, c0)
+                    c1 = _readonly_item(e.artist_name)
+                    c1.setTextAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+                    self._model.setItem(i, 1, c1)
+                    c2 = _readonly_item(e.summary)
+                    c2.setTextAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+                    self._model.setItem(i, 2, c2)
+                self._status.setText(f"共 {len(self._entries)} 条可下载铺面。")
+            finally:
+                self._table.setSortingEnabled(True)
+        except Exception as ex:
+            self._status.setText("列表展示失败。")
+            fly_critical(self, "铺面列表", str(ex))
 
     def _on_fetch_fail(self, msg: str) -> None:
         self._close_progress()
@@ -249,27 +264,38 @@ class SwanSheetDownloadDialog(FluentCaptionDialog):
         fly_critical(self, "无法获取铺面列表", msg)
 
     def _finalize_fetch_thread(self, th: _FetchSheetsThread) -> None:
+        # 幂等兜底：正常在 _on_fetch_ok / _on_fetch_fail 开头已关；若信号顺序异常可避免进度条悬挂
         self._close_progress()
         if self._fetch_thread is th:
             self._fetch_thread = None
-        th.deleteLater()
+        # 推迟销毁，避免 finished 先于 ok 入队时 deleteLater 影响尚未投递的 ok 槽
+        QTimer.singleShot(0, th.deleteLater)
 
     def _finalize_download_thread(self, th: _DownloadSheetThread) -> None:
         if self._download_thread is th:
             self._download_thread = None
-        th.deleteLater()
+        QTimer.singleShot(0, th.deleteLater)
 
     def _finalize_install_thread(self, th: _InstallLocalArchiveThread) -> None:
         self._close_progress()
         if self._install_thread is th:
             self._install_thread = None
-        th.deleteLater()
+        QTimer.singleShot(0, th.deleteLater)
 
     def _selected_entry(self) -> SheetListEntry | None:
-        r = self._table.currentRow()
-        if r < 0 or r >= len(self._entries):
+        idx = self._table.currentIndex()
+        if not idx.isValid():
             return None
-        return self._entries[r]
+        id_idx = self._model.index(idx.row(), 0)
+        cid = self._model.data(id_idx, Qt.ItemDataRole.UserRole)
+        try:
+            icid = int(cid)
+        except (TypeError, ValueError):
+            return None
+        for e in self._entries:
+            if e.content_id == icid:
+                return e
+        return None
 
     def _on_install(self) -> None:
         e = self._selected_entry()
@@ -281,10 +307,10 @@ class SwanSheetDownloadDialog(FluentCaptionDialog):
             self._install_thread and self._install_thread.isRunning()
         ):
             return
-        self._status.setText(f"正在下载并安装：{e.music_name or e.title or '所选条目'} …")
+        self._status.setText(f"正在下载并安装：{e.song_display()} …")
         self._close_progress()
         self._progress_dialog = self._open_progress(
-            "Swan 站",
+            "SwanSite",
             "正在下载谱面包…",
         )
         th = _DownloadSheetThread(base, e.content_id, parent=self)
@@ -310,7 +336,7 @@ class SwanSheetDownloadDialog(FluentCaptionDialog):
         if readme is not None and readme.strip():
             show_archive_readme_dialog(self, readme)
         self._progress_dialog = self._open_progress(
-            "Swan 站",
+            "SwanSite",
             "正在解压并写入 ACUS…",
         )
         ith = _InstallLocalArchiveThread(tmp, self._acus_root, parent=self)

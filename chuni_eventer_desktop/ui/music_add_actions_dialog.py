@@ -76,7 +76,7 @@ class MusicSheetChannelsDialog(QDialog):
                 b.clicked.connect(lambda _=False, a=act: self._pick(a))
             return b
 
-        row.addWidget(mk("SwanSite.png", "从 Swan 站获取自制谱", enabled=True, act="swan"))
+        row.addWidget(mk("SwanSite.png", "从 SwanSite 获取自制谱", enabled=True, act="swan"))
         row.addWidget(
             mk(
                 "pgko.jpg",
@@ -93,7 +93,7 @@ class MusicSheetChannelsDialog(QDialog):
         foot.setContentsMargins(0, 0, 0, 0)
         self._close_btn = PushButton("关闭", card)
         self._close_btn.setToolTip(
-            "左键：关闭。右键：从本地压缩包导入（与 Swan 下载后相同的解压与落盘逻辑）。"
+            "左键：关闭。右键：从本地压缩包导入（与 SwanSite 下载后相同的解压与落盘逻辑）。"
         )
         self._close_btn.setSizePolicy(
             QSizePolicy.Policy.Expanding,

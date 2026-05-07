@@ -131,7 +131,7 @@ class SettingsDialog(FluentCaptionDialog):
         pjsk_layout.addWidget(BodyLabel("烤谱（Project SEKAI · 实验）", self))
         pjsk_hint = BodyLabel(
             "本功能仅供图一乐：从游戏导出的 SUS 与自动转换结果不经精修几乎无法正常游玩。\n"
-            "需要可玩的自制谱，请在歌曲页点击「新增」→ 选择 Swan 站，下载已精修谱面并导入。"
+            "需要可玩的自制谱，请在歌曲页点击「新增」→ 选择 SwanSite，下载已精修谱面并导入。"
         )
         pjsk_hint.setWordWrap(True)
         pjsk_hint.setStyleSheet("color:#b45309;font-size:13px;")
