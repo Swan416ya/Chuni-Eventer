@@ -23,12 +23,12 @@
 
 ## 2. 信息架构（「页面」= 导航项 + 同一工作区）
 
-侧栏 **9 个数据类** + 底部 **存档装备**、**设置**（不可选中）。除设置与存档装备为独立对话框外，其余共用一个 `MainWindow` 内的 `self._workspace`。
+侧栏 **9 个数据类** + 底部 **存档编辑器**、**设置**（不可选中）。除设置与存档编辑器为独立对话框外，其余共用一个 `MainWindow` 内的 `self._workspace`。
 
 | 导航 routeKey | 中文名 | 主界面表现 |
 |---------------|--------|------------|
 | `nav_chara` ~ `nav_mapbonus` | 角色 / 地图 / 事件 / 任务 / 歌曲 / 称号 / 名牌 / 奖励 / 加成 | `ManagerWidget` 随 `kind` 切换内容与过滤器 |
-| `nav_save_patch` | 存档装备 | 打开 `SavePatchDialog` |
+| `nav_save_patch` | 存档编辑器 | 打开 `SavePatchDialog` |
 | `nav_settings` | 设置 | 打开 `SettingsDialog` |
 
 **歌曲** 与其它类不同：`ManagerWidget` 内用 `QStackedWidget` 在「表格 + 预览」与 **卡片视图** 之间切换；`Music` 时显示 `MusicCardsView`（stack 索引 1），其它类显示左侧 `TableView` + 右侧预览/属性（索引 0）。逻辑见 `manager_widget.py` 的 `reload()` 与 `_main_stack`。
@@ -115,7 +115,7 @@
 3. **系统对话框**：`QFileDialog`、`QInputDialog`、`QProgressDialog` 等仍为系统原生；若需完全 Fluent 化需自研封装。
 4. **消息与确认**：业务弹窗已统一为 `fly_message` / `fly_critical` / `fly_warning` / `fly_question`（`fluent_dialogs.py`）；`QProgressDialog` 结束须 `safe_dismiss_modal_progress_dialog`。详见 [桌面端模态弹窗与进度安全_完整指南_zh.md](./桌面端模态弹窗与进度安全_完整指南_zh.md)。非 UI 模块或脚本可能仍直接使用 Qt 消息框（若有）。
 5. **已有自研/半自研**：`FlipMusicCard`（卡片翻转）、`fluent_table`（表样式）等 —— 与 Fluent 主题并存即可。
-6. **已推进模块**：除主窗口与工作区表格外，**上述 §5 表中列出的对话框均已使用 `FluentCaptionDialog`（或同等 Fluent 标题栏壳）+ `fluent_caption_content_margins`**，自制谱 Swan / pgko 全链路及其子窗、设置与存档装备、游戏乐曲浏览、乐曲课题称号、乐曲新增渠道、PJSK 下载/导入/人声选择与 SUS 调试窗等均已纳入；业务提示以 `fly_*` 为主。
+6. **已推进模块**：除主窗口与工作区表格外，**上述 §5 表中列出的对话框均已使用 `FluentCaptionDialog`（或同等 Fluent 标题栏壳）+ `fluent_caption_content_margins`**，自制谱 Swan / pgko 全链路及其子窗、设置与存档编辑器、游戏乐曲浏览、乐曲课题称号、乐曲新增渠道、PJSK 下载/导入/人声选择与 SUS 调试窗等均已纳入；业务提示以 `fly_*` 为主。
 
 ---
 

@@ -27,7 +27,8 @@ def load_save(path: str | Path) -> dict[str, Any]:
     """
     读取导出存档。典型顶层键：
     - gameId: 如 \"SDHD\"
-    - userData: 账号概要（等级、点数、当前装备的称号/名牌/角色/头像部件等）
+    - userData: 账号概要（等级、点数、名牌 nameplateId、称号 trophyId/trophyIdSub1/2、
+      voiceId、mapIconId、stageId、角色/头像部件等）
     - userItemList: 持有物列表 {itemKind, itemId, stock, isValid}
     - userCharacterList: 角色持有与养成
     - userMusicDetailList: 乐曲游玩数据（含 isLock 等）
@@ -162,6 +163,24 @@ def set_equipped_trophies(
     ud["trophyId"] = int(main_id)
     ud["trophyIdSub1"] = int(sub1_id)
     ud["trophyIdSub2"] = int(sub2_id)
+
+
+def set_equipped_voice(data: dict[str, Any], voice_id: int) -> None:
+    """设置系统语音 ID（userData.voiceId）。"""
+    ud = data.setdefault("userData", {})
+    ud["voiceId"] = int(voice_id)
+
+
+def set_equipped_map_icon(data: dict[str, Any], map_icon_id: int) -> None:
+    """设置跑图小人 / MapIcon ID（userData.mapIconId）。"""
+    ud = data.setdefault("userData", {})
+    ud["mapIconId"] = int(map_icon_id)
+
+
+def set_equipped_stage(data: dict[str, Any], stage_id: int) -> None:
+    """设置舞台背景 ID（userData.stageId）。"""
+    ud = data.setdefault("userData", {})
+    ud["stageId"] = int(stage_id)
 
 
 def clone_save(data: dict[str, Any]) -> dict[str, Any]:

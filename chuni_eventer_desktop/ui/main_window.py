@@ -265,7 +265,7 @@ class MainWindow(MSFluentWindow):
         self.navigationInterface.addItem(
             routeKey="nav_save_patch",
             icon=FluentIcon.SAVE,
-            text="存档装备",
+            text="存档编辑器",
             onClick=self._open_save_patch,
             position=NavigationItemPosition.BOTTOM,
             selectable=False,
@@ -525,7 +525,7 @@ class MainWindow(MSFluentWindow):
             dlg.exec()
         except Exception:
             _scan_logger().exception("ui_click_save_patch_crash")
-            fly_critical(self, "操作失败", "打开存档装备时发生异常，请提供日志。")
+            fly_critical(self, "操作失败", "打开存档编辑器时发生异常，请提供日志。")
 
     def _open_settings(self) -> None:
         try:

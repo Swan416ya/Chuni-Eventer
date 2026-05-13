@@ -26,15 +26,29 @@ from qfluentwidgets import (
     isDarkTheme,
 )
 
-from ..acus_scan import NamePlateItem, TrophyItem, scan_nameplates, scan_trophies
+from ..acus_scan import (
+    MapIconItem,
+    NamePlateItem,
+    StageItem,
+    SystemVoiceItem,
+    TrophyItem,
+    scan_map_icons,
+    scan_nameplates,
+    scan_stages,
+    scan_system_voices,
+    scan_trophies,
+)
 from ..chusan_save import (
     PENGUIN_ITEM_IDS,
     PENGUIN_ITEM_KIND,
     PENGUIN_ITEM_NAMES,
     load_save,
     save_save,
+    set_equipped_map_icon,
     set_equipped_nameplate,
+    set_equipped_stage,
     set_equipped_trophies,
+    set_equipped_voice,
     set_penguin_stocks,
     sum_item_stock,
 )
@@ -52,12 +66,13 @@ def _preview_frame_style() -> str:
 
 class SavePatchDialog(FluentCaptionDialog):
     """
-    上传 ALL.Net 导出存档 JSON，将 userData 中的名牌/称号改为 ACUS 中已有条目（仅改装备字段）。
+    上传 ALL.Net 导出存档 JSON，编辑 userData 中装备相关字段（名牌、主/副称号、系统语音、
+    MapIcon、舞台、企鹅等），另存为新 JSON。
     """
 
     def __init__(self, *, acus_root: Path, get_tool_path, parent=None) -> None:
         super().__init__(parent=parent)
-        self.setWindowTitle("存档装备（名牌 / 称号 / 企鹅）")
+        self.setWindowTitle("存档编辑器")
         self.setModal(True)
         self.resize(760, 680)
         self._acus_root = acus_root
@@ -67,6 +82,9 @@ class SavePatchDialog(FluentCaptionDialog):
 
         self._nameplates = scan_nameplates(acus_root)
         self._trophies = scan_trophies(acus_root)
+        self._system_voices = scan_system_voices(acus_root)
+        self._map_icons = scan_map_icons(acus_root)
+        self._stages = scan_stages(acus_root)
 
         self.path_label = CaptionLabel("未选择文件", self)
         self.path_label.setWordWrap(True)
@@ -75,6 +93,8 @@ class SavePatchDialog(FluentCaptionDialog):
         pick_btn.clicked.connect(self._pick_save)
 
         self.tabs = TabWidget(self)
+        self.tabs.setTabsClosable(False)
+        self.tabs.tabBar.setAddButtonVisible(False)
 
         # --- 名牌 ---
         np_page = QWidget()
@@ -107,16 +127,27 @@ class SavePatchDialog(FluentCaptionDialog):
         tr_lay.setContentsMargins(8, 8, 8, 8)
         tr_lay.setSpacing(10)
         self.tr_current_ids_label = CaptionLabel("当前存档称号 ID：主 - / 副1 - / 副2 -", self)
-        self.tr_limit_hint = BodyLabel("提示：因 rin 服服务器问题，当前仅支持修改主称号。", self)
+        self.tr_limit_hint = BodyLabel(
+            "提示：本工具仅离线修改导出 JSON。若目标环境校验持有物，请自行保证账号已解锁对应称号/语音/跑图小人/舞台等资源。",
+            self,
+        )
         self.tr_limit_hint.setWordWrap(True)
         self.tr_limit_hint.setStyleSheet("color: #CA8A04;")
         form = QFormLayout()
         self.tr_main = EditableComboBox(self)
         self.tr_main.setMaxVisibleItems(30)
         self._fill_trophy_combo(self.tr_main, with_keep=False)
+        self.tr_sub1 = EditableComboBox(self)
+        self.tr_sub1.setMaxVisibleItems(30)
+        self._fill_trophy_combo(self.tr_sub1, with_keep=False)
+        self.tr_sub2 = EditableComboBox(self)
+        self.tr_sub2.setMaxVisibleItems(30)
+        self._fill_trophy_combo(self.tr_sub2, with_keep=False)
         tr_lay.addWidget(self.tr_current_ids_label)
         tr_lay.addWidget(self.tr_limit_hint)
         form.addRow("主称号", self.tr_main)
+        form.addRow("副称号 1", self.tr_sub1)
+        form.addRow("副称号 2", self.tr_sub2)
         tr_lay.addLayout(form)
         self.tr_preview = QLabel("预览（主称号）", self)
         self.tr_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -126,6 +157,72 @@ class SavePatchDialog(FluentCaptionDialog):
         self.tr_main.currentIndexChanged.connect(self._on_tr_main_changed)
         self.tr_main.currentTextChanged.connect(lambda _t: self._on_tr_main_changed())
         self.tabs.addTab(tr_page, "称号")
+
+        # --- 系统语音 ---
+        sv_page = QWidget()
+        sv_lay = QVBoxLayout(sv_page)
+        sv_lay.setContentsMargins(8, 8, 8, 8)
+        sv_lay.setSpacing(10)
+        self.sv_current_id_label = CaptionLabel("当前存档系统语音 voiceId：-", self)
+        self.sv_combo = EditableComboBox(self)
+        self.sv_combo.setMaxVisibleItems(30)
+        self._fill_id_scan_combo(self.sv_combo, self._system_voices)
+        sv_form = QFormLayout()
+        sv_form.addRow("系统语音", self.sv_combo)
+        sv_lay.addWidget(self.sv_current_id_label)
+        sv_lay.addLayout(sv_form)
+        self.sv_preview = QLabel("预览", self)
+        self.sv_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.sv_preview.setMinimumHeight(200)
+        self.sv_preview.setStyleSheet(_preview_frame_style())
+        sv_lay.addWidget(self.sv_preview)
+        self.sv_combo.currentIndexChanged.connect(self._on_sv_changed)
+        self.sv_combo.currentTextChanged.connect(lambda _t: self._on_sv_changed())
+        self.tabs.addTab(sv_page, "系统语音")
+
+        # --- 跑图小人 (MapIcon) ---
+        mi_page = QWidget()
+        mi_lay = QVBoxLayout(mi_page)
+        mi_lay.setContentsMargins(8, 8, 8, 8)
+        mi_lay.setSpacing(10)
+        self.mi_current_id_label = CaptionLabel("当前存档 mapIconId：-", self)
+        self.mi_combo = EditableComboBox(self)
+        self.mi_combo.setMaxVisibleItems(30)
+        self._fill_id_scan_combo(self.mi_combo, self._map_icons)
+        mi_form = QFormLayout()
+        mi_form.addRow("跑图小人", self.mi_combo)
+        mi_lay.addWidget(self.mi_current_id_label)
+        mi_lay.addLayout(mi_form)
+        self.mi_preview = QLabel("预览", self)
+        self.mi_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.mi_preview.setMinimumHeight(200)
+        self.mi_preview.setStyleSheet(_preview_frame_style())
+        mi_lay.addWidget(self.mi_preview)
+        self.mi_combo.currentIndexChanged.connect(self._on_mi_changed)
+        self.mi_combo.currentTextChanged.connect(lambda _t: self._on_mi_changed())
+        self.tabs.addTab(mi_page, "跑图小人")
+
+        # --- 舞台 ---
+        st_page = QWidget()
+        st_lay = QVBoxLayout(st_page)
+        st_lay.setContentsMargins(8, 8, 8, 8)
+        st_lay.setSpacing(10)
+        self.st_current_id_label = CaptionLabel("当前存档 stageId：-", self)
+        self.st_combo = EditableComboBox(self)
+        self.st_combo.setMaxVisibleItems(30)
+        self._fill_id_scan_combo(self.st_combo, self._stages)
+        st_form = QFormLayout()
+        st_form.addRow("舞台背景", self.st_combo)
+        st_lay.addWidget(self.st_current_id_label)
+        st_lay.addLayout(st_form)
+        self.st_preview = QLabel("预览", self)
+        self.st_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.st_preview.setMinimumHeight(200)
+        self.st_preview.setStyleSheet(_preview_frame_style())
+        st_lay.addWidget(self.st_preview)
+        self.st_combo.currentIndexChanged.connect(self._on_st_changed)
+        self.st_combo.currentTextChanged.connect(lambda _t: self._on_st_changed())
+        self.tabs.addTab(st_page, "舞台")
 
         # --- 企鹅 ---
         pg_page = QWidget()
@@ -166,9 +263,9 @@ class SavePatchDialog(FluentCaptionDialog):
         btns.addWidget(apply_btn)
 
         hint = BodyLabel(
-            "另存时会同时写入：当前选中的名牌 + 主称号（因 rin 服服务器问题，副称号保持存档原值）"
-            " + 「企鹅」页各 ID 数量（写入 userItemList，其它物品不动）。"
-            " 原 JSON 路径不会被覆盖，请选择新文件名保存。",
+            "另存为会写入：名牌、主/副称号、系统语音 voiceId、mapIconId、stageId、企鹅数量（userItemList）。"
+            " 其它字段不动；原文件不会被覆盖。"
+            " 若目标服校验持有物，请自行保证资源已解锁。",
             self,
         )
         hint.setWordWrap(True)
@@ -191,12 +288,30 @@ class SavePatchDialog(FluentCaptionDialog):
         self._filter_nameplates()
         self._on_np_changed()
         self._on_tr_main_changed()
+        self._on_sv_changed()
+        self._on_mi_changed()
+        self._on_st_changed()
 
     def _fill_trophy_combo(self, cb: EditableComboBox, *, with_keep: bool) -> None:
         if with_keep:
             cb.addItem("（保持存档原值）", None, None)
         for t in self._trophies:
             cb.addItem(f"{t.name.id} | {t.name.str}", None, t)
+
+    def _fill_id_scan_combo(self, cb: EditableComboBox, items: list) -> None:
+        cb.clear()
+        for it in items:
+            cb.addItem(f"{it.name.id} | {it.name.str}", None, it)
+
+    def _set_scan_combo_from_save(self, cb: EditableComboBox, vid: object) -> None:
+        if not isinstance(vid, int):
+            return
+        for i in range(cb.count()):
+            it = cb.itemData(i)
+            if it is not None and it.name.id == vid:
+                cb.setCurrentIndex(i)
+                return
+        cb.setText(str(vid))
 
     def _pick_save(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "选择导出存档", "", "JSON (*.json);;All (*)")
@@ -246,11 +361,19 @@ class SavePatchDialog(FluentCaptionDialog):
             cb.setText(str(tid))
 
         set_trophy_combo(self.tr_main, ud.get("trophyId"), allow_keep=False)
+        set_trophy_combo(self.tr_sub1, ud.get("trophyIdSub1"), allow_keep=False)
+        set_trophy_combo(self.tr_sub2, ud.get("trophyIdSub2"), allow_keep=False)
+        self._set_scan_combo_from_save(self.sv_combo, ud.get("voiceId"))
+        self._set_scan_combo_from_save(self.mi_combo, ud.get("mapIconId"))
+        self._set_scan_combo_from_save(self.st_combo, ud.get("stageId"))
 
         self._sync_penguins_from_save()
 
         self._on_np_changed()
         self._on_tr_main_changed()
+        self._on_sv_changed()
+        self._on_mi_changed()
+        self._on_st_changed()
 
     def _update_current_id_labels(self) -> None:
         ud = (self._data or {}).get("userData") or {}
@@ -258,11 +381,23 @@ class SavePatchDialog(FluentCaptionDialog):
         t0 = ud.get("trophyId")
         t1 = ud.get("trophyIdSub1")
         t2 = ud.get("trophyIdSub2")
+        vid = ud.get("voiceId")
+        mid = ud.get("mapIconId")
+        sid = ud.get("stageId")
         self.np_current_id_label.setText(f"当前存档名牌 ID：{nid if isinstance(nid, int) else '-'}")
         self.tr_current_ids_label.setText(
             f"当前存档称号 ID：主 {t0 if isinstance(t0, int) else '-'} / "
             f"副1 {t1 if isinstance(t1, int) else '-'} / "
             f"副2 {t2 if isinstance(t2, int) else '-'}"
+        )
+        self.sv_current_id_label.setText(
+            f"当前存档系统语音 voiceId：{vid if isinstance(vid, int) else '-'}"
+        )
+        self.mi_current_id_label.setText(
+            f"当前存档 mapIconId：{mid if isinstance(mid, int) else '-'}"
+        )
+        self.st_current_id_label.setText(
+            f"当前存档 stageId：{sid if isinstance(sid, int) else '-'}"
         )
 
     @staticmethod
@@ -338,6 +473,46 @@ class SavePatchDialog(FluentCaptionDialog):
         dds = t.xml_path.parent / t.image_path
         self._set_preview(self.tr_preview, dds)
 
+    def _on_sv_changed(self) -> None:
+        it: SystemVoiceItem | None = self.sv_combo.currentData()
+        rel = (it.preview_relpath or "").strip() if it else ""
+        if not it or not rel:
+            self._set_preview(self.sv_preview, None)
+            return
+        dds = it.xml_path.parent / rel
+        self._set_preview(self.sv_preview, dds if dds.is_file() else None)
+
+    def _on_mi_changed(self) -> None:
+        it: MapIconItem | None = self.mi_combo.currentData()
+        rel = (it.image_path or "").strip() if it else ""
+        if not it or not rel:
+            self._set_preview(self.mi_preview, None)
+            return
+        dds = it.xml_path.parent / rel
+        self._set_preview(self.mi_preview, dds if dds.is_file() else None)
+
+    def _on_st_changed(self) -> None:
+        it: StageItem | None = self.st_combo.currentData()
+        rel = (it.image_path or "").strip() if it else ""
+        if not it or not rel:
+            self._set_preview(self.st_preview, None)
+            return
+        dds = it.xml_path.parent / rel
+        self._set_preview(self.st_preview, dds if dds.is_file() else None)
+
+    def _trophy_slot_id(self, cb: EditableComboBox) -> int:
+        t = cb.currentData()
+        if isinstance(t, TrophyItem):
+            return int(t.name.id)
+        x = self._extract_numeric_id(cb.currentText())
+        return int(x) if x is not None else -1
+
+    def _scan_slot_id(self, cb: EditableComboBox) -> int | None:
+        it = cb.currentData()
+        if isinstance(it, (SystemVoiceItem, MapIconItem, StageItem)):
+            return int(it.name.id)
+        return self._extract_numeric_id(cb.currentText())
+
     def _apply(self) -> None:
         if not self._data:
             fly_warning(self, "提示", "请先选择存档 JSON")
@@ -352,13 +527,27 @@ class SavePatchDialog(FluentCaptionDialog):
         if main_id is None:
             fly_warning(self, "提示", "请选择主称号，或在下拉框里输入称号 ID")
             return
+        sub1_id = self._trophy_slot_id(self.tr_sub1)
+        sub2_id = self._trophy_slot_id(self.tr_sub2)
+
+        voice_id = self._scan_slot_id(self.sv_combo)
+        if voice_id is None:
+            fly_warning(self, "提示", "请选择系统语音，或在下拉框里输入 voiceId（整数）")
+            return
+        map_icon_id = self._scan_slot_id(self.mi_combo)
+        if map_icon_id is None:
+            fly_warning(self, "提示", "请选择跑图小人，或在下拉框里输入 mapIconId（整数）")
+            return
+        stage_id = self._scan_slot_id(self.st_combo)
+        if stage_id is None:
+            fly_warning(self, "提示", "请选择舞台，或在下拉框里输入 stageId（整数）")
+            return
+
         set_equipped_nameplate(self._data, np_id)
-        ud = self._data.setdefault("userData", {})
-        cur_sub1 = ud.get("trophyIdSub1")
-        cur_sub2 = ud.get("trophyIdSub2")
-        s1 = int(cur_sub1) if isinstance(cur_sub1, int) else -1
-        s2 = int(cur_sub2) if isinstance(cur_sub2, int) else -1
-        set_equipped_trophies(self._data, main_id, s1, s2)
+        set_equipped_trophies(self._data, main_id, sub1_id, sub2_id)
+        set_equipped_voice(self._data, voice_id)
+        set_equipped_map_icon(self._data, map_icon_id)
+        set_equipped_stage(self._data, stage_id)
 
         stocks = {pid: sp.value() for sp, pid in zip(self._penguin_spins, PENGUIN_ITEM_IDS, strict=True)}
         set_penguin_stocks(self._data, stocks)
