@@ -7,7 +7,7 @@ import time
 import traceback
 import xml.etree.ElementTree as ET
 
-from PyQt6.QtCore import QPoint, Qt, QModelIndex, QSortFilterProxyModel, QTimer
+from PyQt6.QtCore import QPoint, QSize, Qt, QModelIndex, QSortFilterProxyModel, QTimer
 from PyQt6.QtGui import QColor, QPixmap, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -65,6 +65,7 @@ from ..acus_scan import (
     IdStr,
     MapItem,
     MapBonusItem,
+    MapIconItem,
     MusicItem,
     NamePlateItem,
     QuestItem,
@@ -77,6 +78,7 @@ from ..acus_scan import (
     scan_events,
     scan_maps,
     scan_map_bonuses,
+    scan_map_icons,
     scan_music,
     scan_nameplates,
     scan_quests,
@@ -105,23 +107,28 @@ _KIND_DEFS: tuple[tuple[str, str], ...] = (
     ("加成", "MapBonus"),
     ("DDS 贴图", "DDSImage"),
     ("系统语音", "SystemVoice"),
+    ("跑图小人", "MapIcon"),
 )
 
 
 class WidthScaledPreviewLabel(QLabel):
-    """按容器宽度缩放 DDS 图，避免过宽 pixmap 撑死分割条。"""
+    """侧栏 DDS 预览：随容器变宽，但用 **最大宽高框** 等比缩放，不锁死 QLabel 的 min/max 高度。"""
+
+    _DISPLAY_MAX_W = 400
+    _DISPLAY_MAX_H = 340
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setMinimumWidth(0)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self._source: QPixmap | None = None
 
     def clear_source(self) -> None:
         self._source = None
         super().setPixmap(QPixmap())
         self.setMinimumHeight(0)
+        self.setMaximumHeight(16777215)
 
     def setSourcePixmap(self, pm: QPixmap | None) -> None:
         self._source = pm if pm is not None and not pm.isNull() else None
@@ -132,17 +139,24 @@ class WidthScaledPreviewLabel(QLabel):
         self._apply_scale()
 
     def _apply_scale(self) -> None:
+        mw, mh = self._DISPLAY_MAX_W, self._DISPLAY_MAX_H
         if self._source is None or self._source.isNull():
             super().setPixmap(QPixmap())
             self.setMinimumHeight(0)
+            self.setMaximumHeight(16777215)
             return
-        w = self.width()
-        if w <= 1:
+        w_avail = self.width()
+        if w_avail <= 1:
             par = self.parentWidget()
-            w = max(120, (par.width() * 4 // 5) if par is not None and par.width() > 0 else 360)
-        scaled = self._source.scaledToWidth(w, Qt.TransformationMode.SmoothTransformation)
+            guess = (par.width() * 4 // 5) if par is not None and par.width() > 0 else mw
+            w_avail = max(120, min(mw, guess))
+        box_w = min(max(w_avail, 48), mw)
+        scaled = self._source.scaled(
+            QSize(box_w, mh),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
         super().setPixmap(scaled)
-        self.setMinimumHeight(scaled.height())
 
 
 class CharaDdsPreviewWidget(QWidget):
@@ -472,6 +486,8 @@ class ManagerWidget(QWidget):
             self.model.setHorizontalHeaderLabels(["ID", "名称", "条件数", "type摘要", "来源(XML)"])
         elif k == "SystemVoice":
             self.model.setHorizontalHeaderLabels(["ID", "名称", "CueFile(id)", "预览图", "来源(XML)"])
+        elif k == "MapIcon":
+            self.model.setHorizontalHeaderLabels(["ID", "名称", "贴图路径", "来源(XML)"])
         elif k == "Stage":
             self.model.setHorizontalHeaderLabels(["ID", "名称", "判定线", "预览图", "来源(XML)"])
         elif k == "Chara":
@@ -543,6 +559,11 @@ class ManagerWidget(QWidget):
             self._items = items
             for it in items:
                 self._append_system_voice_row(it)
+        elif k == "MapIcon":
+            items = scan_map_icons(self._acus_root)
+            self._items = items
+            for it in items:
+                self._append_mapicon_row(it)
         elif k == "Stage":
             items = scan_stages(self._acus_root)
             self._items = items
@@ -766,6 +787,14 @@ class ManagerWidget(QWidget):
                 ("预览图路径", pv),
                 ("XML", self._rel_acus_path(it.xml_path)),
             ]
+        if isinstance(it, MapIconItem):
+            img = it.image_path.strip() or "—"
+            return [
+                ("显示名", it.name.str or "—"),
+                ("MapIcon ID", str(it.name.id)),
+                ("贴图路径", img),
+                ("XML", self._rel_acus_path(it.xml_path)),
+            ]
         return [("类型", type(it).__name__), ("摘要", str(it))]
 
     def _chara_attr_rows(self, it: CharaItem, meta: dict[str, str]) -> list[tuple[str, str]]:
@@ -798,6 +827,9 @@ class ManagerWidget(QWidget):
             return p if p.is_file() else None
         if isinstance(it, SystemVoiceItem) and it.preview_relpath.strip():
             p = it.xml_path.parent / it.preview_relpath.strip()
+            return p if p.is_file() else None
+        if isinstance(it, MapIconItem) and it.image_path.strip():
+            p = it.xml_path.parent / it.image_path.strip()
             return p if p.is_file() else None
         return None
 
@@ -846,7 +878,9 @@ class ManagerWidget(QWidget):
             acus_root=self._acus_root,
             compressonatorcli_path=tool,
             dds_path=dds_path,
-            restrict=False,
+            max_w=WidthScaledPreviewLabel._DISPLAY_MAX_W * 2,
+            max_h=WidthScaledPreviewLabel._DISPLAY_MAX_H * 2,
+            restrict=True,
         )
         if pm is None or pm.isNull():
             return None, f"DDS 解码失败：{dds_path.name}"
@@ -969,6 +1003,22 @@ class ManagerWidget(QWidget):
             QStandardItem(it.name.str),
             QStandardItem(cue),
             QStandardItem(pv),
+            QStandardItem(src),
+        ]
+        cols[0].setData(it, Qt.ItemDataRole.UserRole)
+        for i, c in enumerate(cols):
+            c.setEditable(False)
+            self.model.setItem(row, i, c)
+
+    def _append_mapicon_row(self, it: MapIconItem) -> None:
+        row = self.model.rowCount()
+        self.model.insertRow(row)
+        src = str(it.xml_path.relative_to(self._acus_root))
+        img = it.image_path.strip() or "—"
+        cols = [
+            QStandardItem(str(it.name.id)),
+            QStandardItem(it.name.str),
+            QStandardItem(img),
             QStandardItem(src),
         ]
         cols[0].setData(it, Qt.ItemDataRole.UserRole)
@@ -1543,7 +1593,7 @@ class ManagerWidget(QWidget):
         if not proxy_index.isValid():
             return
         k = self._kind_key()
-        if k not in ("Map", "Music", "MapBonus"):
+        if k not in ("Map", "Music", "MapBonus", "MapIcon"):
             return
         src_idx = self.proxy.mapToSource(proxy_index)
         item = self.model.item(src_idx.row(), 0)
@@ -1587,6 +1637,21 @@ class ManagerWidget(QWidget):
                 acus_root=self._acus_root,
                 game_index=self._get_game_index(),
                 xml_path=payload.xml_path,
+                parent=self.window(),
+            )
+            if dlg.exec() == QDialog.DialogCode.Accepted:
+                self.reload()
+            return
+        if k == "MapIcon":
+            if not isinstance(payload, MapIconItem):
+                return
+            from .map_icon_dialog import MapIconAddEditDialog
+
+            dlg = MapIconAddEditDialog(
+                acus_root=self._acus_root,
+                tool_path=self._get_tool_path(),
+                game_index=self._get_game_index(),
+                edit_map_icon_xml=payload.xml_path,
                 parent=self.window(),
             )
             if dlg.exec() == QDialog.DialogCode.Accepted:

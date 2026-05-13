@@ -111,6 +111,13 @@ class MapBonusItem:
 
 
 @dataclass(frozen=True)
+class MapIconItem:
+    xml_path: Path
+    name: IdStr
+    image_path: str
+
+
+@dataclass(frozen=True)
 class SystemVoiceItem:
     """ACUS ``systemVoice/systemVoiceNNNN/SystemVoice.xml`` 列表项。"""
 
@@ -392,6 +399,30 @@ def scan_map_bonuses(acus_root: Path) -> list[MapBonusItem]:
                     type_summary=type_summary,
                 )
             )
+        except Exception:
+            continue
+    return sorted(items, key=lambda x: x.name.id)
+
+
+def scan_map_icons(acus_root: Path) -> list[MapIconItem]:
+    items: list[MapIconItem] = []
+    paths: set[Path] = set()
+    for pat in ("mapIcon/**/MapIcon.xml", "mapIcon/**/Mapicon.xml"):
+        try:
+            for p in iter_xml_files(acus_root, pat):
+                paths.add(p)
+        except OSError:
+            continue
+    for p in sorted(paths):
+        try:
+            r = ET.parse(p).getroot()
+            name = _get_idstr(r.find("name"))
+            if not name:
+                continue
+            img = (r.findtext("image/path") or "").strip()
+            if not img:
+                img = (r.findtext("ddsFile/path") or "").strip()
+            items.append(MapIconItem(xml_path=p, name=name, image_path=img))
         except Exception:
             continue
     return sorted(items, key=lambda x: x.name.id)

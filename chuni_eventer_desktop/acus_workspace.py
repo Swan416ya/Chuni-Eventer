@@ -218,6 +218,7 @@ def ensure_acus_layout(*, game_root: Path | str | None = None) -> Path:
         "map",
         "mapArea",
         "mapBonus",
+        "mapIcon",
         "event",
         "unlockChallenge",
         "course",

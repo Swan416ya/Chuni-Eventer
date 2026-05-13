@@ -32,6 +32,7 @@ from .manager_widget import ManagerWidget
 from .settings_dialog import SettingsDialog
 from .chara_add_dialog import CharaAddDialog
 from .map_add_dialog import MapAddDialog, RewardCreateDialog, ensure_reward_xml, reward_dialog_bundle
+from .map_icon_dialog import MapIconAddEditDialog
 from .nameplate_add_dialog import NamePlateAddDialog
 from .trophy_add_dialog import TrophyAddDialog
 from .music_add_actions_dialog import MusicSheetChannelsDialog
@@ -68,13 +69,14 @@ _scan_log_logger: logging.Logger | None = None
 _DEFAULT_MAIN_WINDOW_WIDTH = 1160
 _DEFAULT_MAIN_WINDOW_HEIGHT = 720 + 2 * 52
 
-# 「其他」分段 routeKey -> (ManagerWidget kind, 标题)
+# 「其他」分段 routeKey -> (ManagerWidget kind, 标题)；dict 插入顺序与 Segmented addItem 一致（跑图小人、系统语音置顶）
 _OTHERS_ROUTE_KIND: dict[str, tuple[str, str]] = {
+    "mapicon": ("MapIcon", "跑图小人"),
+    "sysvoice": ("SystemVoice", "系统语音"),
     "event": ("Event", "事件"),
     "quest": ("Quest", "任务"),
     "reward": ("Reward", "奖励"),
     "mapbonus": ("MapBonus", "加成"),
-    "sysvoice": ("SystemVoice", "系统语音"),
 }
 
 
@@ -213,11 +215,12 @@ class MainWindow(MSFluentWindow):
         ol.setContentsMargins(0, 8, 0, 0)
         ol.setSpacing(8)
         self._others_seg = SegmentedWidget(self._page_others)
+        self._others_seg.addItem("mapicon", "跑图小人")
+        self._others_seg.addItem("sysvoice", "系统语音")
         self._others_seg.addItem("event", "事件")
         self._others_seg.addItem("quest", "任务")
         self._others_seg.addItem("reward", "奖励")
         self._others_seg.addItem("mapbonus", "加成")
-        self._others_seg.addItem("sysvoice", "系统语音")
         self._others_seg.currentItemChanged.connect(self._on_others_segment_changed)
         ol.addWidget(self._others_seg)
         self._others_manager_slot = QWidget(self._page_others)
@@ -434,9 +437,9 @@ class MainWindow(MSFluentWindow):
         self._mount_manager_others()
         self._others_seg.blockSignals(True)
         if not self._others_seg.currentRouteKey():
-            self._others_seg.setCurrentItem("event")
+            self._others_seg.setCurrentItem("mapicon")
         self._others_seg.blockSignals(False)
-        rk = self._others_seg.currentRouteKey() or "event"
+        rk = self._others_seg.currentRouteKey() or "mapicon"
         kind, title = _OTHERS_ROUTE_KIND[rk]
         self._apply_category(kind, title)
 
@@ -473,6 +476,7 @@ class MainWindow(MSFluentWindow):
             "Reward": "搜索奖励…",
             "Stage": "搜索背景（Stage）…",
             "MapBonus": "搜索 MapBonus…",
+            "MapIcon": "搜索跑图小人…",
             "SystemVoice": "搜索系统语音 ID、名称…",
         }
         self._search.setPlaceholderText(placeholders.get(kind, "搜索当前列表…"))
@@ -481,8 +485,8 @@ class MainWindow(MSFluentWindow):
 
     def _restore_current_category_header(self) -> None:
         if self._in_others_mode:
-            rk = self._others_seg.currentRouteKey() or "event"
-            kind, title = _OTHERS_ROUTE_KIND.get(rk, ("Event", "事件"))
+            rk = self._others_seg.currentRouteKey() or "mapicon"
+            kind, title = _OTHERS_ROUTE_KIND.get(rk, ("MapIcon", "跑图小人"))
             self._apply_category(kind, title)
             return
         idx = self._current_category_index
@@ -573,9 +577,16 @@ class MainWindow(MSFluentWindow):
             return
         if kind == "Reward":
             gi = self._resolve_game_index()
-            music_r, chara_r, trophy_r, np_r, stage_r, sysvoice_r, default_id = reward_dialog_bundle(
-                self._acus_root, game_index=gi
-            )
+            (
+                music_r,
+                chara_r,
+                trophy_r,
+                np_r,
+                stage_r,
+                sysvoice_r,
+                mapicon_r,
+                default_id,
+            ) = reward_dialog_bundle(self._acus_root, game_index=gi)
             dlg = RewardCreateDialog(
                 default_id=default_id,
                 music_refs=music_r,
@@ -584,6 +595,7 @@ class MainWindow(MSFluentWindow):
                 nameplate_refs=np_r,
                 stage_refs=stage_r,
                 sysvoice_refs=sysvoice_r,
+                mapicon_refs=mapicon_r,
                 parent=self,
             )
             if dlg.exec() == dlg.DialogCode.Accepted and dlg.result_cell is not None:
@@ -649,6 +661,17 @@ class MainWindow(MSFluentWindow):
 
         if kind == "MapBonus":
             dlg = MapBonusEditDialog(acus_root=self._acus_root, game_index=self._resolve_game_index(), parent=self)
+            if dlg.exec() == dlg.DialogCode.Accepted:
+                self._on_refresh()
+            return
+
+        if kind == "MapIcon":
+            dlg = MapIconAddEditDialog(
+                acus_root=self._acus_root,
+                tool_path=self._get_tool_path_or_none(),
+                game_index=self._resolve_game_index(),
+                parent=self,
+            )
             if dlg.exec() == dlg.DialogCode.Accepted:
                 self._on_refresh()
             return

@@ -66,7 +66,7 @@ from .dds_progress import run_bc3_jobs_with_progress
 from ..dds_quicktex import quicktex_available
 from ..dds_preview import dds_to_pixmap
 from ..xml_writer import write_ddsmap_xml
-from ..acus_scan import scan_map_bonuses, scan_system_voices
+from ..acus_scan import scan_map_bonuses, scan_map_icons, scan_system_voices
 from ..system_voice_pack import system_voice_dir_name, system_voice_preview_ui_dds_basename
 from .name_glyph_preview import wrap_name_input_with_preview
 from .mapbonus_dialogs import MapBonusEditDialog
@@ -229,6 +229,8 @@ def _target_id_field_label(*, reward_mode: str, reward_kind: str) -> str:
         return "场景ID"
     if reward_mode == "系统语音(SystemVoice)":
         return "系统语音ID"
+    if reward_mode == "地图图标(MapIcon)":
+        return "地图图标ID"
     if reward_mode == "手填奖励ID":
         k = reward_kind or "外部奖励ID"
         if k == "角色":
@@ -241,6 +243,8 @@ def _target_id_field_label(*, reward_mode: str, reward_kind: str) -> str:
             return "场景ID"
         if k == "系统语音(SystemVoice)":
             return "系统语音ID"
+        if k == "地图图标(MapIcon)":
+            return "地图图标ID"
     return "目标ID"
 
 
@@ -255,6 +259,8 @@ def _acus_pick_label(reward_mode: str) -> str:
         return "从列表选择场景"
     if reward_mode == "系统语音(SystemVoice)":
         return "从列表选择系统语音"
+    if reward_mode == "地图图标(MapIcon)":
+        return "从列表选择地图图标"
     return "从列表选择"
 
 
@@ -267,7 +273,7 @@ def _reward_create_kind_target_label(kind: str) -> str:
         "乐曲解锁(Music)": "乐曲ID",
         "场景(Stage)": "场景ID",
         "系统语音(SystemVoice)": "系统语音ID",
-        "外部奖励ID": "关联实体ID（外部类型通常留空）",
+        "地图图标(MapIcon)": "地图图标ID",
     }.get(kind, "目标ID")
 
 
@@ -279,6 +285,7 @@ def _reward_create_acus_label(kind: str) -> str:
         "乐曲解锁(Music)": "从列表选择乐曲",
         "场景(Stage)": "从列表选择场景",
         "系统语音(SystemVoice)": "从列表选择系统语音",
+        "地图图标(MapIcon)": "从列表选择地图图标",
     }.get(kind, "")
 
 
@@ -522,6 +529,7 @@ class CellEditDialog(FluentCaptionDialog):
         nameplate_refs: list[RewardRef],
         stage_refs: list[RewardRef],
         sysvoice_refs: list[RewardRef],
+        mapicon_refs: list[RewardRef],
         music_refs: list[MusicRef],
         data: CellData,
         game_index: GameDataIndex | None = None,
@@ -538,6 +546,7 @@ class CellEditDialog(FluentCaptionDialog):
         self._nameplate_refs = nameplate_refs
         self._stage_refs = stage_refs
         self._sysvoice_refs = sysvoice_refs
+        self._mapicon_refs = mapicon_refs
         self._music_refs = music_refs
         self._data = data
         self._pending_inner_match_id: int | None = None
@@ -552,6 +561,7 @@ class CellEditDialog(FluentCaptionDialog):
                 "姓名牌装饰(NamePlate)",
                 "场景(Stage)",
                 "系统语音(SystemVoice)",
+                "地图图标(MapIcon)",
                 "手填奖励ID",
             ]
         )
@@ -577,6 +587,7 @@ class CellEditDialog(FluentCaptionDialog):
                 "姓名牌装饰(NamePlate)",
                 "场景(Stage)",
                 "系统语音(SystemVoice)",
+                "地图图标(MapIcon)",
             ]
         )
         self.reward_kind.currentTextChanged.connect(self._sync_state)
@@ -653,6 +664,7 @@ class CellEditDialog(FluentCaptionDialog):
                 "姓名牌装饰(NamePlate)",
                 "场景(Stage)",
                 "系统语音(SystemVoice)",
+                "地图图标(MapIcon)",
             ) and d.reward_inner_id is not None:
                 mode_map = {
                     "角色": "角色",
@@ -660,6 +672,7 @@ class CellEditDialog(FluentCaptionDialog):
                     "姓名牌装饰(NamePlate)": "姓名牌装饰(NamePlate)",
                     "场景(Stage)": "场景(Stage)",
                     "系统语音(SystemVoice)": "系统语音(SystemVoice)",
+                    "地图图标(MapIcon)": "地图图标(MapIcon)",
                 }
                 self.reward_mode.setCurrentText(mode_map.get(d.reward_kind, "手填奖励ID"))
                 self.reward_name.setText(d.reward_name or "")
@@ -698,6 +711,8 @@ class CellEditDialog(FluentCaptionDialog):
             return self._stage_refs
         if rm == "系统语音(SystemVoice)":
             return self._sysvoice_refs
+        if rm == "地图图标(MapIcon)":
+            return self._mapicon_refs
         return []
 
     def _on_acus_pick_activated(self, index: int) -> None:
@@ -730,6 +745,7 @@ class CellEditDialog(FluentCaptionDialog):
             "姓名牌装饰(NamePlate)",
             "场景(Stage)",
             "系统语音(SystemVoice)",
+            "地图图标(MapIcon)",
         }
         self.reward_id.setEnabled(manual)
         self.reward_name.setEnabled(manual or typed)
@@ -769,6 +785,8 @@ class CellEditDialog(FluentCaptionDialog):
                 self.reward_inner_id.setPlaceholderText("填写场景 ID（StageData.name.id）")
             elif rk == "系统语音(SystemVoice)":
                 self.reward_inner_id.setPlaceholderText("填写系统语音 ID（SystemVoiceData.name.id）")
+            elif rk == "地图图标(MapIcon)":
+                self.reward_inner_id.setPlaceholderText("填写地图图标 ID（MapIconData.name.id）")
             else:
                 self.reward_inner_id.setPlaceholderText("手填模式下选「外部奖励」时无需填写此项")
         else:
@@ -784,6 +802,7 @@ class CellEditDialog(FluentCaptionDialog):
             "姓名牌装饰(NamePlate)",
             "场景(Stage)",
             "系统语音(SystemVoice)",
+            "地图图标(MapIcon)",
         }:
             self.warn_reward.setText(
                 "⚠ 手填奖励 ID 或关联对象若与游戏数据不一致可能导致异常；对象类奖励请优先用列表选择。"
@@ -859,6 +878,24 @@ class CellEditDialog(FluentCaptionDialog):
                 return
             out.reward_name = self.reward_name.text().strip() or ref.name
             if self._data.reward_kind == "系统语音(SystemVoice)" and prev_rid is not None:
+                out.reward_id = prev_rid
+            else:
+                out.reward_id = next_custom_reward_id(self._acus_root)
+        elif rm == "地图图标(MapIcon)":
+            out.reward_kind = "地图图标(MapIcon)"
+            out.reward_inner_id = self._resolve_inner_typed_only(self._mapicon_refs)
+            if out.reward_inner_id is None:
+                fly_critical(self, "错误", "请从列表选择地图图标")
+                return
+            ref = next(
+                (x for x in self._mapicon_refs if x.id == out.reward_inner_id),
+                None,
+            )
+            if ref is None:
+                fly_critical(self, "错误", "地图图标列表异常，请重试")
+                return
+            out.reward_name = self.reward_name.text().strip() or ref.name
+            if self._data.reward_kind == "地图图标(MapIcon)" and prev_rid is not None:
                 out.reward_id = prev_rid
             else:
                 out.reward_id = next_custom_reward_id(self._acus_root)
@@ -1272,6 +1309,7 @@ class RewardCreateDialog(FluentCaptionDialog):
             "乐曲解锁(Music)",
             "场景(Stage)",
             "系统语音(SystemVoice)",
+            "地图图标(MapIcon)",
         }
     )
 
@@ -1286,6 +1324,7 @@ class RewardCreateDialog(FluentCaptionDialog):
         nameplate_refs: list[RewardRef],
         stage_refs: list[RewardRef],
         sysvoice_refs: list[RewardRef],
+        mapicon_refs: list[RewardRef] | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent=parent)
@@ -1299,6 +1338,7 @@ class RewardCreateDialog(FluentCaptionDialog):
         self._nameplate_refs = nameplate_refs
         self._stage_refs = stage_refs
         self._sysvoice_refs = sysvoice_refs
+        self._mapicon_refs = mapicon_refs or []
         self._auto_name_enabled = True
         self._last_auto_name = ""
 
@@ -1318,6 +1358,7 @@ class RewardCreateDialog(FluentCaptionDialog):
                 "场景(Stage)",
                 "系统语音(SystemVoice)",
                 "乐曲解锁(Music)",
+                "地图图标(MapIcon)",
             ]
         )
         # 避免下拉只显示约 7 行导致「系统语音」被裁切，需滚动才看见
@@ -1390,6 +1431,8 @@ class RewardCreateDialog(FluentCaptionDialog):
             return self._stage_refs
         if kind == "系统语音(SystemVoice)":
             return self._sysvoice_refs
+        if kind == "地图图标(MapIcon)":
+            return self._mapicon_refs
         return []
 
     def _on_inner_pick_activated(self, index: int) -> None:
@@ -1451,6 +1494,8 @@ class RewardCreateDialog(FluentCaptionDialog):
             return f"stage+{target_name or 'Unknown'}"
         if kind == "系统语音(SystemVoice)":
             return f"sysvoice+{target_name or 'Unknown'}"
+        if kind == "地图图标(MapIcon)":
+            return f"mapicon+{target_name or 'Unknown'}"
         if kind == "功能票(Ticket)":
             return f"ticket+{target_name or 'Unknown'}"
         return f"reward+{target_name or 'Unknown'}"
@@ -1594,7 +1639,7 @@ def load_reward_refs(
                         if t == 1:
                             allow_a001 = True
                             break
-                        if t == 8:
+                        if t == 7:
                             allow_a001 = True
                             break
                         if t == 0:
@@ -1679,6 +1724,17 @@ def load_system_voice_refs(
         sid = it.name.id
         sstr = (it.name.str or "").strip() or f"SystemVoice{sid}"
         out.append(RewardRef(sid, sstr, ""))
+    return sorted(out, key=lambda x: x.id)
+
+
+def load_map_icon_refs(
+    acus_root: Path, idx: GameDataIndex | None = None
+) -> list[RewardRef]:
+    _ = idx
+    out = [
+        RewardRef(it.name.id, (it.name.str or "").strip() or f"MapIcon{it.name.id}", "")
+        for it in scan_map_icons(acus_root)
+    ]
     return sorted(out, key=lambda x: x.id)
 
 
@@ -1881,6 +1937,7 @@ def reward_dialog_bundle(
     list[RewardRef],
     list[RewardRef],
     list[RewardRef],
+    list[RewardRef],
     int,
 ]:
     return (
@@ -1890,6 +1947,7 @@ def reward_dialog_bundle(
         load_nameplate_refs(acus_root, game_index),
         _merged_stage_reward_refs(acus_root, game_index),
         load_system_voice_refs(acus_root, game_index),
+        load_map_icon_refs(acus_root, game_index),
         next_custom_reward_id(acus_root),
     )
 
@@ -1918,6 +1976,8 @@ def ensure_reward_xml(
     stage_str = "Invalid"
     system_voice_id = -1
     system_voice_str = "Invalid"
+    map_icon_id = -1
+    map_icon_str = "Invalid"
     if kind == "功能票(Ticket)":
         reward_type = 1
     elif kind == "角色":
@@ -1940,6 +2000,15 @@ def ensure_reward_xml(
         system_voice_id = inner if inner >= 0 else -1
         sv_raw = (cell.reward_name or "").strip()
         system_voice_str = sv_raw if sv_raw else (f"SystemVoice{system_voice_id}" if system_voice_id >= 0 else "Invalid")
+    elif kind == "地图图标(MapIcon)":
+        reward_type = 7
+        map_icon_id = inner if inner >= 0 else -1
+        mic_str = ""
+        for it in scan_map_icons(acus_root):
+            if it.name.id == map_icon_id:
+                mic_str = (it.name.str or "").strip()
+                break
+        map_icon_str = mic_str or (f"MapIcon{map_icon_id}" if map_icon_id >= 0 else "Invalid")
 
     xml = f"""<?xml version="1.0" encoding="utf-8"?>
 <RewardData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
@@ -1956,7 +2025,7 @@ def ensure_reward_xml(
         <skillSeed><skillSeedName><id>-1</id><str>Invalid</str><data /></skillSeedName><skillSeedCount>1</skillSeedCount></skillSeed>
         <namePlate><namePlateName><id>{nameplate_id}</id><str>{"Invalid" if nameplate_id==-1 else f"NamePlate{nameplate_id}"}</str><data /></namePlateName></namePlate>
         <music><musicName><id>{music_id}</id><str>{music_name}</str><data /></musicName></music>
-        <mapIcon><mapIconName><id>-1</id><str>Invalid</str><data /></mapIconName></mapIcon>
+        <mapIcon><mapIconName><id>{map_icon_id}</id><str>{map_icon_str}</str><data /></mapIconName></mapIcon>
         <systemVoice><systemVoiceName><id>{system_voice_id}</id><str>{system_voice_str}</str><data /></systemVoiceName></systemVoice>
         <avatarAccessory><avatarAccessoryName><id>-1</id><str>Invalid</str><data /></avatarAccessoryName></avatarAccessory>
         <frame><frameName><id>-1</id><str>Invalid</str><data /></frameName></frame>
@@ -2045,6 +2114,7 @@ class MapAddDialog(FluentCaptionDialog):
         self._acus_music_refs = load_music_refs(acus_root)
         self._stage_refs = _merged_stage_reward_refs(acus_root, game_index)
         self._sysvoice_refs = load_system_voice_refs(acus_root, game_index)
+        self._mapicon_refs = load_map_icon_refs(acus_root, game_index)
         self._dds_map_refs = _merged_dds_map_reward_refs(acus_root, game_index)
         self._page_area_slots: list[list[int | None]] = []
         self._chara_name_by_id = {x.id: x.name for x in self._chara_refs}
@@ -2052,6 +2122,7 @@ class MapAddDialog(FluentCaptionDialog):
         self._nameplate_name_by_id = {x.id: x.name for x in self._nameplate_refs}
         self._stage_name_by_id = {x.id: x.name for x in self._stage_refs}
         self._sysvoice_name_by_id = {x.id: x.name for x in self._sysvoice_refs}
+        self._mapicon_name_by_id = {x.id: x.name for x in self._mapicon_refs}
         self._music_name_by_id = {x.id: x.name for x in self._music_refs}
         # UI thumbs (只读展示用，不影响保存逻辑)
         self._static_ui_root = Path(__file__).resolve().parents[1] / "static" / "UI"
@@ -2068,6 +2139,8 @@ class MapAddDialog(FluentCaptionDialog):
         self._nameplate_img_path_by_id = self._scan_nameplate_image_paths(acus_root)
         self._stage_img_path_by_id = self._scan_stage_image_paths(acus_root)
         self._stage_pm_cache: dict[int, QPixmap] = {}
+        self._map_icon_img_path_by_id = MapAddDialog._merged_map_icon_paths(acus_root, game_index)
+        self._map_icon_pm_cache: dict[int, QPixmap] = {}
         self._sysvoice_pm_cache: dict[int, QPixmap] = {}
         self._area_cells: list[list[CellData]] = []
         self._area_ids: list[int] = []
@@ -2218,6 +2291,65 @@ class MapAddDialog(FluentCaptionDialog):
                 continue
         return out
 
+    @staticmethod
+    def _scan_map_icon_image_paths(acus_root: Path) -> dict[int, Path]:
+        """mapIcon/**/MapIcon.xml -> MapIcon id -> image/path 绝对路径。"""
+        out: dict[int, Path] = {}
+        paths: set[Path] = set()
+        for pat in ("mapIcon/**/MapIcon.xml", "mapIcon/**/Mapicon.xml"):
+            try:
+                for p in acus_root.glob(pat):
+                    paths.add(p)
+            except OSError:
+                continue
+        for p in sorted(paths):
+            try:
+                r = ET.parse(p).getroot()
+                iid = _safe_int(r.findtext("name/id") or "")
+                if iid is None:
+                    continue
+                img_rel = (r.findtext("image/path") or "").strip()
+                if not img_rel:
+                    img_rel = (r.findtext("ddsFile/path") or "").strip()
+                if not img_rel:
+                    continue
+                out[iid] = p.parent / img_rel
+            except Exception:
+                continue
+        return out
+
+    @staticmethod
+    def _merged_map_icon_paths(acus_root: Path, game_index: GameDataIndex | None) -> dict[int, Path]:
+        base = MapAddDialog._scan_map_icon_image_paths(acus_root)
+        if game_index is None:
+            return base
+        try:
+            gr = Path(game_index.game_root).expanduser().resolve(strict=False)
+        except OSError:
+            return base
+        if not gr.is_dir():
+            return base
+        for rel in game_index.roots_scanned:
+            try:
+                pack = (gr / rel).resolve(strict=False)
+            except OSError:
+                continue
+            if not pack.is_dir():
+                continue
+            sub = MapAddDialog._scan_map_icon_image_paths(pack)
+            for k, v in sub.items():
+                base.setdefault(k, v)
+        a001 = acus_root.parent / "A001"
+        if a001.is_dir():
+            try:
+                if a001.resolve() != acus_root.resolve():
+                    sub = MapAddDialog._scan_map_icon_image_paths(a001)
+                    for k, v in sub.items():
+                        base.setdefault(k, v)
+            except OSError:
+                pass
+        return base
+
     def _get_nameplate_pixmap(self, nid: int) -> QPixmap | None:
         if nid in self._nameplate_pm_cache:
             pm = self._nameplate_pm_cache.get(nid)
@@ -2311,6 +2443,31 @@ class MapAddDialog(FluentCaptionDialog):
             self._sysvoice_pm_cache[voice_id] = QPixmap()
             return None
         self._sysvoice_pm_cache[voice_id] = pm
+        return pm
+
+    def _get_map_icon_pixmap(self, icon_id: int) -> QPixmap | None:
+        if icon_id in self._map_icon_pm_cache:
+            pm = self._map_icon_pm_cache.get(icon_id)
+            return None if pm is None or pm.isNull() else pm
+        p = self._map_icon_img_path_by_id.get(icon_id)
+        if p is None or not p.is_file():
+            self._map_icon_pm_cache[icon_id] = QPixmap()
+            return None
+        try:
+            pm = dds_to_pixmap(
+                acus_root=self._acus_root,
+                compressonatorcli_path=self._tool,
+                dds_path=p,
+                max_w=220,
+                max_h=220,
+                restrict=True,
+            )
+        except Exception:
+            pm = None
+        if pm is None or pm.isNull():
+            self._map_icon_pm_cache[icon_id] = QPixmap()
+            return None
+        self._map_icon_pm_cache[icon_id] = pm
         return pm
 
     def _candidate_ddsmap_dds_files(self, dds_map_id: int) -> list[Path]:
@@ -2871,6 +3028,19 @@ class MapAddDialog(FluentCaptionDialog):
                             img_lbl.show()
                             thumb_shown = True
 
+                    elif c.reward_kind == "地图图标(MapIcon)" and c.reward_inner_id is not None:
+                        pm = self._get_map_icon_pixmap(c.reward_inner_id)
+                        if pm is not None and not pm.isNull():
+                            img_pm = pm.scaled(
+                                tile_size,
+                                img_h,
+                                Qt.AspectRatioMode.KeepAspectRatio,
+                                Qt.TransformationMode.SmoothTransformation,
+                            )
+                            img_lbl.setPixmap(img_pm)
+                            img_lbl.show()
+                            thumb_shown = True
+
                     if not thumb_shown:
                         # 如果该类型没有对应缩略图资源，则显示名称（优先 reward_name）。
                         name_txt = (c.reward_name or "").strip() or str(c.reward_inner_id or c.reward_id)
@@ -2966,6 +3136,8 @@ class MapAddDialog(FluentCaptionDialog):
             return self._stage_name_by_id.get(iid, "")
         if c.reward_kind == "系统语音(SystemVoice)":
             return self._sysvoice_name_by_id.get(iid, "")
+        if c.reward_kind == "地图图标(MapIcon)":
+            return self._mapicon_name_by_id.get(iid, "")
         return ""
 
     def _edit_cell(self, area_idx: int, cell_idx: int) -> None:
@@ -2978,6 +3150,7 @@ class MapAddDialog(FluentCaptionDialog):
             nameplate_refs=self._nameplate_refs,
             stage_refs=self._stage_refs,
             sysvoice_refs=self._sysvoice_refs,
+            mapicon_refs=self._mapicon_refs,
             music_refs=self._music_refs,
             data=d,
             game_index=self._game_index,
@@ -2996,6 +3169,7 @@ class MapAddDialog(FluentCaptionDialog):
             nameplate_refs=self._nameplate_refs,
             stage_refs=self._stage_refs,
             sysvoice_refs=self._sysvoice_refs,
+            mapicon_refs=self._mapicon_refs,
             music_refs=self._music_refs,
             data=d,
             game_index=self._game_index,
@@ -3588,6 +3762,7 @@ class MapAddDialog(FluentCaptionDialog):
                 nameplate_refs=self._nameplate_refs,
                 stage_refs=self._stage_refs,
                 sysvoice_refs=self._sysvoice_refs,
+                mapicon_refs=self._mapicon_refs,
                 parent=dlg,
             )
             if rd.exec() == QDialog.DialogCode.Accepted and rd.result_cell is not None:
