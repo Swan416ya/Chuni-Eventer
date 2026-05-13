@@ -118,6 +118,18 @@ class MapIconItem:
 
 
 @dataclass(frozen=True)
+class AvatarAccessoryItem:
+    """ACUS ``avatarAccessory/.../AvatarAccessory.xml`` 列表项。"""
+
+    xml_path: Path
+    name: IdStr
+    category: int
+    sort_name: str
+    image_path: str
+    texture_path: str
+
+
+@dataclass(frozen=True)
 class SystemVoiceItem:
     """ACUS ``systemVoice/systemVoiceNNNN/SystemVoice.xml`` 列表项。"""
 
@@ -423,6 +435,42 @@ def scan_map_icons(acus_root: Path) -> list[MapIconItem]:
             if not img:
                 img = (r.findtext("ddsFile/path") or "").strip()
             items.append(MapIconItem(xml_path=p, name=name, image_path=img))
+        except Exception:
+            continue
+    return sorted(items, key=lambda x: x.name.id)
+
+
+def scan_avatar_accessories(acus_root: Path) -> list[AvatarAccessoryItem]:
+    items: list[AvatarAccessoryItem] = []
+    paths: set[Path] = set()
+    for pat in ("avatarAccessory/**/AvatarAccessory.xml", "avatarAccessory/**/avatarAccessory.xml"):
+        try:
+            for p in iter_xml_files(acus_root, pat):
+                paths.add(p)
+        except OSError:
+            continue
+    for p in sorted(paths):
+        try:
+            r = ET.parse(p).getroot()
+            name = _get_idstr(r.find("name"))
+            if not name:
+                continue
+            cat = _int_or_none((r.findtext("category") or "").strip())
+            if cat is None:
+                continue
+            sort_name = (r.findtext("sortName") or "").strip()
+            img = (r.findtext("image/path") or "").strip()
+            tex = (r.findtext("texture/path") or "").strip()
+            items.append(
+                AvatarAccessoryItem(
+                    xml_path=p,
+                    name=name,
+                    category=cat,
+                    sort_name=sort_name,
+                    image_path=img,
+                    texture_path=tex,
+                )
+            )
         except Exception:
             continue
     return sorted(items, key=lambda x: x.name.id)

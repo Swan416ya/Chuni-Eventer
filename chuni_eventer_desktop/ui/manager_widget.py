@@ -59,6 +59,7 @@ from ..music_delete import execute_music_deletion, plan_music_deletion
 from ..map_export_bundle import export_map_bundle_to_zip
 from ..trophy_delete import execute_trophy_deletion, plan_trophy_deletion
 from ..acus_scan import (
+    AvatarAccessoryItem,
     CharaItem,
     DdsImageItem,
     EventItem,
@@ -73,6 +74,7 @@ from ..acus_scan import (
     StageItem,
     SystemVoiceItem,
     TrophyItem,
+    scan_avatar_accessories,
     scan_charas,
     scan_dds_images,
     scan_events,
@@ -108,6 +110,7 @@ _KIND_DEFS: tuple[tuple[str, str], ...] = (
     ("DDS 贴图", "DDSImage"),
     ("系统语音", "SystemVoice"),
     ("跑图小人", "MapIcon"),
+    ("企鹅装扮", "AvatarAccessory"),
 )
 
 
@@ -260,6 +263,7 @@ class ManagerWidget(QWidget):
         self._get_game_index = get_game_index or (lambda: None)
         self._get_game_root = get_game_root or (lambda: "")
         self._embedded = embedded
+        self._avatar_acc_category: int | None = None
 
         self.kind = FluentComboBox()
         self.kind.blockSignals(True)
@@ -429,11 +433,19 @@ class ManagerWidget(QWidget):
         """
         kind: Event / Map / Music / Chara / …（内部英文 key，与导航一致）
         """
+        if kind != "AvatarAccessory":
+            self._avatar_acc_category = None
         idx = self.kind.findData(kind)
         if idx >= 0 and idx != self.kind.currentIndex():
             self.kind.setCurrentIndex(idx)
         else:
             # still reload if same kind (e.g. external refresh)
+            self.reload()
+
+    def set_avatar_accessory_category(self, category: int | None) -> None:
+        """仅 kind=AvatarAccessory 时生效；None 表示不过滤 category。"""
+        self._avatar_acc_category = category
+        if self._kind_key() == "AvatarAccessory":
             self.reload()
 
     def _kind_key(self) -> str:
@@ -488,6 +500,8 @@ class ManagerWidget(QWidget):
             self.model.setHorizontalHeaderLabels(["ID", "名称", "CueFile(id)", "预览图", "来源(XML)"])
         elif k == "MapIcon":
             self.model.setHorizontalHeaderLabels(["ID", "名称", "贴图路径", "来源(XML)"])
+        elif k == "AvatarAccessory":
+            self.model.setHorizontalHeaderLabels(["ID", "名称", "category", "来源(XML)"])
         elif k == "Stage":
             self.model.setHorizontalHeaderLabels(["ID", "名称", "判定线", "预览图", "来源(XML)"])
         elif k == "Chara":
@@ -564,6 +578,14 @@ class ManagerWidget(QWidget):
             self._items = items
             for it in items:
                 self._append_mapicon_row(it)
+        elif k == "AvatarAccessory":
+            items = scan_avatar_accessories(self._acus_root)
+            self._items = []
+            for it in items:
+                if self._avatar_acc_category is not None and it.category != self._avatar_acc_category:
+                    continue
+                self._append_row(it.name.id, it.name.str, str(it.category), it.xml_path, it)
+                self._items.append(it)
         elif k == "Stage":
             items = scan_stages(self._acus_root)
             self._items = items
@@ -795,6 +817,16 @@ class ManagerWidget(QWidget):
                 ("贴图路径", img),
                 ("XML", self._rel_acus_path(it.xml_path)),
             ]
+        if isinstance(it, AvatarAccessoryItem):
+            return [
+                ("名称", it.name.str or "—"),
+                ("配件 ID", str(it.name.id)),
+                ("category", str(it.category)),
+                ("sortName", it.sort_name or "—"),
+                ("Icon 贴图", it.image_path.strip() or "—"),
+                ("Tex 贴图", it.texture_path.strip() or "—"),
+                ("XML", self._rel_acus_path(it.xml_path)),
+            ]
         return [("类型", type(it).__name__), ("摘要", str(it))]
 
     def _chara_attr_rows(self, it: CharaItem, meta: dict[str, str]) -> list[tuple[str, str]]:
@@ -829,6 +861,9 @@ class ManagerWidget(QWidget):
             p = it.xml_path.parent / it.preview_relpath.strip()
             return p if p.is_file() else None
         if isinstance(it, MapIconItem) and it.image_path.strip():
+            p = it.xml_path.parent / it.image_path.strip()
+            return p if p.is_file() else None
+        if isinstance(it, AvatarAccessoryItem) and it.image_path.strip():
             p = it.xml_path.parent / it.image_path.strip()
             return p if p.is_file() else None
         return None
@@ -1281,7 +1316,7 @@ class ManagerWidget(QWidget):
 
     def _on_table_context_menu(self, pos: QPoint) -> None:
         k = self._kind_key()
-        if k not in ("Chara", "Trophy", "Quest", "NamePlate", "Map"):
+        if k not in ("Chara", "Trophy", "Quest", "NamePlate", "Map", "AvatarAccessory"):
             return
         idx = self.table.indexAt(pos)
         if not idx.isValid():
@@ -1368,6 +1403,18 @@ class ManagerWidget(QWidget):
             )
             menu.addAction(act_del_np)
             menu.exec(gpos, ani=True, aniType=MenuAnimationType.DROP_DOWN)
+            return
+
+        if k == "AvatarAccessory":
+            if not isinstance(payload, AvatarAccessoryItem):
+                return
+            act_del_aa = Action(FIF.DELETE, "删除企鹅装扮…", self.table)
+            act_del_aa.triggered.connect(
+                lambda checked=False, p=payload: QTimer.singleShot(80, lambda: self._delete_avatar_accessory_item(p))
+            )
+            menu.addAction(act_del_aa)
+            menu.exec(gpos, ani=True, aniType=MenuAnimationType.DROP_DOWN)
+            return
 
     def _export_map_bundle_zip(self, it: MapItem) -> None:
         default_name = f"map{it.name.id:08d}_acus_bundle.zip"
@@ -1396,6 +1443,59 @@ class ManagerWidget(QWidget):
             "导出完成",
             f"已写入 {n} 个文件。\n包内为相对 ACUS 根的目录结构（如 map/、mapArea/、reward/、chara/ 等）。\n{outp}",
         )
+
+    def _delete_avatar_accessory_item(self, it: AvatarAccessoryItem) -> None:
+        acc_dir = it.xml_path.parent
+        if not acc_dir.is_dir() or not it.xml_path.is_file():
+            fly_message(
+                self.window(),
+                "无法删除",
+                f"未找到装扮目录或 AvatarAccessory.xml：\n{acc_dir}",
+            )
+            return
+        try:
+            acc_dir.resolve().relative_to((self._acus_root / "avatarAccessory").resolve())
+        except ValueError:
+            fly_message(
+                self.window(),
+                "无法删除",
+                "该条目路径不在 ACUS/avatarAccessory 下，已中止以防误删。",
+            )
+            return
+        nm = (it.name.str or "").strip() or "—"
+        body = (
+            f"将永久删除企鹅装扮 ID {it.name.id}（{nm}），category={it.category}，整目录：\n"
+            f"• {self._rel_acus_path(acc_dir)}\n\n"
+            "目录内 AvatarAccessory.xml 与 DDS 等将全部移除。此操作不可撤销，确定删除？"
+        )
+
+        def _on_confirm(ok: bool) -> None:
+            if not ok:
+                return
+            try:
+                shutil.rmtree(acc_dir)
+            except Exception as e:
+                fly_critical(self.window(), "删除失败", str(e))
+                return
+            fly_message_async(
+                self.window(),
+                "已删除",
+                f"已移除装扮 {it.name.id} 的目录。",
+                single_button=True,
+                window_modal=False,
+            )
+            self.reload()
+
+        def _ask_delete() -> None:
+            fly_question_async(
+                self.window(),
+                "删除企鹅装扮",
+                body,
+                on_result=_on_confirm,
+                window_modal=True,
+            )
+
+        QTimer.singleShot(120, _ask_delete)
 
     def _delete_trophy_item(self, it: TrophyItem, *, with_chara: bool) -> None:
         try:
@@ -1593,7 +1693,7 @@ class ManagerWidget(QWidget):
         if not proxy_index.isValid():
             return
         k = self._kind_key()
-        if k not in ("Map", "Music", "MapBonus", "MapIcon"):
+        if k not in ("Map", "Music", "MapBonus", "MapIcon", "AvatarAccessory"):
             return
         src_idx = self.proxy.mapToSource(proxy_index)
         item = self.model.item(src_idx.row(), 0)
@@ -1656,6 +1756,28 @@ class ManagerWidget(QWidget):
             )
             if dlg.exec() == QDialog.DialogCode.Accepted:
                 self.reload()
+            return
+        if k == "AvatarAccessory":
+            if not isinstance(payload, AvatarAccessoryItem):
+                return
+            if payload.category != 1:
+                fly_message(
+                    self.window(),
+                    "提示",
+                    "当前仅支持双击编辑 category=1（企鹅衣服）。其它槽位后续版本开放。",
+                )
+                return
+            from .avatar_wear_compose_dialog import AvatarWearComposeDialog
+
+            dlg = AvatarWearComposeDialog(
+                acus_root=self._acus_root,
+                tool_path=self._get_tool_path(),
+                edit_xml_path=payload.xml_path,
+                parent=self.window(),
+            )
+            if dlg.exec() == QDialog.DialogCode.Accepted:
+                self.reload()
+            return
 
     def _chara_master_xml(self, it: CharaItem) -> Path:
         p = chara_master_xml_path(self._acus_root, it.name.id)

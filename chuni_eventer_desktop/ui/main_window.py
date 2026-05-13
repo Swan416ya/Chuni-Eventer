@@ -7,6 +7,7 @@ from PyQt6.QtCore import QObject, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QProgressDialog, QStackedWidget, QVBoxLayout, QWidget
 
 from qfluentwidgets import (
+    BodyLabel,
     FluentIcon,
     MSFluentWindow,
     NavigationItemPosition,
@@ -53,6 +54,7 @@ from .fluent_dialogs import (
     safe_dismiss_modal_progress_dialog,
 )
 from .nav_icons import (
+    SVG_AVATAR,
     SVG_STAGE_BG,
     SVG_CHARA,
     SVG_MAP,
@@ -78,6 +80,17 @@ _OTHERS_ROUTE_KIND: dict[str, tuple[str, str]] = {
     "reward": ("Reward", "奖励"),
     "mapbonus": ("MapBonus", "加成"),
 }
+
+# 装扮分段 routeKey -> (是否已实现列表+编辑, category 1～7, 分段标题)
+_AVATAR_SEGMENTS: tuple[tuple[str, bool, int, str], ...] = (
+    ("acc_wear", True, 1, "企鹅衣服"),
+    ("acc_head", False, 2, "头部"),
+    ("acc_face", False, 3, "面部"),
+    ("acc_hand", False, 4, "手部"),
+    ("acc_leg", False, 5, "腿部"),
+    ("acc_back", False, 6, "背部"),
+    ("acc_extra", False, 7, "其它"),
+)
 
 
 def _scan_logger() -> logging.Logger:
@@ -165,6 +178,7 @@ class MainWindow(MSFluentWindow):
         self._cfg = AcusConfig.load()
         self._acus_root = ensure_acus_layout(game_root=self._cfg.game_root or None)
         self._in_others_mode = False
+        self._in_avatar_mode = False
 
         self._workspace = QWidget()
         self._workspace.setObjectName("acusWorkspace")
@@ -228,9 +242,34 @@ class MainWindow(MSFluentWindow):
         self._others_manager_layout.setContentsMargins(0, 0, 0, 0)
         ol.addWidget(self._others_manager_slot, stretch=1)
 
+        self._page_avatar = QWidget(self._workspace)
+        avl = QVBoxLayout(self._page_avatar)
+        avl.setContentsMargins(0, 8, 0, 0)
+        avl.setSpacing(8)
+        self._avatar_seg = SegmentedWidget(self._page_avatar)
+        for rk, _impl, _cat, label in _AVATAR_SEGMENTS:
+            self._avatar_seg.addItem(rk, label)
+        self._avatar_seg.currentItemChanged.connect(self._on_avatar_segment_changed)
+        avl.addWidget(self._avatar_seg)
+        self._avatar_stack = QStackedWidget(self._page_avatar)
+        self._avatar_manager_slot = QWidget(self._page_avatar)
+        self._avatar_manager_layout = QVBoxLayout(self._avatar_manager_slot)
+        self._avatar_manager_layout.setContentsMargins(0, 0, 0, 0)
+        self._avatar_placeholder = QWidget(self._page_avatar)
+        aph = QVBoxLayout(self._avatar_placeholder)
+        aph.setContentsMargins(0, 24, 0, 0)
+        ph = BodyLabel("敬请期待", self._avatar_placeholder)
+        ph.setTextColor("#6B7280", "#9CA3AF")
+        aph.addWidget(ph)
+        aph.addStretch(1)
+        self._avatar_stack.addWidget(self._avatar_manager_slot)
+        self._avatar_stack.addWidget(self._avatar_placeholder)
+        avl.addWidget(self._avatar_stack, stretch=1)
+
         self._content_stack = QStackedWidget(self._workspace)
         self._content_stack.addWidget(self._primary_body)
         self._content_stack.addWidget(self._page_others)
+        self._content_stack.addWidget(self._page_avatar)
         wlay.addWidget(self._content_stack, stretch=1)
 
         self.stackedWidget.addWidget(self._workspace)
@@ -239,6 +278,7 @@ class MainWindow(MSFluentWindow):
             ("nav_chara", nav_qicon(SVG_CHARA), "角色", "Chara", "角色"),
             ("nav_map", nav_qicon(SVG_MAP), "地图", "Map", "地图"),
             ("nav_music", nav_qicon(SVG_MUSIC), "歌曲", "Music", "歌曲"),
+            ("nav_avatar", nav_qicon(SVG_AVATAR), "装扮", "__Avatar__", "装扮"),
             ("nav_stage", nav_qicon(SVG_STAGE_BG), "背景", "Stage", "背景"),
             ("nav_trophy", nav_qicon(SVG_TROPHY), "称号", "Trophy", "称号"),
             ("nav_nameplate", nav_qicon(SVG_NAMEPLATE), "名牌", "NamePlate", "名牌"),
@@ -251,6 +291,15 @@ class MainWindow(MSFluentWindow):
                     icon=icon,
                     text=text,
                     onClick=lambda r=route_key: self._enter_others_mode(r),
+                    position=NavigationItemPosition.TOP,
+                )
+                continue
+            if kind == "__Avatar__":
+                self.navigationInterface.addItem(
+                    routeKey=route_key,
+                    icon=icon,
+                    text=text,
+                    onClick=lambda r=route_key: self._enter_avatar_mode(r),
                     position=NavigationItemPosition.TOP,
                 )
                 continue
@@ -421,6 +470,23 @@ class MainWindow(MSFluentWindow):
                 lay.removeWidget(self._manager)
         self._others_manager_layout.addWidget(self._manager, stretch=1)
 
+    def _mount_manager_avatar(self) -> None:
+        if self._manager.parentWidget() is self._avatar_manager_slot:
+            return
+        old = self._manager.parentWidget()
+        if old is not None:
+            lay = old.layout()
+            if lay is not None:
+                lay.removeWidget(self._manager)
+        self._avatar_manager_layout.addWidget(self._manager, stretch=1)
+
+    def _exit_avatar_mode(self) -> None:
+        if not self._in_avatar_mode:
+            return
+        self._in_avatar_mode = False
+        self._content_stack.setCurrentWidget(self._primary_body)
+        self._mount_manager_primary()
+
     def _exit_others_mode(self) -> None:
         if not self._in_others_mode:
             return
@@ -429,6 +495,7 @@ class MainWindow(MSFluentWindow):
         self._mount_manager_primary()
 
     def _enter_others_mode(self, route_key: str) -> None:
+        self._exit_avatar_mode()
         self.switchTo(self._workspace)
         self.navigationInterface.setCurrentItem(route_key)
         self._in_others_mode = True
@@ -443,6 +510,42 @@ class MainWindow(MSFluentWindow):
         kind, title = _OTHERS_ROUTE_KIND[rk]
         self._apply_category(kind, title)
 
+    def _enter_avatar_mode(self, route_key: str) -> None:
+        self._exit_others_mode()
+        self.switchTo(self._workspace)
+        self.navigationInterface.setCurrentItem(route_key)
+        self._in_avatar_mode = True
+        for i, (rk, *_rest) in enumerate(self._nav_specs):
+            if rk == route_key:
+                self._current_category_index = i
+                break
+        self._content_stack.setCurrentWidget(self._page_avatar)
+        self._mount_manager_avatar()
+        self._avatar_seg.blockSignals(True)
+        self._avatar_seg.setCurrentItem("acc_wear")
+        self._avatar_seg.blockSignals(False)
+        self._apply_avatar_segment(self._avatar_seg.currentRouteKey() or "acc_wear")
+
+    def _apply_avatar_segment(self, route_key: str) -> None:
+        meta = next((t for t in _AVATAR_SEGMENTS if t[0] == route_key), None)
+        if meta is None:
+            return
+        _rk, implemented, category, label = meta
+        self._search.setText("")
+        if implemented:
+            self._avatar_stack.setCurrentWidget(self._avatar_manager_slot)
+            self._apply_category("AvatarAccessory", label)
+            self._manager.set_avatar_accessory_category(category)
+        else:
+            self._avatar_stack.setCurrentWidget(self._avatar_placeholder)
+            self._title_lbl.setText(f"{label}（敬请期待）")
+            self._search.setPlaceholderText("该分类尚未开放…")
+
+    def _on_avatar_segment_changed(self, route_key: str) -> None:
+        if not self._in_avatar_mode:
+            return
+        self._apply_avatar_segment(route_key)
+
     def _on_others_segment_changed(self, route_key: str) -> None:
         if not self._in_others_mode:
             return
@@ -455,6 +558,7 @@ class MainWindow(MSFluentWindow):
     def _select_category(self, route_key: str, kind: str, title: str) -> None:
         self.switchTo(self._workspace)
         self.navigationInterface.setCurrentItem(route_key)
+        self._exit_avatar_mode()
         self._exit_others_mode()
         for i, (rk, *_rest) in enumerate(self._nav_specs):
             if rk == route_key:
@@ -478,12 +582,17 @@ class MainWindow(MSFluentWindow):
             "MapBonus": "搜索 MapBonus…",
             "MapIcon": "搜索跑图小人…",
             "SystemVoice": "搜索系统语音 ID、名称…",
+            "AvatarAccessory": "搜索企鹅装扮…",
         }
         self._search.setPlaceholderText(placeholders.get(kind, "搜索当前列表…"))
         self._game_music_browser_btn.setVisible(kind == "Music")
         self._manager.set_kind(kind)
 
     def _restore_current_category_header(self) -> None:
+        if self._in_avatar_mode:
+            rk = self._avatar_seg.currentRouteKey() or "acc_wear"
+            self._apply_avatar_segment(rk)
+            return
         if self._in_others_mode:
             rk = self._others_seg.currentRouteKey() or "mapicon"
             kind, title = _OTHERS_ROUTE_KIND.get(rk, ("MapIcon", "跑图小人"))
@@ -492,7 +601,7 @@ class MainWindow(MSFluentWindow):
         idx = self._current_category_index
         if 0 <= idx < len(self._nav_specs):
             _rk, _icon, _text, kind, title = self._nav_specs[idx]
-            if kind != "__Others__":
+            if kind not in ("__Others__", "__Avatar__"):
                 self._apply_category(kind, title)
 
     def _on_game_music_browser(self) -> None:
@@ -565,16 +674,47 @@ class MainWindow(MSFluentWindow):
 
     def _on_add(self) -> None:
         try:
-            if self._in_others_mode:
+            if self._in_avatar_mode:
+                rk = self._avatar_seg.currentRouteKey() or "acc_wear"
+                _scan_logger().info("ui_click_add avatar seg=%s", rk)
+            elif self._in_others_mode:
                 kind = self._manager._kind_key()
+                _scan_logger().info("ui_click_add kind=%s", kind)
             else:
                 idx = self._current_category_index
                 kind = self._nav_specs[idx][3] if 0 <= idx < len(self._nav_specs) else ""
-            _scan_logger().info("ui_click_add kind=%s", kind)
+                _scan_logger().info("ui_click_add kind=%s", kind)
         except Exception:
             _scan_logger().exception("ui_click_add_precheck_crash")
             fly_critical(self, "操作失败", "新增入口初始化失败，请提供日志。")
             return
+
+        if self._in_avatar_mode:
+            rk = self._avatar_seg.currentRouteKey() or "acc_wear"
+            if rk != "acc_wear":
+                fly_message(self, "敬请期待", "该装扮分类尚未实现，请先在「企鹅衣服」分段操作。")
+                return
+            tool = self._get_tool_path_or_none()
+            if tool is None and not quicktex_available():
+                fly_critical(
+                    self,
+                    "无法生成 DDS",
+                    "请任选其一：\n"
+                    "• 运行 pip install quicktex（推荐，可不装 compressonator）\n"
+                    "• 或在【设置】里配置 compressonatorcli 可执行文件路径",
+                )
+                return
+            from .avatar_wear_compose_dialog import AvatarWearComposeDialog
+
+            dlg = AvatarWearComposeDialog(
+                acus_root=self._acus_root,
+                tool_path=tool,
+                parent=self,
+            )
+            if dlg.exec() == dlg.DialogCode.Accepted:
+                self._on_refresh()
+            return
+
         if kind == "Reward":
             gi = self._resolve_game_index()
             (

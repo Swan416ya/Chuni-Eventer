@@ -67,7 +67,7 @@ def _preview_frame_style() -> str:
 class SavePatchDialog(FluentCaptionDialog):
     """
     上传 ALL.Net 导出存档 JSON，编辑 userData 中装备相关字段（名牌、主/副称号、系统语音、
-    MapIcon、舞台、企鹅等），另存为新 JSON。
+    MapIcon、背景（Stage）、企鹅等），另存为新 JSON。
     """
 
     def __init__(self, *, acus_root: Path, get_tool_path, parent=None) -> None:
@@ -128,7 +128,7 @@ class SavePatchDialog(FluentCaptionDialog):
         tr_lay.setSpacing(10)
         self.tr_current_ids_label = CaptionLabel("当前存档称号 ID：主 - / 副1 - / 副2 -", self)
         self.tr_limit_hint = BodyLabel(
-            "提示：本工具仅离线修改导出 JSON。若目标环境校验持有物，请自行保证账号已解锁对应称号/语音/跑图小人/舞台等资源。",
+            "提示：本工具仅离线修改导出 JSON。若目标环境校验持有物，请自行保证账号已解锁对应称号/语音/跑图小人/背景等资源。",
             self,
         )
         self.tr_limit_hint.setWordWrap(True)
@@ -202,17 +202,17 @@ class SavePatchDialog(FluentCaptionDialog):
         self.mi_combo.currentTextChanged.connect(lambda _t: self._on_mi_changed())
         self.tabs.addTab(mi_page, "跑图小人")
 
-        # --- 舞台 ---
+        # --- 背景（userData.stageId）---
         st_page = QWidget()
         st_lay = QVBoxLayout(st_page)
         st_lay.setContentsMargins(8, 8, 8, 8)
         st_lay.setSpacing(10)
-        self.st_current_id_label = CaptionLabel("当前存档 stageId：-", self)
+        self.st_current_id_label = CaptionLabel("当前存档背景 stageId：-", self)
         self.st_combo = EditableComboBox(self)
         self.st_combo.setMaxVisibleItems(30)
         self._fill_id_scan_combo(self.st_combo, self._stages)
         st_form = QFormLayout()
-        st_form.addRow("舞台背景", self.st_combo)
+        st_form.addRow("背景", self.st_combo)
         st_lay.addWidget(self.st_current_id_label)
         st_lay.addLayout(st_form)
         self.st_preview = QLabel("预览", self)
@@ -222,7 +222,7 @@ class SavePatchDialog(FluentCaptionDialog):
         st_lay.addWidget(self.st_preview)
         self.st_combo.currentIndexChanged.connect(self._on_st_changed)
         self.st_combo.currentTextChanged.connect(lambda _t: self._on_st_changed())
-        self.tabs.addTab(st_page, "舞台")
+        self.tabs.addTab(st_page, "背景")
 
         # --- 企鹅 ---
         pg_page = QWidget()
@@ -263,7 +263,7 @@ class SavePatchDialog(FluentCaptionDialog):
         btns.addWidget(apply_btn)
 
         hint = BodyLabel(
-            "另存为会写入：名牌、主/副称号、系统语音 voiceId、mapIconId、stageId、企鹅数量（userItemList）。"
+            "另存为会写入：名牌、主/副称号、系统语音 voiceId、mapIconId、背景 stageId、企鹅数量（userItemList）。"
             " 其它字段不动；原文件不会被覆盖。"
             " 若目标服校验持有物，请自行保证资源已解锁。",
             self,
@@ -397,7 +397,7 @@ class SavePatchDialog(FluentCaptionDialog):
             f"当前存档 mapIconId：{mid if isinstance(mid, int) else '-'}"
         )
         self.st_current_id_label.setText(
-            f"当前存档 stageId：{sid if isinstance(sid, int) else '-'}"
+            f"当前存档背景 stageId：{sid if isinstance(sid, int) else '-'}"
         )
 
     @staticmethod
@@ -540,7 +540,7 @@ class SavePatchDialog(FluentCaptionDialog):
             return
         stage_id = self._scan_slot_id(self.st_combo)
         if stage_id is None:
-            fly_warning(self, "提示", "请选择舞台，或在下拉框里输入 stageId（整数）")
+            fly_warning(self, "提示", "请选择背景，或在下拉框里输入 stageId（整数）")
             return
 
         set_equipped_nameplate(self._data, np_id)
