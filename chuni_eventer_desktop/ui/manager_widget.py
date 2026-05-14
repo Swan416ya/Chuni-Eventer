@@ -1760,23 +1760,35 @@ class ManagerWidget(QWidget):
         if k == "AvatarAccessory":
             if not isinstance(payload, AvatarAccessoryItem):
                 return
-            if payload.category != 1:
-                fly_message(
-                    self.window(),
-                    "提示",
-                    "当前仅支持双击编辑 category=1（企鹅衣服）。其它槽位后续版本开放。",
-                )
-                return
-            from .avatar_wear_compose_dialog import AvatarWearComposeDialog
+            if payload.category == 1:
+                from .avatar_wear_compose_dialog import AvatarWearComposeDialog
 
-            dlg = AvatarWearComposeDialog(
-                acus_root=self._acus_root,
-                tool_path=self._get_tool_path(),
-                edit_xml_path=payload.xml_path,
-                parent=self.window(),
+                dlg = AvatarWearComposeDialog(
+                    acus_root=self._acus_root,
+                    tool_path=self._get_tool_path(),
+                    edit_xml_path=payload.xml_path,
+                    parent=self.window(),
+                )
+                if dlg.exec() == QDialog.DialogCode.Accepted:
+                    self.reload()
+                return
+            if payload.category == 2:
+                from .avatar_hat_compose_dialog import AvatarHatComposeDialog
+
+                dlg = AvatarHatComposeDialog(
+                    acus_root=self._acus_root,
+                    tool_path=self._get_tool_path(),
+                    edit_xml_path=payload.xml_path,
+                    parent=self.window(),
+                )
+                if dlg.exec() == QDialog.DialogCode.Accepted:
+                    self.reload()
+                return
+            fly_message(
+                self.window(),
+                "提示",
+                "当前仅支持双击编辑 category=1（衣服）与 category=2（头部帽子）。其它槽位后续版本开放。",
             )
-            if dlg.exec() == QDialog.DialogCode.Accepted:
-                self.reload()
             return
 
     def _chara_master_xml(self, it: CharaItem) -> Path:

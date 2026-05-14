@@ -97,16 +97,17 @@ def _set_idstr(parent: ET.Element, val_id: int, val_str: str) -> None:
         data_el.text = ""
 
 
-def write_avatar_accessory_wear_xml(
+def write_avatar_accessory_xml(
     *,
     out_dir: Path,
     accessory_id: int,
     name_str: str,
     icon_basename: str,
     tex_basename: str,
+    category: int,
     preserve_from: Path | None,
 ) -> Path:
-    """写入 category=1 企鹅衣服 AvatarAccessory.xml。"""
+    """写入 AvatarAccessory.xml（category 由调用方指定，如 1 衣服 / 2 头部帽子）。"""
     sort_key = (name_str[:1] if name_str.strip() else "?").strip() or "?"
     net_id, net_str = NET_OPEN_ID, NET_OPEN_STR
     disable_flag = "false"
@@ -136,7 +137,7 @@ def write_avatar_accessory_wear_xml(
     nm = ET.SubElement(root, "name")
     _set_idstr(nm, accessory_id, name_str)
     ET.SubElement(root, "sortName").text = sort_key
-    ET.SubElement(root, "category").text = "1"
+    ET.SubElement(root, "category").text = str(int(category))
     img = ET.SubElement(root, "image")
     ET.SubElement(img, "path").text = icon_basename
     tx = ET.SubElement(root, "texture")
@@ -150,6 +151,27 @@ def write_avatar_accessory_wear_xml(
     return xml_path
 
 
+def write_avatar_accessory_wear_xml(
+    *,
+    out_dir: Path,
+    accessory_id: int,
+    name_str: str,
+    icon_basename: str,
+    tex_basename: str,
+    preserve_from: Path | None,
+) -> Path:
+    """写入 category=1 企鹅衣服 AvatarAccessory.xml（兼容旧名）。"""
+    return write_avatar_accessory_xml(
+        out_dir=out_dir,
+        accessory_id=accessory_id,
+        name_str=name_str,
+        icon_basename=icon_basename,
+        tex_basename=tex_basename,
+        category=1,
+        preserve_from=preserve_from,
+    )
+
+
 def _safe_int(text: str) -> int | None:
     try:
         return int(text.strip())
@@ -158,12 +180,22 @@ def _safe_int(text: str) -> int | None:
 
 
 class PenguinWearEditorWidget(QWidget):
-    """1024 逻辑画布：预览为 Body + 衣服 + Hand；导出 Tex 仅取用户衣服图层（透明底）。"""
+    """1024 逻辑画布：预览为 Body + 用户贴图 + Hand；绿框为导出裁剪区；导出 Tex 仅用户贴图层（透明底）。"""
 
     changed = pyqtSignal()
 
-    def __init__(self, *, body_path: Path, hand_path: Path, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        body_path: Path,
+        hand_path: Path,
+        crop: tuple[int, int, int, int] | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
+        self._crop_x, self._crop_y, self._crop_w, self._crop_h = (
+            crop if crop is not None else (CROP_X, CROP_Y, CROP_W, CROP_H)
+        )
         self.setMinimumSize(400, 400)
         self.setMouseTracking(True)
         self._body = QPixmap(str(body_path))
@@ -189,6 +221,10 @@ class PenguinWearEditorWidget(QWidget):
         self._hand_opacity = 1.0
         self._dragging = False
         self._drag_last = QPoint()
+
+    @property
+    def crop_rect(self) -> tuple[int, int, int, int]:
+        return (self._crop_x, self._crop_y, self._crop_w, self._crop_h)
 
     def set_cloth_pixmap(self, pm: QPixmap | None) -> None:
         self._cloth = pm if pm is not None and not pm.isNull() else None
@@ -237,7 +273,7 @@ class PenguinWearEditorWidget(QWidget):
         p.setOpacity(1.0)
         p.setPen(QPen(QColor(56, 189, 248, 180), 2))
         p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawRect(CROP_X, CROP_Y, CROP_W, CROP_H)
+        p.drawRect(self._crop_x, self._crop_y, self._crop_w, self._crop_h)
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -475,7 +511,8 @@ class AvatarWearComposeDialog(FluentCaptionDialog):
 
         try:
             full = self._editor.render_cloth_layer_1024()
-            cropped = full.copy(CROP_X, CROP_Y, CROP_W, CROP_H)
+            cx, cy, cw, ch = self._editor.crop_rect
+            cropped = full.copy(cx, cy, cw, ch)
             tex_final = cropped.scaled(
                 TEX_W,
                 TEX_H,
@@ -527,12 +564,13 @@ class AvatarWearComposeDialog(FluentCaptionDialog):
                 if not ok:
                     raise DdsToolError(err or "DDS 编码失败")
 
-            write_avatar_accessory_wear_xml(
+            write_avatar_accessory_xml(
                 out_dir=folder,
                 accessory_id=aid,
                 name_str=name,
                 icon_basename=icon_bn,
                 tex_basename=tex_bn,
+                category=1,
                 preserve_from=self._edit_xml,
             )
             self.accept()

@@ -26,9 +26,18 @@
 | `UGC与桥接/` | UGC 管线、Penguin 桥接、外部参考索引 |
 | `活动与玩法机制/` | Event、Map、Stage、mapBonus 等 |
 | `角色与元数据/` | Chara、解锁挑战、作品字段等 |
-| `资源与打包/` | A001、DDS、StageAFB、打包结构 |
+| `资源与打包/` | A001、DDS、StageAFB、打包结构（**细分见下节**） |
 | `接口与依赖/` | Swan API、PJSK 依赖等 |
 | `使用与配置指南.md` | 安装、首次启动、配置（根下单篇） |
+
+### `资源与打包/` 文档一览
+
+| 文档 | 说明 |
+|------|------|
+| [资源与打包/CHUNITHM_Stage_AFB格式与高级场景实现说明.md](资源与打包/CHUNITHM_Stage_AFB格式与高级场景实现说明.md) | Stage `afb` 内 DDS 分块、`mua` 提取/替换逻辑与高级场景实现路径（**总览**） |
+| [资源与打包/PenguinTools图片转StageAFB实现解析.md](资源与打包/PenguinTools图片转StageAFB实现解析.md) | PenguinTools → `mua convert_stage` 调用链 |
+| [资源与打包/PenguinTools图片转DDS实现解析.md](资源与打包/PenguinTools图片转DDS实现解析.md) | 封面等图片转 DDS 与 `mua` 关系 |
+| [资源与打包/A001更新包文件结构说明.md](资源与打包/A001更新包文件结构说明.md) | A001 包结构 |
 
 ---
 

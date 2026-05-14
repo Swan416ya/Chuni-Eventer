@@ -81,15 +81,14 @@ _OTHERS_ROUTE_KIND: dict[str, tuple[str, str]] = {
     "mapbonus": ("MapBonus", "加成"),
 }
 
-# 装扮分段 routeKey -> (是否已实现列表+编辑, category 1～7, 分段标题)
+# 装扮分段 routeKey -> (是否已实现列表+编辑, category 1～6, 分段标题)
 _AVATAR_SEGMENTS: tuple[tuple[str, bool, int, str], ...] = (
-    ("acc_wear", True, 1, "企鹅衣服"),
-    ("acc_head", False, 2, "头部"),
+    ("acc_wear", True, 1, "衣服"),
+    ("acc_head", True, 2, "头部"),
     ("acc_face", False, 3, "面部"),
     ("acc_hand", False, 4, "手部"),
     ("acc_leg", False, 5, "腿部"),
     ("acc_back", False, 6, "背部"),
-    ("acc_extra", False, 7, "其它"),
 )
 
 
@@ -534,7 +533,7 @@ class MainWindow(MSFluentWindow):
         self._search.setText("")
         if implemented:
             self._avatar_stack.setCurrentWidget(self._avatar_manager_slot)
-            self._apply_category("AvatarAccessory", label)
+            self._apply_category("AvatarAccessory", "装扮")
             self._manager.set_avatar_accessory_category(category)
         else:
             self._avatar_stack.setCurrentWidget(self._avatar_placeholder)
@@ -691,8 +690,8 @@ class MainWindow(MSFluentWindow):
 
         if self._in_avatar_mode:
             rk = self._avatar_seg.currentRouteKey() or "acc_wear"
-            if rk != "acc_wear":
-                fly_message(self, "敬请期待", "该装扮分类尚未实现，请先在「企鹅衣服」分段操作。")
+            if rk not in ("acc_wear", "acc_head"):
+                fly_message(self, "敬请期待", "该装扮分类尚未实现，请先在「衣服」或「头部」分段操作。")
                 return
             tool = self._get_tool_path_or_none()
             if tool is None and not quicktex_available():
@@ -704,13 +703,21 @@ class MainWindow(MSFluentWindow):
                     "• 或在【设置】里配置 compressonatorcli 可执行文件路径",
                 )
                 return
+            from .avatar_hat_compose_dialog import AvatarHatComposeDialog
             from .avatar_wear_compose_dialog import AvatarWearComposeDialog
 
-            dlg = AvatarWearComposeDialog(
-                acus_root=self._acus_root,
-                tool_path=tool,
-                parent=self,
-            )
+            if rk == "acc_wear":
+                dlg = AvatarWearComposeDialog(
+                    acus_root=self._acus_root,
+                    tool_path=tool,
+                    parent=self,
+                )
+            else:
+                dlg = AvatarHatComposeDialog(
+                    acus_root=self._acus_root,
+                    tool_path=tool,
+                    parent=self,
+                )
             if dlg.exec() == dlg.DialogCode.Accepted:
                 self._on_refresh()
             return
