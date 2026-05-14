@@ -81,14 +81,13 @@ _OTHERS_ROUTE_KIND: dict[str, tuple[str, str]] = {
     "mapbonus": ("MapBonus", "加成"),
 }
 
-# 装扮分段 routeKey -> (是否已实现列表+编辑, category 1～6, 分段标题)
+# 装扮分段 routeKey -> (是否已实现列表+编辑, category 1～9, 分段标题)
+# 手部与官机一致为 category=5。腿部/背部等后续再做时可在此追加分段。
 _AVATAR_SEGMENTS: tuple[tuple[str, bool, int, str], ...] = (
     ("acc_wear", True, 1, "衣服"),
-    ("acc_head", True, 2, "头部"),
-    ("acc_face", False, 3, "面部"),
-    ("acc_hand", False, 4, "手部"),
-    ("acc_leg", False, 5, "腿部"),
-    ("acc_back", False, 6, "背部"),
+    ("acc_head", True, 2, "帽子"),
+    ("acc_face", True, 3, "面具"),
+    ("acc_hand", True, 5, "手部"),
 )
 
 
@@ -690,8 +689,12 @@ class MainWindow(MSFluentWindow):
 
         if self._in_avatar_mode:
             rk = self._avatar_seg.currentRouteKey() or "acc_wear"
-            if rk not in ("acc_wear", "acc_head"):
-                fly_message(self, "敬请期待", "该装扮分类尚未实现，请先在「衣服」或「头部」分段操作。")
+            if rk not in ("acc_wear", "acc_head", "acc_face", "acc_hand"):
+                fly_message(
+                    self,
+                    "敬请期待",
+                    "该装扮分类尚未实现，请先在「衣服」「帽子」「面具」或「手部」分段操作。",
+                )
                 return
             tool = self._get_tool_path_or_none()
             if tool is None and not quicktex_available():
@@ -703,7 +706,9 @@ class MainWindow(MSFluentWindow):
                     "• 或在【设置】里配置 compressonatorcli 可执行文件路径",
                 )
                 return
+            from .avatar_hand_compose_dialog import AvatarHandComposeDialog
             from .avatar_hat_compose_dialog import AvatarHatComposeDialog
+            from .avatar_mask_compose_dialog import AvatarMaskComposeDialog
             from .avatar_wear_compose_dialog import AvatarWearComposeDialog
 
             if rk == "acc_wear":
@@ -712,8 +717,20 @@ class MainWindow(MSFluentWindow):
                     tool_path=tool,
                     parent=self,
                 )
-            else:
+            elif rk == "acc_head":
                 dlg = AvatarHatComposeDialog(
+                    acus_root=self._acus_root,
+                    tool_path=tool,
+                    parent=self,
+                )
+            elif rk == "acc_face":
+                dlg = AvatarMaskComposeDialog(
+                    acus_root=self._acus_root,
+                    tool_path=tool,
+                    parent=self,
+                )
+            else:
+                dlg = AvatarHandComposeDialog(
                     acus_root=self._acus_root,
                     tool_path=tool,
                     parent=self,

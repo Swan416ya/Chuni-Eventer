@@ -29,7 +29,7 @@
 |---------------|--------|------------|
 | `nav_chara` ~ `nav_nameplate` | 角色 / 地图 / 歌曲 / 背景 / 称号 / 名牌 | `ManagerWidget` 随 `kind` 切换内容与过滤器 |
 | `nav_others` | 其他 | `QStackedWidget` 第二页 + 顶部分段，嵌入同一 `ManagerWidget` |
-| `nav_avatar` | 装扮 | `QStackedWidget` 第三页 `_page_avatar`，顶栏 `SegmentedWidget` 对应装扮 `category` 1～6；「衣服」「头部」分段挂载 `ManagerWidget`（`AvatarAccessory` + category 过滤）并支持新增/编辑，其余分段占位「敬请期待」 |
+| `nav_avatar` | 装扮 | `QStackedWidget` 第三页 `_page_avatar`；「衣服」「帽子」「面具」等分段挂载 `ManagerWidget`（`AvatarAccessory` + category），其余分段「敬请期待」 |
 | `nav_save_patch` | 存档编辑器 | 打开 `SavePatchDialog` |
 | `nav_settings` | 设置 | 打开 `SettingsDialog` |
 
@@ -96,6 +96,7 @@
 | `pjsk_sus_download_dialog.py` | `FluentCaptionDialog` | `CardWidget`、`BodyLabel`、`LineEdit`、`PushButton` / `PrimaryPushButton`；`fluent_caption_content_margins`；`fly_*` | `QTableWidget` + `apply_fluent_sheet_table`、`QProgressBar` |
 | `pjsk_vocal_pick_dialog.py` | `FluentCaptionDialog` | `BodyLabel`、`PushButton` / `PrimaryPushButton`；`fluent_caption_content_margins` | `QListWidget` |
 | `sus_c2s_debug_dialog.py` | `FluentCaptionDialog`（非模态调试窗） | `BodyLabel`、`CardWidget`、`LineEdit`、`PushButton` / `PrimaryPushButton`；`fluent_caption_content_margins`；`fly_*` | `QPlainTextEdit`、`QFileDialog` |
+| `avatar_mask_compose_dialog.py` | `FluentCaptionDialog` | 同 `avatar_wear` 壳层 | `PenguinWearEditorWidget`；`Icon_template/3.png` |
 | `avatar_hat_compose_dialog.py` | `FluentCaptionDialog` | 同 `avatar_wear` 壳层组件 | `PenguinWearEditorWidget`（帽子裁剪区）；`Icon_template/2.png` |
 | `avatar_wear_compose_dialog.py` | `FluentCaptionDialog` | `CardWidget`、`BodyLabel`、`LineEdit`、`PushButton` / `PrimaryPushButton`、`QSlider`；`fluent_caption_content_margins`；`fly_critical` | `QFormLayout`、`QFileDialog`；企鹅装扮 1024 合成画布（`PenguinWearEditorWidget`） |
 | `index_progress.py` | 进度 | 无 | `QProgressDialog` |

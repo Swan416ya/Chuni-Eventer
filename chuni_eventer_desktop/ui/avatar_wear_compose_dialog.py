@@ -44,7 +44,7 @@ NET_OPEN_ID = 2800
 NET_OPEN_STR = "v2_45 00_0"
 
 # 自制企鹅装扮 ID：>70000000；首位 7、第二位为 XML category（1～9），其后 6 位递增。
-# 例：衣服 category=1 → 71000000～71999999；目录名为 ``avatarAccessory`` + ``{id:08d}``（与官方一致）。
+# 例：衣服 category=1 → 71000000～71999999；手部 category=5 → 75000000～75999999；目录名为 ``avatarAccessory`` + ``{id:08d}``（与官方一致）。
 _AVATAR_CUSTOM_ROOT = 70_000_000
 
 
@@ -242,6 +242,22 @@ class PenguinWearEditorWidget(QWidget):
         self._hand_opacity = max(0.0, min(1.0, float(alpha)))
         self.update()
 
+    @property
+    def cloth_zoom(self) -> float:
+        return self._zoom
+
+    def set_cloth_zoom(self, z: float) -> None:
+        z = max(0.05, min(12.0, float(z)))
+        if abs(self._zoom - z) < 1e-9:
+            return
+        self._zoom = z
+        self.update()
+        self.changed.emit()
+
+    @property
+    def has_cloth(self) -> bool:
+        return self._cloth is not None
+
     def _view_scale(self) -> tuple[float, float, float]:
         w, h = float(max(1, self.width())), float(max(1, self.height()))
         sc = min(w, h) / float(CANVAS)
@@ -305,9 +321,8 @@ class PenguinWearEditorWidget(QWidget):
         if d == 0:
             return
         fac = 1.08 if d > 0 else 1.0 / 1.08
-        self._zoom = max(0.05, min(12.0, self._zoom * fac))
-        self.update()
-        self.changed.emit()
+        self.set_cloth_zoom(self._zoom * fac)
+        event.accept()
 
     def render_cloth_layer_1024(self) -> QImage:
         """导出 Tex 用：全透明 1024 画布 + 仅用户衣服图层（与预览中衣服平移/缩放一致，不含 Body/手）。"""
@@ -391,6 +406,13 @@ class AvatarWearComposeDialog(FluentCaptionDialog):
         op_row.addWidget(self._opacity_slider, stretch=1)
         self._opacity_slider.valueChanged.connect(self._on_opacity)
 
+        self._cloth_zoom_slider = QSlider(Qt.Orientation.Horizontal, self)
+        self._cloth_zoom_slider.setRange(5, 1200)
+        self._cloth_zoom_slider.setEnabled(False)
+        self._cloth_zoom_slider.setToolTip("上传图缩放（也可用鼠标滚轮）")
+        self._cloth_zoom_slider.valueChanged.connect(self._on_cloth_zoom_slider)
+        self._editor.changed.connect(self._sync_cloth_zoom_slider)
+
         card = CardWidget(self)
         cl = QVBoxLayout(card)
         cl.setContentsMargins(12, 12, 12, 12)
@@ -402,6 +424,10 @@ class AvatarWearComposeDialog(FluentCaptionDialog):
         cl.addWidget(hint)
         cl.addWidget(pick)
         cl.addLayout(op_row)
+        zoom_row = QHBoxLayout()
+        zoom_row.addWidget(BodyLabel("图片缩放", self))
+        zoom_row.addWidget(self._cloth_zoom_slider, stretch=1)
+        cl.addLayout(zoom_row)
         cl.addWidget(self._editor, stretch=1)
 
         ok = PrimaryPushButton("生成并写入 ACUS", self)
@@ -419,8 +445,24 @@ class AvatarWearComposeDialog(FluentCaptionDialog):
         root.addWidget(card, stretch=1)
         root.addLayout(btns)
 
+        self._sync_cloth_zoom_slider()
+
     def _on_opacity(self, v: int) -> None:
         self._editor.set_hand_opacity(v / 100.0)
+
+    def _on_cloth_zoom_slider(self, v: int) -> None:
+        self._editor.set_cloth_zoom(max(0.05, min(12.0, v / 100.0)))
+
+    def _sync_cloth_zoom_slider(self) -> None:
+        if not self._editor.has_cloth:
+            self._cloth_zoom_slider.setEnabled(False)
+            return
+        self._cloth_zoom_slider.setEnabled(True)
+        v = int(round(self._editor.cloth_zoom * 100))
+        v = max(self._cloth_zoom_slider.minimum(), min(self._cloth_zoom_slider.maximum(), v))
+        self._cloth_zoom_slider.blockSignals(True)
+        self._cloth_zoom_slider.setValue(v)
+        self._cloth_zoom_slider.blockSignals(False)
 
     def _load_edit_state(self) -> None:
         if self._edit_xml is None or not self._edit_xml.is_file():
@@ -467,6 +509,7 @@ class AvatarWearComposeDialog(FluentCaptionDialog):
             fly_critical(self, "错误", "无法读取该图片")
             return
         self._editor.set_cloth_pixmap(pm)
+        self._sync_cloth_zoom_slider()
 
     def _run(self) -> None:
         if self._tool is None and not quicktex_available():
@@ -494,7 +537,7 @@ class AvatarWearComposeDialog(FluentCaptionDialog):
                 fly_critical(self, "错误", f"ID {aid} 已被其它装扮占用，请更换或改用建议值。")
                 return
         name = self.name_edit.text().strip() or f"wear{aid}"
-        if self._editor._cloth is None:
+        if not self._editor.has_cloth:
             fly_critical(self, "错误", "请先选择衣服图片")
             return
 

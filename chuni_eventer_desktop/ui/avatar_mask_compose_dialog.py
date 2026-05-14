@@ -1,4 +1,4 @@
-"""企鹅帽子（AvatarAccessory category=2）：1024 对齐编辑、Tex/Icon DDS 与 XML。"""
+"""企鹅面具（AvatarAccessory category=3）：1024 对齐编辑、Tex/Icon DDS 与 XML。"""
 
 from __future__ import annotations
 
@@ -29,29 +29,29 @@ from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_m
 from .fluent_dialogs import fly_critical
 from .name_glyph_preview import wrap_name_input_with_preview
 
-# 与衣服相同 1024 画布；裁剪 (186,4)+(660×496)；Tex 400×300；Icon 上叠 200×150，左上角 (30,52)，模板 2.png
-HAT_CROP_X = 186
-HAT_CROP_Y = 4
-HAT_CROP_W = 660
-HAT_CROP_H = 496
-HAT_TEX_W = 400
-HAT_TEX_H = 300
-ICON_HAT_X = 30
-ICON_HAT_Y = 52
-ICON_HAT_W = 200
-ICON_HAT_H = 150
-HAT_CATEGORY = 2
+# 裁剪 (337,227)+(341×306)；Tex 232×208；Icon 模板 3.png 上叠 183×164，左上角 (39,57)
+MASK_CROP_X = 337
+MASK_CROP_Y = 227
+MASK_CROP_W = 341
+MASK_CROP_H = 306
+MASK_TEX_W = 232
+MASK_TEX_H = 208
+ICON_MASK_X = 39
+ICON_MASK_Y = 57
+ICON_MASK_W = 183
+ICON_MASK_H = 164
+MASK_CATEGORY = 3
 
-_HAT_CROP = (HAT_CROP_X, HAT_CROP_Y, HAT_CROP_W, HAT_CROP_H)
-
-
-def suggest_next_avatar_hat_id(acus_root: Path) -> int:
-    """自制帽子（category=2）下一个建议 ID：72000000 起。"""
-    return suggest_next_avatar_accessory_id(acus_root, HAT_CATEGORY)
+_MASK_CROP = (MASK_CROP_X, MASK_CROP_Y, MASK_CROP_W, MASK_CROP_H)
 
 
-class AvatarHatComposeDialog(FluentCaptionDialog):
-    """新增/编辑企鹅帽子（category=2）。"""
+def suggest_next_avatar_mask_id(acus_root: Path) -> int:
+    """自制面具（category=3）下一个建议 ID：73000000 起。"""
+    return suggest_next_avatar_accessory_id(acus_root, MASK_CATEGORY)
+
+
+class AvatarMaskComposeDialog(FluentCaptionDialog):
+    """新增/编辑企鹅面具（category=3）。"""
 
     def __init__(
         self,
@@ -68,19 +68,19 @@ class AvatarHatComposeDialog(FluentCaptionDialog):
         self._static = _package_static_avatar_dir()
         is_edit = edit_xml_path is not None and edit_xml_path.is_file()
         self._is_edit = is_edit
-        self.setWindowTitle("编辑帽子" if is_edit else "新增帽子")
+        self.setWindowTitle("编辑面具" if is_edit else "新增面具")
         self.setModal(True)
         self.resize(920, 860)
 
         self.id_edit = LineEdit(self)
-        self.id_edit.setPlaceholderText("例如 72000001（自制帽子：72000000～72999999）")
+        self.id_edit.setPlaceholderText("例如 73000001（自制面具：73000000～73999999）")
         if is_edit:
             self.id_edit.setReadOnly(True)
         else:
             try:
-                self.id_edit.setText(str(suggest_next_avatar_hat_id(acus_root)))
+                self.id_edit.setText(str(suggest_next_avatar_mask_id(acus_root)))
             except RuntimeError:
-                lo, _hi = avatar_accessory_custom_id_band(HAT_CATEGORY)
+                lo, _hi = avatar_accessory_custom_id_band(MASK_CATEGORY)
                 self.id_edit.setText(str(lo))
 
         self.name_edit = LineEdit(self)
@@ -89,7 +89,7 @@ class AvatarHatComposeDialog(FluentCaptionDialog):
         self._editor = PenguinWearEditorWidget(
             body_path=self._static / "Body.png",
             hand_path=self._static / "Hand.png",
-            crop=_HAT_CROP,
+            crop=_MASK_CROP,
             parent=self,
         )
 
@@ -99,16 +99,16 @@ class AvatarHatComposeDialog(FluentCaptionDialog):
         self._opacity_slider.setToolTip("Hand 层透明度（便于对齐）")
 
         hint = BodyLabel(
-            "预览：Body + 你的帽子图 + Hand（绿框为导出裁剪区 (186,4)+(660×496)）。"
-            "导出 Tex 为裁剪后帽子图层缩放到 400×300（透明底）；"
-            "Icon 在 256 模板 2.png 上将 Tex 缩至 200×150，左上角对齐 (30,52)。",
+            "预览：Body + 你的面具图 + Hand（绿框为导出裁剪区 (337,227)+(341×306)）。"
+            "导出 Tex 为裁剪后面具图层缩放到 232×208（透明底）；"
+            "Icon 在模板 3.png 上将 Tex 缩至 183×164，左上角对齐 (39,57)。",
             self,
         )
         hint.setWordWrap(True)
         hint.setTextColor("#6B7280", "#9CA3AF")
 
-        pick = PushButton("选择帽子图片…", self)
-        pick.clicked.connect(self._pick_hat)
+        pick = PushButton("选择面具图片…", self)
+        pick.clicked.connect(self._pick_mask)
 
         if is_edit:
             self._load_edit_state()
@@ -206,10 +206,10 @@ class AvatarHatComposeDialog(FluentCaptionDialog):
         except Exception:
             pass
 
-    def _pick_hat(self) -> None:
+    def _pick_mask(self) -> None:
         p, _ = QFileDialog.getOpenFileName(
             self,
-            "选择帽子图片",
+            "选择面具图片",
             "",
             "图片 (*.png *.jpg *.jpeg *.webp *.bmp);;所有文件 (*.*)",
         )
@@ -235,21 +235,21 @@ class AvatarHatComposeDialog(FluentCaptionDialog):
             fly_critical(self, "错误", "配件 ID 须为正整数")
             return
         if not self._is_edit:
-            lo, hi = avatar_accessory_custom_id_band(HAT_CATEGORY)
+            lo, hi = avatar_accessory_custom_id_band(MASK_CATEGORY)
             if not (lo <= aid <= hi):
                 fly_critical(
                     self,
                     "错误",
-                    f"帽子自制 ID 须在 {lo}～{hi}（首位为 7、第二位为 category=2）。",
+                    f"面具自制 ID 须在 {lo}～{hi}（首位为 7、第二位为 category=3）。",
                 )
                 return
             taken = {it.name.id for it in scan_avatar_accessories(self._acus_root)}
             if aid in taken:
                 fly_critical(self, "错误", f"ID {aid} 已被其它装扮占用，请更换或改用建议值。")
                 return
-        name = self.name_edit.text().strip() or f"hat{aid}"
+        name = self.name_edit.text().strip() or f"mask{aid}"
         if not self._editor.has_cloth:
-            fly_critical(self, "错误", "请先选择帽子图片")
+            fly_critical(self, "错误", "请先选择面具图片")
             return
 
         icon_bn = f"CHU_UI_Avatar_Icon_{aid:08d}.dds"
@@ -258,7 +258,7 @@ class AvatarHatComposeDialog(FluentCaptionDialog):
         folder.mkdir(parents=True, exist_ok=True)
         out_tex = folder / tex_bn
         out_icon = folder / icon_bn
-        tpl_path = self._static / "Icon_template" / "2.png"
+        tpl_path = self._static / "Icon_template" / "3.png"
         if not tpl_path.is_file():
             fly_critical(self, "错误", f"缺少图标模板：{tpl_path}")
             return
@@ -268,26 +268,26 @@ class AvatarHatComposeDialog(FluentCaptionDialog):
             cx, cy, cw, ch = self._editor.crop_rect
             cropped = full.copy(cx, cy, cw, ch)
             tex_final = cropped.scaled(
-                HAT_TEX_W,
-                HAT_TEX_H,
+                MASK_TEX_W,
+                MASK_TEX_H,
                 Qt.AspectRatioMode.IgnoreAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             ).convertToFormat(QImage.Format.Format_ARGB32)
-            if tex_final.width() != HAT_TEX_W or tex_final.height() != HAT_TEX_H:
+            if tex_final.width() != MASK_TEX_W or tex_final.height() != MASK_TEX_H:
                 tex_final = tex_final.scaled(
-                    HAT_TEX_W,
-                    HAT_TEX_H,
+                    MASK_TEX_W,
+                    MASK_TEX_H,
                     Qt.AspectRatioMode.IgnoreAspectRatio,
                     Qt.TransformationMode.SmoothTransformation,
                 )
 
             tpl = QImage(str(tpl_path))
             if tpl.isNull():
-                raise ValueError("无法读取帽子 Icon 模板 PNG")
+                raise ValueError("无法读取面具 Icon 模板 PNG")
             out_w, out_h = tpl.width(), tpl.height()
             tex_on_icon = tex_final.scaled(
-                ICON_HAT_W,
-                ICON_HAT_H,
+                ICON_MASK_W,
+                ICON_MASK_H,
                 Qt.AspectRatioMode.IgnoreAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
@@ -298,7 +298,7 @@ class AvatarHatComposeDialog(FluentCaptionDialog):
             pw.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
             pw.drawImage(0, 0, tpl)
             pw.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
-            pw.drawImage(ICON_HAT_X, ICON_HAT_Y, tex_on_icon)
+            pw.drawImage(ICON_MASK_X, ICON_MASK_Y, tex_on_icon)
             pw.end()
 
             with tempfile.TemporaryDirectory() as td:
@@ -313,7 +313,7 @@ class AvatarHatComposeDialog(FluentCaptionDialog):
                     parent=self,
                     tool_path=self._tool,
                     jobs=[(tex_png, out_tex), (icon_png, out_icon)],
-                    title="正在生成帽子 DDS",
+                    title="正在生成面具 DDS",
                 )
                 if not ok:
                     raise DdsToolError(err or "DDS 编码失败")
@@ -324,7 +324,7 @@ class AvatarHatComposeDialog(FluentCaptionDialog):
                 name_str=name,
                 icon_basename=icon_bn,
                 tex_basename=tex_bn,
-                category=HAT_CATEGORY,
+                category=MASK_CATEGORY,
                 preserve_from=self._edit_xml,
             )
             self.accept()
