@@ -4,13 +4,14 @@ import logging
 from collections.abc import Callable
 from pathlib import Path
 
-from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
-from qfluentwidgets import BodyLabel, CardWidget, CheckBox, LineEdit, PrimaryPushButton, PushButton
+from qfluentwidgets import BodyLabel, CardWidget, CheckBox, PrimaryPushButton, PushButton
 
-from ..acus_workspace import AcusConfig, app_cache_dir, resolve_compressonatorcli_path
+from ..acus_workspace import AcusConfig, app_cache_dir
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
-from .fluent_dialogs import fly_critical, fly_message, fly_warning
+from .fluent_dialogs import fly_message
+from .game_data_settings_panel import GameDataSettingsPanel
 from .pjsk_hub_dialog import PjskHubDialog
 
 _settings_log_logger: logging.Logger | None = None
@@ -35,98 +36,8 @@ def _settings_logger() -> logging.Logger:
     return logger
 
 
-class SettingsPanel(QWidget):
-    def __init__(
-        self,
-        *,
-        cfg: AcusConfig,
-        acus_root: Path,
-        get_tool_path: Callable[[], Path | None],
-        on_request_game_rescan: Callable[[Path, Path | None], None] | None = None,
-        parent: QWidget | None = None,
-    ) -> None:
-        super().__init__(parent=parent)
-        self._cfg = cfg
-        self._acus_root = acus_root.resolve()
-        self._get_tool_path = get_tool_path
-        self._on_request_game_rescan = on_request_game_rescan
-
-        game_hint = BodyLabel(
-            "指定已安装游戏中的 **A001** 数据位置（或包含 `A001` / `Option/A001` 的安装根目录）。"
-            "用于扫描全量乐曲、场景、DDS 贴图与地图 ddsMap，供地图/奖励编辑下拉里选择。"
-        )
-        game_hint.setWordWrap(True)
-        self.game_root = LineEdit(self)
-        self.game_root.setPlaceholderText("例如 D:\\Games\\CHUNITHM 或 …\\A001 的上一级")
-        if cfg.game_root:
-            self.game_root.setText(cfg.game_root)
-        game_browse = PushButton("浏览文件夹…", self)
-        game_browse.clicked.connect(self._pick_game_root)
-        rescan = PushButton("重新扫描游戏索引", self)
-        rescan.clicked.connect(self._rescan_game_index)
-
-        game_row = QHBoxLayout()
-        game_row.setSpacing(8)
-        game_row.addWidget(self.game_root, stretch=1)
-        game_row.addWidget(game_browse)
-
-        game_card = CardWidget(self)
-        game_layout = QVBoxLayout(game_card)
-        game_layout.setContentsMargins(16, 16, 16, 16)
-        game_layout.setSpacing(12)
-        game_layout.addWidget(BodyLabel("游戏数据目录", self))
-        game_layout.addWidget(game_hint)
-        game_layout.addLayout(game_row)
-        game_layout.addWidget(rescan)
-
-        tools_hint = BodyLabel(
-            "DDS 工具、FFmpeg、PenguinTools.CLI、mua 等外部程序请在【设置 → 外部工具】中按需下载或指定路径。"
-        )
-        tools_hint.setWordWrap(True)
-        tools_hint.setStyleSheet("color:#6B7280;font-size:13px;")
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 8)
-        layout.setSpacing(16)
-        layout.addWidget(game_card)
-        layout.addWidget(tools_hint)
-        layout.addStretch(1)
-
-    def _pick_game_root(self) -> None:
-        d = QFileDialog.getExistingDirectory(self, "选择游戏数据目录（含 A001）")
-        if d:
-            self.game_root.setText(d)
-
-    def _rescan_game_index(self) -> None:
-        raw = self.game_root.text().strip()
-        if not raw:
-            fly_warning(self, "未设置", "请先填写或浏览选择游戏数据目录。")
-            return
-        root = Path(raw).expanduser()
-        tool_path = resolve_compressonatorcli_path(self._cfg)
-        if self._on_request_game_rescan is None:
-            fly_warning(self, "不可用", "当前窗口未提供后台扫描入口。")
-            return
-        self._on_request_game_rescan(root, tool_path)
-
-    def apply(self) -> bool:
-        lg = _settings_logger()
-        lg.info("save_button_clicked")
-        try:
-            return self._apply_impl()
-        except Exception:
-            lg.exception("save_button_crash")
-            fly_critical(self, "保存失败", "设置保存时发生未处理异常，请提供 settings_save.log。")
-            return False
-
-    def _apply_impl(self) -> bool:
-        lg = _settings_logger()
-        lg.info("apply_start")
-        gr = self.game_root.text().strip()
-        self._cfg.game_root = gr
-        self._cfg.save()
-        lg.info("apply_done game_root=%s", gr)
-        return True
+# 兼容旧名
+SettingsPanel = GameDataSettingsPanel
 
 
 class SettingsExperimentalPanel(QWidget):
@@ -219,10 +130,8 @@ class SettingsDialog(FluentCaptionDialog):
         self.setWindowTitle("设置")
         self.setModal(True)
         self.resize(520, 520)
-        self._general = SettingsPanel(
+        self._general = GameDataSettingsPanel(
             cfg=cfg,
-            acus_root=acus_root,
-            get_tool_path=get_tool_path,
             on_request_game_rescan=on_request_game_rescan,
             parent=self,
         )

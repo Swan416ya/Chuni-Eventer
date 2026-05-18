@@ -22,6 +22,7 @@ from ..external_tools import (
     write_inventory_file,
 )
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
+from .rich_hint import rich_hint_label
 
 
 class _ToolInstallWorker(QObject):
@@ -54,19 +55,16 @@ class ToolsSettingsPanel(QWidget):
         self._rows: dict[str, tuple[ExternalToolSpec, LineEdit, BodyLabel]] = {}
         self._install_thread: QThread | None = None
 
-        hint = BodyLabel(
+        tools_hint_text = (
             "外部程序默认安装在应用目录下的 `.tools/`（不随主程序 exe 打包）。"
             " 可在此一键下载或手动浏览；保存后写入 `ACUS/.config.json`。\n"
-            f"安装根目录：`{tools_root_dir()}`",
-            self,
+            f"安装根目录：`{tools_root_dir()}`"
         )
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color:#6B7280;font-size:13px;")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 8)
         layout.setSpacing(14)
-        layout.addWidget(hint)
+        layout.addWidget(rich_hint_label(tools_hint_text, self, color="#6B7280"))
 
         for spec in ALL_TOOLS:
             layout.addWidget(self._make_tool_card(spec))

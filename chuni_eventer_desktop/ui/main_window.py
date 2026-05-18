@@ -279,6 +279,7 @@ class MainWindow(MSFluentWindow):
             cfg=self._cfg,
             acus_root=self._acus_root,
             get_tool_path=self._get_tool_path_or_none,
+            get_game_index=self._resolve_game_index,
             on_settings_saved=self._on_settings_saved,
             on_request_game_rescan=self._request_game_index_rescan,
             parent=self,
@@ -429,6 +430,7 @@ class MainWindow(MSFluentWindow):
             single_button=True,
             window_modal=True,
         )
+        self._settings_page.refresh_game_data_view()
 
     def _on_index_thread_stopped(self) -> None:
         _scan_logger().info("scan_thread_stopped")

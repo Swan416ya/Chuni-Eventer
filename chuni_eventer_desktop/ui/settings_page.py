@@ -9,9 +9,11 @@ from PyQt6.QtWidgets import QHBoxLayout, QStackedWidget, QVBoxLayout, QWidget
 from qfluentwidgets import PrimaryPushButton, ScrollArea, SegmentedWidget, SubtitleLabel
 
 from ..acus_workspace import AcusConfig
+from ..game_data_index import GameDataIndex
 from .save_patch_dialog import SavePatchPanel
 from .settings_about_panel import SettingsAboutPanel
-from .settings_dialog import SettingsExperimentalPanel, SettingsPanel
+from .game_data_settings_panel import GameDataSettingsPanel
+from .settings_dialog import SettingsExperimentalPanel
 from .tools_settings_panel import ToolsSettingsPanel
 
 
@@ -25,11 +27,11 @@ def _scroll_wrap(inner: QWidget) -> ScrollArea:
 
 
 class SettingsPage(QWidget):
-    """主窗口内设置页：关于 / 常规 / 外部工具 / 存档编辑器 / 实验性功能。"""
+    """主窗口内设置页：关于 / 游戏数据 / 外部工具 / 存档编辑器 / 实验性功能。"""
 
     _ROUTE_INDEX: dict[str, int] = {
         "about": 0,
-        "general": 1,
+        "game_data": 1,
         "tools": 2,
         "save_patch": 3,
         "experimental": 4,
@@ -42,6 +44,7 @@ class SettingsPage(QWidget):
         acus_root: Path,
         get_tool_path: Callable[[], Path | None],
         on_settings_saved: Callable[[], None] | None = None,
+        get_game_index: Callable[[], GameDataIndex | None] | None = None,
         on_request_game_rescan: Callable[[Path, Path | None], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
@@ -59,7 +62,7 @@ class SettingsPage(QWidget):
 
         self._seg = SegmentedWidget(self)
         self._seg.addItem("about", "关于")
-        self._seg.addItem("general", "常规")
+        self._seg.addItem("game_data", "游戏数据")
         self._seg.addItem("tools", "外部工具")
         self._seg.addItem("save_patch", "存档编辑器")
         self._seg.addItem("experimental", "实验性功能")
@@ -67,10 +70,9 @@ class SettingsPage(QWidget):
 
         self._stack = QStackedWidget(self)
         self._about = SettingsAboutPanel(parent=self)
-        self._general = SettingsPanel(
+        self._game_data = GameDataSettingsPanel(
             cfg=cfg,
-            acus_root=acus_root,
-            get_tool_path=get_tool_path,
+            get_game_index=get_game_index or (lambda: None),
             on_request_game_rescan=on_request_game_rescan,
             parent=self,
         )
@@ -87,7 +89,7 @@ class SettingsPage(QWidget):
             parent=self,
         )
         self._stack.addWidget(_scroll_wrap(self._about))
-        self._stack.addWidget(_scroll_wrap(self._general))
+        self._stack.addWidget(_scroll_wrap(self._game_data))
         self._stack.addWidget(_scroll_wrap(self._tools))
         self._stack.addWidget(_scroll_wrap(self._save_patch))
         self._stack.addWidget(_scroll_wrap(self._experimental))
@@ -109,17 +111,19 @@ class SettingsPage(QWidget):
 
     def _on_segment_changed(self, route_key: str) -> None:
         self._stack.setCurrentIndex(self._ROUTE_INDEX.get(route_key, 0))
-        self._save_bar.setVisible(route_key in ("general", "tools", "experimental"))
+        self._save_bar.setVisible(route_key in ("game_data", "tools", "experimental"))
         if route_key == "about":
             self._about.check_for_updates()
+        if route_key == "game_data":
+            self._game_data.refresh_index_display()
         if route_key == "tools":
             self._tools.refresh_status()
 
     def _on_save_clicked(self) -> None:
         self._experimental.apply_fields()
         tools_ok = self._tools.apply_fields()
-        general_ok = self._general.apply()
-        if tools_ok and general_ok and self._on_settings_saved is not None:
+        game_data_ok = self._game_data.apply()
+        if tools_ok and game_data_ok and self._on_settings_saved is not None:
             self._on_settings_saved()
 
     def show_save_patch_tab(self) -> None:
@@ -127,3 +131,6 @@ class SettingsPage(QWidget):
 
     def show_tools_tab(self) -> None:
         self._seg.setCurrentItem("tools")
+
+    def refresh_game_data_view(self) -> None:
+        self._game_data.refresh_index_display()

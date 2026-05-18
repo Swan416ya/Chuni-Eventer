@@ -88,6 +88,13 @@ TOOL_PENGUINTOOLS_CLI = ExternalToolSpec(
     help_url="https://github.com/Foahh/PenguinTools/releases",
 )
 
+# mua 固定从 v0.7.1 Release 下载；二进制不随 Chuni-Eventer 版本更新而重新发布。
+MUA_RELEASE_TAG = "v0.7.1"
+MUA_DOWNLOAD_URL = (
+    f"https://github.com/Swan416ya/Chuni-Eventer/releases/download/{MUA_RELEASE_TAG}/mua.exe"
+)
+MUA_HELP_URL = f"https://github.com/Swan416ya/Chuni-Eventer/releases/tag/{MUA_RELEASE_TAG}"
+
 TOOL_MUA = ExternalToolSpec(
     id="mua",
     name="mua (muautils)",
@@ -97,9 +104,9 @@ TOOL_MUA = ExternalToolSpec(
     config_field="mua_path",
     default_rel="PenguinTools/mua.exe",
     exe_name="mua.exe",
-    download_url="https://github.com/Swan416ya/Chuni-Eventer/releases/download/v0.7.1/mua.exe",
+    download_url=MUA_DOWNLOAD_URL,
     archive_kind="exe",
-    help_url="https://github.com/Swan416ya/Chuni-Eventer/releases/tag/v0.7.1",
+    help_url=MUA_HELP_URL,
 )
 
 ALL_TOOLS: tuple[ExternalToolSpec, ...] = (
