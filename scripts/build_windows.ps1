@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "0.7.1",
+    [string]$Version = "0.7.5",
     [switch]$SkipPyInstaller,
     [Alias("SkipBridge")][switch]$SkipPenguinToolsCli,
     [switch]$SkipCompressonator
