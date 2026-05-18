@@ -59,7 +59,16 @@ def _candidate_cli_paths() -> list[Path]:
     return unique
 
 
-def resolve_penguin_tools_cli() -> Path | None:
+def resolve_penguin_tools_cli(cfg: object | None = None) -> Path | None:
+    if cfg is None:
+        from .acus_workspace import AcusConfig
+
+        cfg = AcusConfig.load()
+    from .external_tools import TOOL_PENGUINTOOLS_CLI, resolve_tool_path
+
+    p = resolve_tool_path(TOOL_PENGUINTOOLS_CLI, cfg)  # type: ignore[arg-type]
+    if p is not None:
+        return p
     for path in _candidate_cli_paths():
         if path.exists() and path.is_file():
             return path
@@ -82,8 +91,8 @@ def _command_prefix(cli_path: Path) -> list[str]:
     return [str(cli_path)]
 
 
-def _run_penguin_tools_cli(args: list[str]) -> dict[str, Any]:
-    cli_path = resolve_penguin_tools_cli()
+def _run_penguin_tools_cli(args: list[str], *, cfg: object | None = None) -> dict[str, Any]:
+    cli_path = resolve_penguin_tools_cli(cfg)
     if cli_path is None:
         raise FileNotFoundError(
             "未找到 PenguinTools.CLI。可设置环境变量 CHUNI_PENGUINTOOLS_CLI 指向可执行文件、.dll 或 .csproj。\n"

@@ -1,18 +1,14 @@
 from __future__ import annotations
 
 import logging
-import sys
-import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
-from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QInputDialog, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QVBoxLayout, QWidget
 
 from qfluentwidgets import BodyLabel, CardWidget, CheckBox, LineEdit, PrimaryPushButton, PushButton
 
-from ..acus_workspace import AcusConfig, app_cache_dir
-from ..dds_convert import DdsToolError, is_bc3_dds, run_cmd, validate_compressonator_tool
-from ..dds_quicktex import encode_image_to_bc3_dds_quicktex, quicktex_available
+from ..acus_workspace import AcusConfig, app_cache_dir, resolve_compressonatorcli_path
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
 from .pjsk_hub_dialog import PjskHubDialog
@@ -83,49 +79,17 @@ class SettingsPanel(QWidget):
         game_layout.addLayout(game_row)
         game_layout.addWidget(rescan)
 
-        if getattr(sys, "frozen", False):
-            dds_hint = (
-                "打包版已在 exe 同级的 .tools\\CompressonatorCLI 附带 AMD Compressonator CLI。"
-                "此处留空则自动使用该副本；填写路径则优先使用您指定的 compressonatorcli.exe。"
-            )
-            ph = "留空用附带 CLI；或浏览选择自定义 compressonatorcli.exe"
-        else:
-            dds_hint = (
-                "DDS 预览与 BC3 生成默认使用 quicktex；此处可填写 compressonatorcli 作为备选路径。"
-            )
-            ph = "compressonatorcli 可执行文件路径（可选）"
-        hint = BodyLabel(dds_hint)
-        hint.setWordWrap(True)
-
-        self.compressonator = LineEdit(self)
-        self.compressonator.setPlaceholderText(ph)
-        if cfg.compressonatorcli_path:
-            self.compressonator.setText(cfg.compressonatorcli_path)
-
-        browse = PushButton("浏览…", self)
-        browse.clicked.connect(self._pick_tool)
-        test_btn = PushButton("测试转换能力", self)
-        test_btn.clicked.connect(self._test_dds_convert)
-
-        row = QHBoxLayout()
-        row.setSpacing(8)
-        row.addWidget(self.compressonator, stretch=1)
-        row.addWidget(browse)
-        row.addWidget(test_btn)
-
-        card = CardWidget(self)
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(16, 16, 16, 16)
-        card_layout.setSpacing(12)
-        card_layout.addWidget(BodyLabel("compressonator CLI", self))
-        card_layout.addWidget(hint)
-        card_layout.addLayout(row)
+        tools_hint = BodyLabel(
+            "DDS 工具、FFmpeg、PenguinTools.CLI、mua 等外部程序请在【设置 → 外部工具】中按需下载或指定路径。"
+        )
+        tools_hint.setWordWrap(True)
+        tools_hint.setStyleSheet("color:#6B7280;font-size:13px;")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 8)
         layout.setSpacing(16)
         layout.addWidget(game_card)
-        layout.addWidget(card)
+        layout.addWidget(tools_hint)
         layout.addStretch(1)
 
     def _pick_game_root(self) -> None:
@@ -139,119 +103,11 @@ class SettingsPanel(QWidget):
             fly_warning(self, "未设置", "请先填写或浏览选择游戏数据目录。")
             return
         root = Path(raw).expanduser()
-        tool_raw = (self.compressonator.text() or "").strip()
-        tool_path: Path | None = None
-        if tool_raw:
-            try:
-                tp = Path(tool_raw).expanduser().resolve(strict=False)
-                if tp.is_file():
-                    tool_path = tp
-            except OSError:
-                tool_path = None
+        tool_path = resolve_compressonatorcli_path(self._cfg)
         if self._on_request_game_rescan is None:
             fly_warning(self, "不可用", "当前窗口未提供后台扫描入口。")
             return
         self._on_request_game_rescan(root, tool_path)
-
-    def _pick_tool(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "选择 compressonatorcli")
-        if path:
-            self.compressonator.setText(path)
-
-    def _test_dds_convert(self) -> None:
-        selected, ok = QInputDialog.getItem(
-            self,
-            "选择测试方式",
-            "请选择要测试的转换逻辑：",
-            ["内置 quicktex", "内置 Pillow(DXT5)", "compressonator CLI"],
-            0,
-            False,
-        )
-        if not ok:
-            return
-
-        test_png_size = (4, 4)
-        with tempfile.TemporaryDirectory(prefix="chuni_dds_test_") as tmp:
-            tmp_dir = Path(tmp)
-            png = tmp_dir / "sample.png"
-            dds_quick = tmp_dir / "quicktex.dds"
-            dds_cli = tmp_dir / "compressonator.dds"
-
-            try:
-                from PIL import Image
-
-                Image.new("RGBA", test_png_size, (255, 0, 255, 255)).save(png, "PNG")
-            except Exception as e:
-                fly_critical(self, "测试失败", f"无法生成测试图片：{e}")
-                return
-
-            if selected == "内置 quicktex":
-                quick_ok = False
-                quick_msg = ""
-                if not quicktex_available():
-                    quick_msg = "未检测到 quicktex（打包遗漏或依赖不可用）"
-                else:
-                    try:
-                        encode_image_to_bc3_dds_quicktex(input_image=png, output_dds=dds_quick)
-                        quick_ok = is_bc3_dds(dds_quick)
-                        quick_msg = "可用（已成功生成 BC3 DDS）" if quick_ok else "输出存在但不是 BC3 DDS"
-                    except Exception as e:
-                        quick_msg = str(e)
-                title = "quicktex 测试完成" if quick_ok else "quicktex 测试失败"
-                text = f"DDS 转换自检结果：\n- 内置 quicktex：{'OK' if quick_ok else 'FAIL'}\n  {quick_msg}"
-                if quick_ok:
-                    fly_message(self, title, text)
-                else:
-                    fly_warning(self, title, text)
-                return
-            if selected == "内置 Pillow(DXT5)":
-                pillow_ok = False
-                pillow_msg = ""
-                try:
-                    from PIL import Image
-
-                    Image.open(png).convert("RGBA").save(dds_quick, format="DDS", pixel_format="DXT5")
-                    pillow_ok = is_bc3_dds(dds_quick)
-                    pillow_msg = "可用（已成功生成 BC3 DDS）" if pillow_ok else "输出存在但不是 BC3 DDS"
-                except Exception as e:
-                    pillow_msg = str(e)
-                title = "Pillow(DXT5) 测试完成" if pillow_ok else "Pillow(DXT5) 测试失败"
-                text = f"DDS 转换自检结果：\n- 内置 Pillow(DXT5)：{'OK' if pillow_ok else 'FAIL'}\n  {pillow_msg}"
-                if pillow_ok:
-                    fly_message(self, title, text)
-                else:
-                    fly_warning(self, title, text)
-                return
-
-            cli_ok = False
-            cli_msg = ""
-            tool = self._resolve_tool_path_for_test()
-            if tool is None:
-                cli_msg = "未配置 compressonatorcli（且未检测到附带 CLI）"
-            else:
-                try:
-                    validate_compressonator_tool(tool)
-                    run_cmd([str(tool), "-fd", "BC3", str(png), str(dds_cli)])
-                    cli_ok = is_bc3_dds(dds_cli)
-                    cli_msg = f"可用（{tool}）" if cli_ok else f"执行成功但输出不是 BC3（{tool}）"
-                except (DdsToolError, OSError) as e:
-                    cli_msg = f"{tool}\n{e}"
-            title = "compressonator CLI 测试完成" if cli_ok else "compressonator CLI 测试失败"
-            text = f"DDS 转换自检结果：\n- compressonator CLI：{'OK' if cli_ok else 'FAIL'}\n  {cli_msg}"
-            if cli_ok:
-                fly_message(self, title, text)
-            else:
-                fly_warning(self, title, text)
-
-    def _resolve_tool_path_for_test(self) -> Path | None:
-        raw = (self.compressonator.text() or "").strip()
-        if raw:
-            try:
-                p = Path(raw).expanduser().resolve(strict=False)
-            except OSError:
-                return None
-            return p if p.is_file() else None
-        return self._get_tool_path()
 
     def apply(self) -> bool:
         lg = _settings_logger()
@@ -266,29 +122,10 @@ class SettingsPanel(QWidget):
     def _apply_impl(self) -> bool:
         lg = _settings_logger()
         lg.info("apply_start")
-        raw = self.compressonator.text().strip()
-        if raw:
-            p = Path(raw).expanduser()
-            try:
-                p = p.resolve(strict=False)
-            except OSError:
-                lg.warning("apply_reject_invalid_tool_path_unresolvable raw=%s", raw)
-                fly_warning(self, "路径无效", "无法解析该路径，请检查拼写。")
-                return False
-            if not p.is_file():
-                lg.warning("apply_reject_invalid_tool_path_not_file path=%s", p)
-                fly_warning(
-                    self,
-                    "路径无效",
-                    "DDS 工具必须指向 compressonatorcli 的「可执行文件」本体。\n"
-                    "不要填「.」、不要选文件夹；请用「浏览…」选择实际程序文件。",
-                )
-                return False
-        self._cfg.compressonatorcli_path = raw
         gr = self.game_root.text().strip()
         self._cfg.game_root = gr
         self._cfg.save()
-        lg.info("apply_done game_root=%s compressonator_set=%s", gr, bool(raw))
+        lg.info("apply_done game_root=%s", gr)
         return True
 
 

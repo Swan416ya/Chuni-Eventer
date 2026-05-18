@@ -243,9 +243,14 @@ def ensure_acus_layout(*, game_root: Path | str | None = None) -> Path:
 @dataclass
 class AcusConfig:
     compressonatorcli_path: str = ""
+    ffmpeg_path: str = ""
+    penguin_tools_cli_path: str = ""
+    mua_path: str = ""
     """游戏安装/数据根目录（用于索引全量 music、stage、ddsImage、ddsMap，供下拉选择）。"""
     game_root: str = ""
     enable_pgko_ugc_experimental: bool = False
+    external_tools_prompted: bool = False
+    external_tools_bootstrap_done: bool = False
 
     @staticmethod
     def path() -> Path:
@@ -259,8 +264,18 @@ class AcusConfig:
         data = json.loads(p.read_text(encoding="utf-8"))
         return cls(
             compressonatorcli_path=str(data.get("compressonatorcli_path", "")),
+            ffmpeg_path=str(data.get("ffmpeg_path", "")),
+            penguin_tools_cli_path=str(data.get("penguin_tools_cli_path", "")),
+            mua_path=str(data.get("mua_path", "")),
             game_root=str(data.get("game_root", "")),
             enable_pgko_ugc_experimental=bool(data.get("enable_pgko_ugc_experimental", False)),
+            external_tools_prompted=bool(data.get("external_tools_prompted", False)),
+            external_tools_bootstrap_done=bool(
+                data.get(
+                    "external_tools_bootstrap_done",
+                    data.get("external_tools_prompted", False),
+                )
+            ),
         )
 
     def save(self) -> None:
@@ -269,8 +284,13 @@ class AcusConfig:
         p.parent.mkdir(parents=True, exist_ok=True)
         payload: dict[str, Any] = {
             "compressonatorcli_path": self.compressonatorcli_path,
+            "ffmpeg_path": self.ffmpeg_path,
+            "penguin_tools_cli_path": self.penguin_tools_cli_path,
+            "mua_path": self.mua_path,
             "game_root": self.game_root,
             "enable_pgko_ugc_experimental": bool(self.enable_pgko_ugc_experimental),
+            "external_tools_prompted": bool(self.external_tools_prompted),
+            "external_tools_bootstrap_done": bool(self.external_tools_bootstrap_done),
         }
         lg.info(
             "config_save_start path=%s game_root=%s compressonator_set=%s pgko_exp=%s",
@@ -299,15 +319,8 @@ def bundled_compressonatorcli_path() -> Path | None:
 
 
 def resolve_compressonatorcli_path(cfg: AcusConfig) -> Path | None:
-    """用户【设置】优先；未填写、路径无效或文件缺失时回退到打包随附的 compressonatorcli。"""
-    raw = (cfg.compressonatorcli_path or "").strip()
-    if raw:
-        p = Path(raw).expanduser()
-        try:
-            p = p.resolve(strict=False)
-        except OSError:
-            return bundled_compressonatorcli_path()
-        if p.is_file():
-            return p
-    return bundled_compressonatorcli_path()
+    """用户配置 → .tools 按需安装 → 旧版打包随附（若有）。"""
+    from .external_tools import TOOL_COMPRESSONATOR, resolve_tool_path
+
+    return resolve_tool_path(TOOL_COMPRESSONATOR, cfg)
 

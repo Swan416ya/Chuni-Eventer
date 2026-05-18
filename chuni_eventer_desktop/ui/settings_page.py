@@ -12,6 +12,7 @@ from ..acus_workspace import AcusConfig
 from .save_patch_dialog import SavePatchPanel
 from .settings_about_panel import SettingsAboutPanel
 from .settings_dialog import SettingsExperimentalPanel, SettingsPanel
+from .tools_settings_panel import ToolsSettingsPanel
 
 
 def _scroll_wrap(inner: QWidget) -> ScrollArea:
@@ -24,13 +25,14 @@ def _scroll_wrap(inner: QWidget) -> ScrollArea:
 
 
 class SettingsPage(QWidget):
-    """主窗口内设置页：关于 / 常规 / 存档编辑器 / 实验性功能。"""
+    """主窗口内设置页：关于 / 常规 / 外部工具 / 存档编辑器 / 实验性功能。"""
 
     _ROUTE_INDEX: dict[str, int] = {
         "about": 0,
         "general": 1,
-        "save_patch": 2,
-        "experimental": 3,
+        "tools": 2,
+        "save_patch": 3,
+        "experimental": 4,
     }
 
     def __init__(
@@ -58,6 +60,7 @@ class SettingsPage(QWidget):
         self._seg = SegmentedWidget(self)
         self._seg.addItem("about", "关于")
         self._seg.addItem("general", "常规")
+        self._seg.addItem("tools", "外部工具")
         self._seg.addItem("save_patch", "存档编辑器")
         self._seg.addItem("experimental", "实验性功能")
         root.addWidget(self._seg)
@@ -71,6 +74,7 @@ class SettingsPage(QWidget):
             on_request_game_rescan=on_request_game_rescan,
             parent=self,
         )
+        self._tools = ToolsSettingsPanel(cfg=cfg, parent=self)
         self._save_patch = SavePatchPanel(
             acus_root=acus_root,
             get_tool_path=get_tool_path,
@@ -84,6 +88,7 @@ class SettingsPage(QWidget):
         )
         self._stack.addWidget(_scroll_wrap(self._about))
         self._stack.addWidget(_scroll_wrap(self._general))
+        self._stack.addWidget(_scroll_wrap(self._tools))
         self._stack.addWidget(_scroll_wrap(self._save_patch))
         self._stack.addWidget(_scroll_wrap(self._experimental))
         root.addWidget(self._stack, stretch=1)
@@ -104,14 +109,21 @@ class SettingsPage(QWidget):
 
     def _on_segment_changed(self, route_key: str) -> None:
         self._stack.setCurrentIndex(self._ROUTE_INDEX.get(route_key, 0))
-        self._save_bar.setVisible(route_key in ("general", "experimental"))
+        self._save_bar.setVisible(route_key in ("general", "tools", "experimental"))
         if route_key == "about":
             self._about.check_for_updates()
+        if route_key == "tools":
+            self._tools.refresh_status()
 
     def _on_save_clicked(self) -> None:
         self._experimental.apply_fields()
-        if self._general.apply() and self._on_settings_saved is not None:
+        tools_ok = self._tools.apply_fields()
+        general_ok = self._general.apply()
+        if tools_ok and general_ok and self._on_settings_saved is not None:
             self._on_settings_saved()
 
     def show_save_patch_tab(self) -> None:
         self._seg.setCurrentItem("save_patch")
+
+    def show_tools_tab(self) -> None:
+        self._seg.setCurrentItem("tools")

@@ -25,6 +25,8 @@ from ..acus_workspace import (
     refresh_chara_works_sorts_with_game,
     resolve_compressonatorcli_path,
 )
+from ..external_tools import apply_resolved_paths_to_config, has_bundled_ffmpeg
+from .external_tools_bootstrap import run_external_tools_bootstrap
 from ..version import APP_VERSION
 from ..game_data_index import GameDataIndex, load_cached_game_index, rebuild_and_save_game_index
 from ..sheet_install import install_zip_to_acus, peek_root_readme_from_archive
@@ -173,6 +175,7 @@ class MainWindow(MSFluentWindow):
         self.resize(_DEFAULT_MAIN_WINDOW_WIDTH, _DEFAULT_MAIN_WINDOW_HEIGHT)
 
         self._cfg = AcusConfig.load()
+        apply_resolved_paths_to_config(self._cfg)
         self._acus_root = ensure_acus_layout(game_root=self._cfg.game_root or None)
         self._in_others_mode = False
         self._in_avatar_mode = False
@@ -336,7 +339,26 @@ class MainWindow(MSFluentWindow):
         self._index_thread: QThread | None = None
         self._index_worker: _GameIndexWorker | None = None
         self._index_progress: QProgressDialog | None = None
+        self._bootstrap_thread: QThread | None = None
         QTimer.singleShot(0, self._ensure_game_index_background)
+        QTimer.singleShot(0, self._bootstrap_external_tools)
+
+    def _bootstrap_external_tools(self) -> None:
+        """Lite 单 exe 首次启动：在 exe 旁自动下载 .tools；懒人包已含工具则跳过。"""
+        if not getattr(sys, "frozen", False):
+            return
+        if self._cfg.external_tools_bootstrap_done:
+            return
+        if has_bundled_ffmpeg(self._cfg):
+            self._cfg.external_tools_bootstrap_done = True
+            self._cfg.save()
+            return
+        if self._bootstrap_thread is not None:
+            return
+        started = run_external_tools_bootstrap(self, self._cfg)
+        if not started:
+            self._cfg.external_tools_bootstrap_done = True
+            self._cfg.save()
 
     def _resolve_game_index(self):
         gr = (self._cfg.game_root or "").strip()

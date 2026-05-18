@@ -28,7 +28,16 @@ PJSK_AUDIO_TRIM_LEADING_SEC = 9.0
 _DUMMY_REL = Path(__file__).resolve().parent / "data" / "dummy.acb"
 
 
-def find_ffmpeg() -> Path | None:
+def find_ffmpeg(cfg: object | None = None) -> Path | None:
+    if cfg is None:
+        from .acus_workspace import AcusConfig
+
+        cfg = AcusConfig.load()
+    from .external_tools import TOOL_FFMPEG, resolve_tool_path
+
+    p = resolve_tool_path(TOOL_FFMPEG, cfg)  # type: ignore[arg-type]
+    if p is not None:
+        return p
     p = shutil.which("ffmpeg")
     return Path(p) if p else None
 

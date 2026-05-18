@@ -64,14 +64,14 @@ if (-not (Test-Path $VenvPy)) {
     python -m venv (Join-Path $Root ".venv-build")
 }
 
-Write-Host "[1/5] Install build dependencies ..."
+Write-Host "[1/6] Install build dependencies ..."
 & $VenvPy -m pip install -r (Join-Path $Root "requirements-build.txt")
 
 if (-not $SkipPyInstaller) {
-    Write-Host "[2/5] Build main app with PyInstaller ..."
+    Write-Host "[2/6] Build main app with PyInstaller ..."
     & $VenvPy -m PyInstaller --noconfirm (Join-Path $Root "ChuniEventer.spec")
 } else {
-    Write-Host "[2/5] Skip PyInstaller"
+    Write-Host "[2/6] Skip PyInstaller"
 }
 
 $PenguinToolsRoot = Resolve-PenguinToolsRoot
@@ -83,14 +83,14 @@ if (-not $SkipPenguinToolsCli) {
     Initialize-PenguinToolsMua -penguinToolsRoot $PenguinToolsRoot -projectRoot $Root
     $PenguinToolsCliProject = Join-Path $PenguinToolsRoot "PenguinTools.CLI\PenguinTools.CLI.csproj"
     $PenguinToolsCliOut = Join-Path $PenguinToolsRoot "PenguinTools.CLI\bin\Release\net10.0\publish\WinX64-SelfContained-SingleFile-EmbeddedAssets"
-    Write-Host "[3/5] Publish PenguinTools.CLI ..."
+    Write-Host "[3/6] Publish PenguinTools.CLI ..."
     & dotnet publish $PenguinToolsCliProject -c Release -p:PublishProfile=WinX64-SelfContained-SingleFile-EmbeddedAssets
     if ($LASTEXITCODE -ne 0) {
         throw "dotnet publish PenguinTools.CLI failed (exit $LASTEXITCODE). Run scripts\setup_penguin_tools.ps1, or pass -SkipPenguinToolsCli."
     }
 } else {
     $PenguinToolsCliOut = Join-Path $Root "tools\PenguinToolsCLI"
-    Write-Host "[3/5] Skip PenguinTools.CLI publish"
+    Write-Host "[3/6] Skip PenguinTools.CLI publish"
 }
 
 # AMD GPUOpen Compressonator CLI (pinned zip). App resolves .tools/CompressonatorCLI/compressonatorcli.exe when frozen.
@@ -123,6 +123,42 @@ function Copy-CompressonatorBundle([string]$toolsParent) {
     Copy-Item -Path (Join-Path $CompressSrc "*") -Destination $dest -Recurse -Force
 }
 
+# FFmpeg essentials (BtbN win64 gpl). 懒人包打入 .tools/ffmpeg/bin/ffmpeg.exe；单 exe 版由应用首次启动自动下载。
+$FfmpegUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+$FfmpegZip = Join-Path $Root ".cache\ffmpeg-master-latest-win64-gpl.zip"
+$FfmpegStage = Join-Path $Root ".cache\ffmpeg-extract"
+
+function Ensure-Ffmpeg {
+    New-Item -ItemType Directory -Path (Join-Path $Root ".cache") -Force | Out-Null
+    if (-not (Test-Path $FfmpegZip)) {
+        Write-Host "  Downloading ffmpeg win64 gpl zip ..."
+        Invoke-WebRequest -Uri $FfmpegUrl -OutFile $FfmpegZip -UseBasicParsing
+    }
+    $found = Get-ChildItem -Path $FfmpegStage -Recurse -Filter "ffmpeg.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $found) {
+        if (Test-Path $FfmpegStage) { Remove-Item $FfmpegStage -Recurse -Force }
+        Write-Host "  Extracting FFmpeg ..."
+        Expand-Archive -LiteralPath $FfmpegZip -DestinationPath $FfmpegStage -Force
+        $found = Get-ChildItem -Path $FfmpegStage -Recurse -Filter "ffmpeg.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+    }
+    if (-not $found) {
+        throw "ffmpeg.exe not found after extract (under $FfmpegStage)"
+    }
+    return $found.FullName
+}
+
+function Copy-FfmpegBundle([string]$toolsParent) {
+    $ffmpegExe = Ensure-Ffmpeg
+    $destDir = Join-Path $toolsParent "ffmpeg\bin"
+    if (Test-Path $destDir) { Remove-Item $destDir -Recurse -Force }
+    New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+    Copy-Item $ffmpegExe (Join-Path $destDir "ffmpeg.exe") -Force
+    $probe = Join-Path (Split-Path -Parent $ffmpegExe) "ffprobe.exe"
+    if (Test-Path $probe) {
+        Copy-Item $probe (Join-Path $destDir "ffprobe.exe") -Force
+    }
+}
+
 if (-not $SkipCompressonator) {
     Write-Host "[4/5] Ensure Compressonator CLI bundle ..."
     Ensure-CompressonatorCli
@@ -130,17 +166,35 @@ if (-not $SkipCompressonator) {
     Write-Host "[4/5] Skip Compressonator bundle"
 }
 
-Write-Host "[5/5] Assemble distributable ..."
+Write-Host "[5/6] Assemble distributable ..."
 $AppExe = Join-Path $Root "dist\ChuniEventer.exe"
 if (-not (Test-Path $AppExe)) {
     throw "Main executable not found: $AppExe"
 }
 
-$OutDir = Join-Path $Root ("dist\release\Chuni-Eventer-v{0}" -f $Version)
-if (Test-Path $OutDir) { Remove-Item $OutDir -Recurse -Force }
-New-Item -ItemType Directory -Path $OutDir | Out-Null
+# 懒人包目录：解压后 ChuniEventer.exe 与 .tools 同级，双击 exe 即用（与历史发布结构一致）。
+$BundleDir = Join-Path $Root ("dist\release\Chuni-Eventer-v{0}" -f $Version)
+if (Test-Path $BundleDir) { Remove-Item $BundleDir -Recurse -Force }
+New-Item -ItemType Directory -Path $BundleDir -Force | Out-Null
 
-Copy-Item $AppExe (Join-Path $OutDir "ChuniEventer.exe") -Force
+# 与 lite 分发的是同一份 PyInstaller 产物，仅懒人包额外带上 .tools。
+Copy-Item $AppExe (Join-Path $BundleDir "ChuniEventer.exe") -Force
+
+$OutTools = Join-Path $BundleDir ".tools"
+$DistToolsRoot = Join-Path $Root "dist\.tools"
+if (Test-Path $OutTools) { Remove-Item $OutTools -Recurse -Force }
+if (Test-Path $DistToolsRoot) { Remove-Item $DistToolsRoot -Recurse -Force }
+New-Item -ItemType Directory -Path $OutTools -Force | Out-Null
+New-Item -ItemType Directory -Path $DistToolsRoot -Force | Out-Null
+
+Write-Host "  Bundle FFmpeg into .tools ..."
+Copy-FfmpegBundle $OutTools
+Copy-FfmpegBundle $DistToolsRoot
+
+if (-not $SkipCompressonator) {
+    Copy-CompressonatorBundle $OutTools
+    Copy-CompressonatorBundle $DistToolsRoot
+}
 
 $PenguinToolsCliExe = Join-Path $PenguinToolsCliOut "PenguinTools.CLI.exe"
 function Copy-PenguinToolsCliPublish([string]$dest) {
@@ -153,23 +207,12 @@ function Copy-PenguinToolsCliPublish([string]$dest) {
 }
 
 if (Test-Path $PenguinToolsCliExe) {
-    $CliDist = Join-Path $OutDir ".tools\PenguinToolsCLI"
-    Copy-PenguinToolsCliPublish $CliDist
-    # Also place PenguinTools.CLI under dist/.tools for users who directly run dist\ChuniEventer.exe.
-    $DistTools = Join-Path $Root "dist\.tools"
-    $DistCli = Join-Path $DistTools "PenguinToolsCLI"
-    Copy-PenguinToolsCliPublish $DistCli
+    Copy-PenguinToolsCliPublish (Join-Path $OutTools "PenguinToolsCLI")
+    Copy-PenguinToolsCliPublish (Join-Path $DistToolsRoot "PenguinToolsCLI")
 } elseif ($SkipPenguinToolsCli) {
     Write-Host "  Skip PenguinTools.CLI bundle (no $PenguinToolsCliExe ; pgko / pjsk 转谱不可用)"
 } else {
     throw "PenguinTools.CLI.exe not found: $PenguinToolsCliExe"
-}
-
-if (-not $SkipCompressonator) {
-    $OutTools = Join-Path $OutDir ".tools"
-    $DistToolsRoot = Join-Path $Root "dist\.tools"
-    Copy-CompressonatorBundle $OutTools
-    Copy-CompressonatorBundle $DistToolsRoot
 }
 
 # Bundle PenguinTools resources (stage templates / optional mua.exe) if present.
@@ -182,30 +225,49 @@ function Copy-PenguinToolsBundle([string]$toolsParent) {
     Copy-Item -Path (Join-Path $src "*") -Destination $dest -Recurse -Force
 }
 
-$OutTools2 = Join-Path $OutDir ".tools"
-$DistToolsRoot2 = Join-Path $Root "dist\.tools"
-Copy-PenguinToolsBundle $OutTools2
-Copy-PenguinToolsBundle $DistToolsRoot2
+Copy-PenguinToolsBundle $OutTools
+Copy-PenguinToolsBundle $DistToolsRoot
 
 $ThirdParty = Join-Path $Root "packaging\THIRD_PARTY_COMPRESSONATOR.txt"
 if (Test-Path $ThirdParty) {
-    Copy-Item $ThirdParty (Join-Path $OutDir "THIRD_PARTY_COMPRESSONATOR.txt") -Force
+    Copy-Item $ThirdParty (Join-Path $BundleDir "THIRD_PARTY_COMPRESSONATOR.txt") -Force
 }
 
 $ReleaseNote = Join-Path $Root ("packaging\GITHUB_RELEASE_v{0}.md" -f $Version)
 if (Test-Path $ReleaseNote) {
-    Copy-Item $ReleaseNote (Join-Path $OutDir ("GITHUB_RELEASE_v{0}.md" -f $Version)) -Force
+    Copy-Item $ReleaseNote (Join-Path $BundleDir ("GITHUB_RELEASE_v{0}.md" -f $Version)) -Force
 }
 
-$ZipPath = Join-Path $Root ("dist\Chuni-Eventer-v{0}.zip" -f $Version)
-if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
-Compress-Archive -Path (Join-Path $OutDir "*") -DestinationPath $ZipPath -CompressionLevel Optimal
+$ReadmeBundle = @"
+Chuni Eventer v$Version（懒人包）
+
+解压本 zip 后目录内应包含：
+  ChuniEventer.exe
+  .tools\          （FFmpeg、Compressonator、PenguinTools 等，与 exe 同级）
+
+直接双击 ChuniEventer.exe 即可使用，无需再下载依赖。
+
+另提供「仅 exe」的 lite 版：为同一程序，首次运行会在 exe 旁自动下载 .tools。
+"@
+Set-Content -Path (Join-Path $BundleDir "README.txt") -Value $ReadmeBundle -Encoding UTF8
+
+$ZipBundle = Join-Path $Root ("dist\Chuni-Eventer-v{0}.zip" -f $Version)
+if (Test-Path $ZipBundle) { Remove-Item $ZipBundle -Force }
+Compress-Archive -Path (Join-Path $BundleDir "*") -DestinationPath $ZipBundle -CompressionLevel Optimal
+
+# Lite：只分发这一个 exe（与懒人包内 ChuniEventer.exe 为同一构建产物）。
+$ReleaseDir = Join-Path $Root "dist\release"
+New-Item -ItemType Directory -Path $ReleaseDir -Force | Out-Null
+$LiteExe = Join-Path $ReleaseDir "ChuniEventer.exe"
+Copy-Item $AppExe $LiteExe -Force
 
 Write-Host "Done."
-Write-Host "EXE: $AppExe"
+Write-Host "Build EXE (lite + 懒人包共用): $AppExe"
 Write-Host "PenguinTools.CLI: $PenguinToolsCliExe"
+Write-Host "FFmpeg: $(Join-Path $BundleDir '.tools\ffmpeg\bin\ffmpeg.exe')"
 if (-not $SkipCompressonator) {
-    Write-Host "CompressonatorCLI: $(Join-Path $OutDir '.tools\CompressonatorCLI\compressonatorcli.exe')"
+    Write-Host "CompressonatorCLI: $(Join-Path $BundleDir '.tools\CompressonatorCLI\compressonatorcli.exe')"
 }
-Write-Host "Folder: $OutDir"
-Write-Host "Zip: $ZipPath"
+Write-Host "懒人包目录: $BundleDir"
+Write-Host "懒人包 zip: $ZipBundle"
+Write-Host "Lite 单 exe (上传 GitHub): $LiteExe"

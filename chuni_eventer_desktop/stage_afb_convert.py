@@ -19,6 +19,12 @@ class StageAfbResult:
     base_file: str
 
 
+def _bundled_stage_template_paths() -> tuple[Path, Path]:
+    """随 PyInstaller 打入 ``chuni_eventer_desktop/data/``（与 ``dummy.acb`` 相同）。"""
+    data_dir = Path(__file__).resolve().parent / "data"
+    return data_dir / "nf_dummy.afb", data_dir / "st_dummy.afb"
+
+
 def _candidate_mua_paths() -> list[Path]:
     root = app_root_dir()
     out: list[Path] = [
@@ -37,7 +43,16 @@ def _candidate_mua_paths() -> list[Path]:
     return out
 
 
-def resolve_mua_path() -> Path:
+def resolve_mua_path(cfg: object | None = None) -> Path:
+    if cfg is None:
+        from .acus_workspace import AcusConfig
+
+        cfg = AcusConfig.load()
+    from .external_tools import TOOL_MUA, resolve_tool_path
+
+    p = resolve_tool_path(TOOL_MUA, cfg)  # type: ignore[arg-type]
+    if p is not None:
+        return p
     for p in _candidate_mua_paths():
         try:
             rp = p.resolve(strict=False)
@@ -56,7 +71,7 @@ def resolve_mua_path() -> Path:
 def _candidate_templates(game_root: str | None) -> list[tuple[Path, Path]]:
     pairs: list[tuple[Path, Path]] = []
     root = app_root_dir()
-    # 1) 若你后续把模板打包进项目，优先读取这里
+    pairs.append(_bundled_stage_template_paths())
     pairs.extend(
         [
             (
@@ -101,12 +116,14 @@ def resolve_stage_templates(game_root: str | None) -> tuple[Path, Path]:
         tried.append(f"nf={nf} | st={st}")
         if nf.is_file() and st.is_file():
             return nf, st
+    nf_b, st_b = _bundled_stage_template_paths()
     raise StageAfbToolError(
         "未找到 Stage 模板 afb（nf/st）。\n"
-        "你可以把模板放在：\n"
-        "1) `<项目根>/.tools/PenguinTools/Resources/nf_dummy.afb` 与 `st_dummy.afb`\n"
-        "2) `<项目根>/A001/stage/stage000011/nf_00011.afb` 与 `st_00011.afb`\n"
-        "3) 游戏目录（设置里的 game_root）下的 `bin/option/A001/stage/...`。\n\n"
+        "正常情况应使用程序内置模板（打包在 exe 的 data 目录）。\n"
+        "亦可手动放置：\n"
+        f"1) 内置：{nf_b} 与 {st_b}\n"
+        "2) `<项目根>/.tools/PenguinTools/Resources/nf_dummy.afb` 与 `st_dummy.afb`\n"
+        "3) `<项目根>/A001/stage/stage000011/` 或设置里 game_root 下的 stage 文件。\n\n"
         "已尝试路径：\n" + "\n".join(tried)
     )
 
