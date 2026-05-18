@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 from qfluentwidgets import (
     BodyLabel,
     CardWidget,
+    CheckBox,
     ComboBox as FluentComboBox,
     LineEdit,
     PrimaryPushButton,
@@ -467,6 +468,9 @@ class CharaAddDialog(FluentCaptionDialog):
         self.illustrator = LineEdit(self)
         self.illustrator.setPlaceholderText("绘师 / illustratorName.str（可选，不填则 Invalid）")
 
+        self._default_have_cb = CheckBox("默认解锁（Chara.xml 中 defaultHave 为 true）", self)
+        self._default_have_cb.setChecked(False)
+
         self.head = LineEdit(self)
         self.half = LineEdit(self)
         self.full = LineEdit(self)
@@ -493,6 +497,8 @@ class CharaAddDialog(FluentCaptionDialog):
         id_lay.addWidget(self._row("最终 ID", self.cid_preview))
         id_lay.addWidget(self._row("角色名", wrap_name_input_with_preview(self.name, parent=self)))
         id_lay.addWidget(self._row("绘师（可选）", self.illustrator))
+        id_lay.addWidget(self._default_have_cb)
+        self._update_default_have_visibility()
 
         self._works_combo = FluentComboBox(self)
         fill_works_fluent_combo(self._works_combo)
@@ -652,6 +658,20 @@ class CharaAddDialog(FluentCaptionDialog):
         self.half.setText(str(half))
         self.head.setText(str(head))
 
+    def _is_master_chara_slot(self) -> bool:
+        if self._locked_variant is not None:
+            return self._locked_variant == 0
+        try:
+            return int(self.variant.text().strip() or "0") == 0
+        except ValueError:
+            return True
+
+    def _update_default_have_visibility(self) -> None:
+        self._default_have_cb.setVisible(self._is_master_chara_slot())
+
+    def set_default_have_checked(self, checked: bool) -> None:
+        self._default_have_cb.setChecked(bool(checked))
+
     def _update_preview(self) -> None:
         try:
             base = int(self.base.text().strip())
@@ -664,6 +684,7 @@ class CharaAddDialog(FluentCaptionDialog):
             self.cid_preview.setText(str(base * 10 + var))
         except Exception:
             self.cid_preview.setText("")
+        self._update_default_have_visibility()
 
     def _run(self) -> None:
         base_txt = self.base.text().strip()
@@ -738,6 +759,7 @@ class CharaAddDialog(FluentCaptionDialog):
                     release_tag_str=CHARA_DEFAULT_RELEASE_TAG_STR,
                     works_id=w_id,
                     works_str=w_str,
+                    default_have=self._default_have_cb.isChecked(),
                 )
                 ensure_chara_works_xml(
                     out_dir=self._acus_root,

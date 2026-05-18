@@ -1927,6 +1927,13 @@ class ManagerWidget(QWidget):
             pass
         if ill:
             dlg.illustrator.setText(ill)
+        if variant_slot == 0:
+            try:
+                root = ET.parse(master).getroot()
+                dh = (root.findtext("defaultHave") or "").strip().lower()
+                dlg.set_default_have_checked(dh == "true")
+            except Exception:
+                pass
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.reload()
 

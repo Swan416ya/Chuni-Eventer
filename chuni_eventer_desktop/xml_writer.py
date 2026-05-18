@@ -508,6 +508,7 @@ def write_chara_xml(
     works_str: str = "Invalid",
     net_open_id: int = CHARA_DEFAULT_NET_OPEN_ID,
     net_open_str: str = CHARA_DEFAULT_NET_OPEN_STR,
+    default_have: bool = False,
 ) -> Path:
     """
     Writes:
@@ -576,7 +577,7 @@ def write_chara_xml(
     <data />
   </works>
 {ill_block}
-  <defaultHave>false</defaultHave>
+  <defaultHave>{"true" if default_have else "false"}</defaultHave>
   <rareType>0</rareType>
   <normCondition>
     <conditions />
