@@ -30,7 +30,7 @@ from ..game_data_index import GameDataIndex, load_cached_game_index, rebuild_and
 from ..sheet_install import install_zip_to_acus, peek_root_readme_from_archive
 from ..dds_quicktex import quicktex_available
 from .manager_widget import ManagerWidget
-from .settings_dialog import SettingsDialog
+from .settings_page import SettingsPage
 from .chara_add_dialog import CharaAddDialog
 from .map_add_dialog import MapAddDialog, RewardCreateDialog, ensure_reward_xml, reward_dialog_bundle
 from .map_icon_dialog import MapIconAddEditDialog
@@ -39,7 +39,6 @@ from .trophy_add_dialog import TrophyAddDialog
 from .music_add_actions_dialog import MusicSheetChannelsDialog
 from .pgko_sheet_download_dialog import PgkoSheetDownloadDialog
 from .swan_sheet_download_dialog import SwanSheetDownloadDialog
-from .save_patch_dialog import SavePatchDialog
 from .event_add_dialog import EventAddDialog
 from .quest_add_dialog import QuestAddDialog
 from .mapbonus_dialogs import MapBonusEditDialog
@@ -177,6 +176,7 @@ class MainWindow(MSFluentWindow):
         self._acus_root = ensure_acus_layout(game_root=self._cfg.game_root or None)
         self._in_others_mode = False
         self._in_avatar_mode = False
+        self._in_settings_mode = False
 
         self._workspace = QWidget()
         self._workspace.setObjectName("acusWorkspace")
@@ -272,6 +272,16 @@ class MainWindow(MSFluentWindow):
 
         self.stackedWidget.addWidget(self._workspace)
 
+        self._settings_page = SettingsPage(
+            cfg=self._cfg,
+            acus_root=self._acus_root,
+            get_tool_path=self._get_tool_path_or_none,
+            on_settings_saved=self._on_settings_saved,
+            on_request_game_rescan=self._request_game_index_rescan,
+            parent=self,
+        )
+        self.stackedWidget.addWidget(self._settings_page)
+
         self._nav_specs: list[tuple[str, object, str, str, str]] = [
             ("nav_chara", nav_qicon(SVG_CHARA), "角色", "Chara", "角色"),
             ("nav_map", nav_qicon(SVG_MAP), "地图", "Map", "地图"),
@@ -310,20 +320,11 @@ class MainWindow(MSFluentWindow):
             )
 
         self.navigationInterface.addItem(
-            routeKey="nav_save_patch",
-            icon=FluentIcon.SAVE,
-            text="存档编辑器",
-            onClick=self._open_save_patch,
-            position=NavigationItemPosition.BOTTOM,
-            selectable=False,
-        )
-        self.navigationInterface.addItem(
             routeKey="nav_settings",
             icon=FluentIcon.SETTING,
             text="设置",
-            onClick=self._open_settings,
+            onClick=self._enter_settings_mode,
             position=NavigationItemPosition.BOTTOM,
-            selectable=False,
         )
 
         self.switchTo(self._workspace)
@@ -492,8 +493,30 @@ class MainWindow(MSFluentWindow):
         self._content_stack.setCurrentWidget(self._primary_body)
         self._mount_manager_primary()
 
+    def _exit_settings_mode(self) -> None:
+        if not self._in_settings_mode:
+            return
+        self._in_settings_mode = False
+
+    def _enter_settings_mode(self) -> None:
+        try:
+            _scan_logger().info("ui_enter_settings")
+            self._exit_avatar_mode()
+            self._exit_others_mode()
+            self._in_settings_mode = True
+            self.switchTo(self._settings_page)
+            self.navigationInterface.setCurrentItem("nav_settings")
+        except Exception:
+            _scan_logger().exception("ui_enter_settings_crash")
+            fly_critical(self, "操作失败", "打开设置页时发生异常，请提供日志。")
+
+    def _on_settings_saved(self) -> None:
+        fly_message(self, "已保存", "设置已保存。")
+        self._on_refresh()
+
     def _enter_others_mode(self, route_key: str) -> None:
         self._exit_avatar_mode()
+        self._exit_settings_mode()
         self.switchTo(self._workspace)
         self.navigationInterface.setCurrentItem(route_key)
         self._in_others_mode = True
@@ -510,6 +533,7 @@ class MainWindow(MSFluentWindow):
 
     def _enter_avatar_mode(self, route_key: str) -> None:
         self._exit_others_mode()
+        self._exit_settings_mode()
         self.switchTo(self._workspace)
         self.navigationInterface.setCurrentItem(route_key)
         self._in_avatar_mode = True
@@ -554,6 +578,7 @@ class MainWindow(MSFluentWindow):
         self._apply_category(kind, title)
 
     def _select_category(self, route_key: str, kind: str, title: str) -> None:
+        self._exit_settings_mode()
         self.switchTo(self._workspace)
         self.navigationInterface.setCurrentItem(route_key)
         self._exit_avatar_mode()
@@ -620,40 +645,6 @@ class MainWindow(MSFluentWindow):
         except Exception:
             _scan_logger().exception("ui_click_game_music_browser_crash")
             fly_critical(self, "操作失败", "打开游戏乐曲浏览时发生异常，请提供日志。")
-
-    def _open_save_patch(self) -> None:
-        try:
-            _scan_logger().info("ui_click_save_patch")
-            dlg = SavePatchDialog(
-                acus_root=self._acus_root,
-                get_tool_path=self._get_tool_path_or_none,
-                parent=self,
-            )
-            dlg.exec()
-        except Exception:
-            _scan_logger().exception("ui_click_save_patch_crash")
-            fly_critical(self, "操作失败", "打开存档编辑器时发生异常，请提供日志。")
-
-    def _open_settings(self) -> None:
-        try:
-            dlg = SettingsDialog(
-                cfg=self._cfg,
-                acus_root=self._acus_root,
-                get_tool_path=self._get_tool_path_or_none,
-                on_request_game_rescan=self._request_game_index_rescan,
-                parent=self,
-            )
-            _scan_logger().info("settings_dialog_open")
-            if dlg.exec() == dlg.DialogCode.Accepted:
-                _scan_logger().info("settings_save_click accepted=1")
-                _scan_logger().info("settings_save_apply_done")
-                fly_message(self, "已保存", "设置已保存。")
-                self._on_refresh()
-            else:
-                _scan_logger().info("settings_dialog_close_without_save")
-        except Exception:
-            _scan_logger().exception("settings_dialog_crash")
-            fly_critical(self, "操作失败", "打开或保存设置时发生异常，请提供日志。")
 
     def _request_game_index_rescan(self, game_root: Path, compressonatorcli_path: Path | None) -> None:
         if self._index_thread is not None:

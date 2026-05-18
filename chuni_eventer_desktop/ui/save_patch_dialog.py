@@ -19,7 +19,6 @@ from qfluentwidgets import (
     CardWidget,
     EditableComboBox,
     PrimaryPushButton,
-    PushButton,
     SearchLineEdit,
     SpinBox,
     TabWidget,
@@ -57,6 +56,8 @@ from ..dds_quicktex import quicktex_available
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
 
+_PAGE_MARGINS = (0, 0, 0, 8)
+
 
 def _preview_frame_style() -> str:
     b = "#3A3A3A" if isDarkTheme() else "#D1D5DB"
@@ -64,17 +65,14 @@ def _preview_frame_style() -> str:
     return f"QLabel {{ border: 1px solid {b}; border-radius: 8px; background: {bg}; }}"
 
 
-class SavePatchDialog(FluentCaptionDialog):
+class SavePatchPanel(QWidget):
     """
     上传 ALL.Net 导出存档 JSON，编辑 userData 中装备相关字段（名牌、主/副称号、系统语音、
     MapIcon、背景（Stage）、企鹅等），另存为新 JSON。
     """
 
-    def __init__(self, *, acus_root: Path, get_tool_path, parent=None) -> None:
+    def __init__(self, *, acus_root: Path, get_tool_path, parent: QWidget | None = None) -> None:
         super().__init__(parent=parent)
-        self.setWindowTitle("存档编辑器")
-        self.setModal(True)
-        self.resize(760, 680)
         self._acus_root = acus_root
         self._get_tool_path = get_tool_path
         self._save_path: Path | None = None
@@ -253,13 +251,10 @@ class SavePatchDialog(FluentCaptionDialog):
 
         apply_btn = PrimaryPushButton("写入并另存为…", self)
         apply_btn.clicked.connect(self._apply)
-        cancel_btn = PushButton("取消", self)
-        cancel_btn.clicked.connect(self.reject)
 
         btns = QHBoxLayout()
         btns.setSpacing(8)
         btns.addStretch(1)
-        btns.addWidget(cancel_btn)
         btns.addWidget(apply_btn)
 
         hint = BodyLabel(
@@ -277,7 +272,7 @@ class SavePatchDialog(FluentCaptionDialog):
         tc_lay.addWidget(self.tabs)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(*fluent_caption_content_margins())
+        root.setContentsMargins(*_PAGE_MARGINS)
         root.setSpacing(14)
         root.addWidget(pick_btn)
         root.addWidget(self.path_label)
@@ -566,4 +561,21 @@ class SavePatchDialog(FluentCaptionDialog):
             fly_critical(self, "写入失败", str(e))
             return
         fly_message(self, "完成", f"已写入：\n{out}")
-        self.accept()
+
+
+class SavePatchDialog(FluentCaptionDialog):
+    """独立弹窗版存档编辑器（兼容）；主窗口请使用 SettingsPage 内嵌面板。"""
+
+    def __init__(self, *, acus_root: Path, get_tool_path, parent=None) -> None:
+        super().__init__(parent=parent)
+        self.setWindowTitle("存档编辑器")
+        self.setModal(True)
+        self.resize(760, 680)
+        self._panel = SavePatchPanel(
+            acus_root=acus_root,
+            get_tool_path=get_tool_path,
+            parent=self,
+        )
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(*fluent_caption_content_margins())
+        layout.addWidget(self._panel)
