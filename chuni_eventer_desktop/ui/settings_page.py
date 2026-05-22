@@ -8,6 +8,8 @@ from PyQt6.QtWidgets import QHBoxLayout, QStackedWidget, QVBoxLayout, QWidget
 
 from qfluentwidgets import PrimaryPushButton, ScrollArea, SegmentedWidget, SubtitleLabel
 
+from .fluent_scroll import apply_fluent_transparent_panel, apply_fluent_transparent_scroll
+
 from ..acus_workspace import AcusConfig
 from ..game_data_index import GameDataIndex
 from .save_patch_dialog import SavePatchPanel
@@ -18,11 +20,12 @@ from .tools_settings_panel import ToolsSettingsPanel
 
 
 def _scroll_wrap(inner: QWidget) -> ScrollArea:
+    apply_fluent_transparent_panel(inner)
     scroll = ScrollArea()
     scroll.setWidget(inner)
     scroll.setWidgetResizable(True)
-    scroll.setFrameShape(ScrollArea.Shape.NoFrame)
     scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    apply_fluent_transparent_scroll(scroll)
     return scroll
 
 
@@ -50,6 +53,7 @@ class SettingsPage(QWidget):
     ) -> None:
         super().__init__(parent)
         self.setObjectName("settingsPage")
+        apply_fluent_transparent_panel(self)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 8, 24, 16)

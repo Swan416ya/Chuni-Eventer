@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
 
 from qfluentwidgets import Action, FluentIcon as FIF, MenuAnimationType, RoundMenu, ScrollArea
 
+from .fluent_scroll import apply_fluent_transparent_panel, apply_fluent_transparent_scroll
 from .qthread_lifecycle import await_qthreads
 
 
@@ -491,6 +492,7 @@ class MusicCardsView(QWidget):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        apply_fluent_transparent_panel(self)
         self._acus_root = acus_root
         self._cards: list[FlipMusicCard] = []
         self._last_items: list[MusicItem] = []
@@ -511,12 +513,14 @@ class MusicCardsView(QWidget):
         self._scroll.setFrameShape(QFrame.Shape.NoFrame)
 
         self._content = QWidget()
+        apply_fluent_transparent_panel(self._content)
         self._grid = QGridLayout(self._content)
         self._grid.setContentsMargins(16, 16, 16, 16)
         self._grid.setHorizontalSpacing(16)
         self._grid.setVerticalSpacing(16)
         self._grid.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         self._scroll.setWidget(self._content)
+        apply_fluent_transparent_scroll(self._scroll)
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
