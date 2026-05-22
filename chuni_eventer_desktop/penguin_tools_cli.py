@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -167,3 +168,140 @@ def convert_chart_text_with_penguin_tools_cli(*, text: str, suffix: str) -> str:
         input_path.write_text(text, encoding="utf-8")
         converted = convert_chart_with_penguin_tools_cli(input_path=input_path, output_path=output_path)
         return converted.read_text(encoding="utf-8")
+
+
+def _artifact_path(payload: dict[str, Any], kind: str) -> Path | None:
+    data = payload.get("data") or {}
+    for item in data.get("artifacts") or []:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("kind") or "") != kind:
+            continue
+        raw = str(item.get("path") or "").strip()
+        if raw:
+            return Path(raw).resolve()
+    return None
+
+
+def cli_song_id_from_payload(payload: dict[str, Any]) -> int | None:
+    chart = (payload.get("data") or {}).get("chart") or {}
+    sid = chart.get("songId")
+    if sid is None:
+        return None
+    try:
+        return int(sid)
+    except (TypeError, ValueError):
+        return None
+
+
+def cue_bundle_dir_from_audio_payload(payload: dict[str, Any]) -> Path:
+    acb = _artifact_path(payload, "audio.acb")
+    if acb is not None and acb.is_file():
+        return acb.parent
+
+    data = payload.get("data") or {}
+    out_dir = str(data.get("outputDirectory") or "").strip()
+    if out_dir:
+        root = Path(out_dir).resolve()
+        for cand in sorted(root.glob("cueFile*")):
+            if cand.is_dir() and (cand / "CueFile.xml").is_file():
+                return cand
+
+    raise RuntimeError(
+        "PenguinTools.CLI 音频导出成功，但未找到 cueFile 目录。\n"
+        f"payload data: {json.dumps(data, ensure_ascii=False)}"
+    )
+
+
+def _patch_acb_cue_names(acb_path: Path, *, music_id: int) -> None:
+    try:
+        from PyCriCodecsEx.acb import ACB
+        from PyCriCodecsEx.chunk import UTFTypeValues
+        from PyCriCodecsEx.utf import UTFBuilder
+    except ImportError as e:
+        raise RuntimeError(
+            "需要 PyCriCodecsEx 才能将 PenguinTools 导出的 ACB 重命名为目标 music ID。"
+        ) from e
+
+    mid = int(music_id)
+    cue_name = f"cueFile{mid:06d}"
+    acb = ACB(str(acb_path))
+    acb.view.Name = cue_name
+    hash_rows = acb.payload.get("StreamAwbHash")
+    if hash_rows and len(hash_rows) > 1 and hash_rows[1]:
+        hash_rows[1][0]["Name"] = (UTFTypeValues.string, cue_name)
+    acb_path.write_bytes(
+        UTFBuilder(acb.dictarray, encoding=acb.encoding, table_name=acb.table_name).bytes()
+    )
+
+
+def relocate_cue_bundle_for_music_id(cue_dir: Path, *, music_id: int) -> Path:
+    """
+    将 PenguinTools 导出的 cueFile 目录对齐到目标 music ID（含 ACB 内 cue 名与 CueFile.xml）。
+    """
+    from .pjsk_audio_chuni import _write_cue_file_xml
+
+    cue_dir = cue_dir.resolve()
+    mid = int(music_id)
+    target = cue_dir.parent / f"cueFile{mid:06d}"
+    music_tag = f"music{mid:04d}"
+    target_acb = target / f"{music_tag}.acb"
+    target_awb = target / f"{music_tag}.awb"
+
+    if (
+        cue_dir == target
+        and target_acb.is_file()
+        and target_awb.is_file()
+        and (target / "CueFile.xml").is_file()
+    ):
+        _patch_acb_cue_names(target_acb, music_id=mid)
+        _write_cue_file_xml(target, music_id=mid)
+        return target
+
+    acb_src = next(iter(sorted(cue_dir.glob("music*.acb"))), None)
+    awb_src = next(iter(sorted(cue_dir.glob("music*.awb"))), None)
+    if acb_src is None or awb_src is None:
+        raise RuntimeError(f"未在 {cue_dir} 找到 music*.acb / music*.awb")
+
+    if target.exists() and target != cue_dir:
+        shutil.rmtree(target, ignore_errors=True)
+    target.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(awb_src, target_awb)
+    shutil.copy2(acb_src, target_acb)
+    _patch_acb_cue_names(target_acb, music_id=mid)
+    _write_cue_file_xml(target, music_id=mid)
+
+    if cue_dir != target and cue_dir.is_dir():
+        shutil.rmtree(cue_dir, ignore_errors=True)
+    return target
+
+
+def convert_jacket_with_penguin_tools_cli(
+    *,
+    input_path: Path,
+    output_path: Path,
+    jacket_input: Path | None = None,
+) -> Path:
+    input_path = Path(input_path).resolve()
+    output_path = Path(output_path).resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    args = ["media", "jacket", str(input_path), str(output_path)]
+    if jacket_input is not None:
+        args.extend(["--jacket-input", str(Path(jacket_input).resolve())])
+    payload = _run_penguin_tools_cli(args)
+    data = payload.get("data") or {}
+    resolved_output = Path(str(data.get("outputPath") or output_path)).resolve()
+    if not resolved_output.is_file():
+        raise RuntimeError(
+            "PenguinTools.CLI 报告成功，但未生成封面 DDS。\n"
+            f"input: {input_path}\n"
+            f"expected output: {resolved_output}"
+        )
+    return resolved_output
+
+
+def convert_audio_with_penguin_tools_cli(*, input_path: Path, output_dir: Path) -> dict[str, Any]:
+    input_path = Path(input_path).resolve()
+    output_dir = Path(output_dir).resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    return _run_penguin_tools_cli(["media", "audio", str(input_path), str(output_dir)])

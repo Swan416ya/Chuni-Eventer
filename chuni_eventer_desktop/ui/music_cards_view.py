@@ -531,10 +531,11 @@ class MusicCardsView(QWidget):
     def _stop_jacket_loader(self) -> None:
         self._jacket_load_generation_ref[0] += 1
         thread = self._jacket_thread
-        if thread is not None and thread.isRunning():
-            thread.quit()
         self._jacket_thread = None
         self._jacket_worker = None
+        if thread is not None and thread.isRunning():
+            thread.quit()
+            thread.wait(60_000)
 
     def _prioritized_jacket_jobs(self) -> list[tuple[int, Path]]:
         tool = self._get_tool_path()
@@ -654,6 +655,7 @@ class MusicCardsView(QWidget):
                 w.deleteLater()
 
     def set_items(self, items: list[MusicItem], get_tool_path) -> None:
+        self._stop_jacket_loader()
         self._last_items = list(items)
         self._get_tool_path = get_tool_path
         self._jacket_cache.clear()

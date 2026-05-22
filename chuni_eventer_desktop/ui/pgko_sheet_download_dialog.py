@@ -7,7 +7,7 @@ import os
 import zipfile
 
 from PyQt6.QtCore import QThread, QUrl, pyqtSignal, Qt
-from PyQt6.QtGui import QBrush, QColor, QDesktopServices, QEnterEvent, QPixmap
+from PyQt6.QtGui import QBrush, QColor, QCloseEvent, QDesktopServices, QEnterEvent, QPixmap, QShowEvent
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
@@ -588,6 +588,7 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
         self._next_cursor: str | None = None
         self._is_fetching_more = False
         self._seen_bundle_ids: set[str] = set()
+        self._penguin_cli_prompt_shown = False
 
         credit = QLabel(self)
         credit.setTextFormat(Qt.TextFormat.RichText)
@@ -595,16 +596,18 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
         credit.setText(
             '<p style="margin:0;line-height:1.5;">'
             '<span style="color:#c62828;font-weight:700;">※</span> '
-            "<b>pgko.dev</b> 列表数据与 <b>mgxc → c2s</b> 转谱逻辑均参考作者 "
-            '<a href="https://github.com/Foahh" style="color:#1565c0;font-weight:600;text-decoration:none;">Foahh</a> '
-            "的开源项目（如 PenguinTools）。"
+            "<b>pgko.dev</b> 列表数据与谱面转码（<b>mgxc → c2s</b>、音频、封面）均使用 "
+            '<a href="https://github.com/Foahh/PenguinTools" style="color:#1565c0;font-weight:600;text-decoration:none;">'
+            "PenguinTools CLI</a>（作者 "
+            '<a href="https://github.com/Foahh" style="color:#1565c0;font-weight:600;text-decoration:none;">Foahh</a>）。'
             "</p>"
         )
         credit.setWordWrap(True)
 
         card = CardWidget(self)
         hint = BodyLabel(
-            "加载 pgko.dev 可下载条目。双击行或点「下载选中项」解压到本地缓存，并可转 c2s（需包内存在 mgxc）。"
+            "加载 pgko.dev 可下载条目。双击行或点「下载选中项」解压到本地缓存，并可转 c2s（需包内存在 mgxc；"
+            "依赖已安装的 PenguinTools CLI）。"
             "若只有 UGC，请点「UGC → mgxc…」查看用 Margrete 手工导出 mgxc 的步骤，并浏览已缓存的 mgxc 包。"
         )
         hint.setWordWrap(True)
@@ -658,6 +661,52 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
 
         self._on_refresh()
 
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        self._maybe_prompt_penguin_tools_cli()
+
+    @staticmethod
+    def _resolve_main_window(widget: QWidget | None) -> QWidget | None:
+        w = widget
+        while w is not None:
+            if hasattr(w, "open_settings_tools_tab"):
+                return w
+            w = w.parentWidget()
+        return None
+
+    def _maybe_prompt_penguin_tools_cli(self) -> None:
+        if self._penguin_cli_prompt_shown:
+            return
+        if resolve_penguin_tools_cli() is not None:
+            return
+        self._penguin_cli_prompt_shown = True
+
+        def _on_go_settings(yes: bool) -> None:
+            if not yes:
+                return
+            host = self._resolve_main_window(self)
+            if host is None:
+                fly_warning(
+                    self,
+                    "无法打开设置",
+                    "请手动点击左侧导航栏「设置」，进入「外部工具」下载 PenguinTools.CLI。",
+                )
+                return
+            host.open_settings_tools_tab()  # type: ignore[attr-defined]
+
+        fly_question_async(
+            self,
+            "缺少 PenguinTools.CLI",
+            "未检测到 PenguinTools.CLI（默认位于应用目录 `.tools/PenguinToolsCLI/`）。\n"
+            "pgko 转码与导入 ACUS 依赖该工具。\n\n"
+            "请前往【设置 → 外部工具】一键下载安装。\n\n"
+            "是否现在打开设置？",
+            on_result=_on_go_settings,
+            yes_text="打开设置",
+            no_text="稍后",
+            window_modal=True,
+        )
+
     def _on_pgko_table_cell_clicked(self, row: int, col: int) -> None:
         if col != _PGKO_TABLE_COL_DETAIL or row < 0:
             return
@@ -680,15 +729,34 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
         except RuntimeError:
             return False
 
+    def _await_bg_threads(self, timeout_ms: int = 300_000) -> None:
+        for th in (
+            self._fetch_thread,
+            self._download_thread,
+            self._convert_thread,
+            self._ugc_exp_thread,
+        ):
+            if self._thread_running_safe(th):
+                th.wait(timeout_ms)
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        self._await_bg_threads()
+        super().closeEvent(event)
+
+    def reject(self) -> None:
+        self._await_bg_threads()
+        super().reject()
+
     def _attach_fetch_thread(self, th: _FetchPgkoThread) -> None:
         self._fetch_thread = th
         th.ok.connect(self._on_fetch_ok)
         th.fail.connect(self._on_fetch_fail)
 
         def _on_finished() -> None:
-            # 先清空引用，再 deleteLater，避免后续访问已释放对象
+            # 先清空引用，再 wait/deleteLater，避免关闭弹窗时线程仍在运行
             if self._fetch_thread is th:
                 self._fetch_thread = None
+            th.wait(300_000)
             th.deleteLater()
 
         th.finished.connect(_on_finished)
@@ -701,9 +769,9 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
         th.fail.connect(self._on_download_fail)
 
         def _on_finished() -> None:
-            # 先清空引用，再 deleteLater，避免后续访问已释放对象
             if self._download_thread is th:
                 self._download_thread = None
+            th.wait(300_000)
             th.deleteLater()
 
         th.finished.connect(_on_finished)
@@ -717,6 +785,7 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
         def _on_finished() -> None:
             if self._convert_thread is th:
                 self._convert_thread = None
+            th.wait(300_000)
             th.deleteLater()
 
         th.finished.connect(_on_finished)
@@ -730,6 +799,7 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
         def _on_finished() -> None:
             if self._ugc_exp_thread is th:
                 self._ugc_exp_thread = None
+            th.wait(300_000)
             th.deleteLater()
 
         th.finished.connect(_on_finished)
@@ -1010,6 +1080,7 @@ class _PgkoInstallConfigDialog(FluentCaptionDialog):
         self._acus_root = acus_root
         self._tool_path = tool_path
         self._thread: _InstallPgkoThread | None = None
+        self._pending_accept_result: dict[str, object] | None = None
 
         suggest_id = suggest_next_pgko_music_id(acus_root, start=6000)
         self._id_edit = LineEdit(self)
@@ -1089,12 +1160,13 @@ class _PgkoInstallConfigDialog(FluentCaptionDialog):
         self._status.setText("正在导入（谱面/音频/事件），请稍候…")
         self._status.show()
         self._ok_btn.setEnabled(False)
+        self._pending_accept_result = None
         self._thread = _InstallPgkoThread(
             pick=self._pick,
             acus_root=self._acus_root,
             tool_path=self._tool_path,
             opts=opts,
-            parent=self,
+            parent=None,
         )
         self._thread.ok.connect(self._on_install_ok)
         self._thread.fail.connect(self._on_install_fail)
@@ -1105,7 +1177,13 @@ class _PgkoInstallConfigDialog(FluentCaptionDialog):
             self._thread = None
             self._ok_btn.setEnabled(True)
             if th is not None:
+                th.wait(300_000)
                 th.deleteLater()
+            pending = self._pending_accept_result
+            if pending is not None:
+                self._pending_accept_result = None
+                _pgko_dlog("_on_install_ok:accept_deferred", music_id=pending.get("musicId"))
+                self.accept()
 
         self._thread.finished.connect(_done)
         self._thread.start()
@@ -1130,8 +1208,7 @@ class _PgkoInstallConfigDialog(FluentCaptionDialog):
             f"cue: {ret.get('cueDir')}\n"
             f"event: {ret.get('eventId')}"
         )
-        _pgko_dlog("_on_install_ok:accept_before", summary=summary)
-        self.accept()
-        _pgko_dlog("_on_install_ok:accept_after")
+        _pgko_dlog("_on_install_ok:pending_accept", summary=summary)
         self._status.setText(summary)
         self._status.show()
+        self._pending_accept_result = ret

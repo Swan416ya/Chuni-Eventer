@@ -621,6 +621,11 @@ class MainWindow(MSFluentWindow):
             return
         self._in_settings_mode = False
 
+    def open_settings_tools_tab(self) -> None:
+        """进入设置页并切换到「外部工具」分段（供弹窗引导下载 PenguinTools.CLI 等）。"""
+        self._enter_settings_mode()
+        self._ensure_settings_page().show_tools_tab()
+
     def _enter_settings_mode(self) -> None:
         try:
             _scan_logger().info("ui_enter_settings")
@@ -892,10 +897,10 @@ class MainWindow(MSFluentWindow):
             act = pick.selected_action()
             if act == "swan":
                 SwanSheetDownloadDialog(acus_root=self._acus_root, parent=self).exec()
-                self._on_refresh()
+                QTimer.singleShot(0, self._on_refresh)
             elif act == "pgko":
                 PgkoSheetDownloadDialog(parent=self).exec()
-                self._on_refresh()
+                QTimer.singleShot(0, self._on_refresh)
             elif act == "local_zip":
                 path, _ = QFileDialog.getOpenFileName(
                     self,

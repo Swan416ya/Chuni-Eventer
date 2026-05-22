@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 import struct
+import shutil
 import zlib
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
 
-from . import pjsk_audio_chuni as pjsk_ac
-from .dds_convert import convert_to_bc3_dds
-from .music_jacket_replace import JACKET_BC3_EDGE, _prepare_square_jacket_png
-from .penguin_tools_cli import convert_chart_with_penguin_tools_cli
+from .penguin_tools_cli import (
+    cli_song_id_from_payload,
+    convert_audio_with_penguin_tools_cli,
+    convert_chart_with_penguin_tools_cli,
+    convert_jacket_with_penguin_tools_cli,
+    cue_bundle_dir_from_audio_payload,
+    relocate_cue_bundle_for_music_id,
+)
 from .pjsk_acus_install import (
     append_event_sort,
     append_music_sort,
@@ -170,6 +175,100 @@ def _read_field(buf: BinaryIO) -> str | int | float:
     raise ValueError(f"unknown mgxc field type: {typ}")
 
 
+def _read_wide_field(buf: BinaryIO) -> str:
+    typ = _i32(_read_exact(buf, 4))
+    attr = _i32(_read_exact(buf, 4))
+    if typ != 4:
+        raise ValueError(f"unsupported mgxc wide field type: {typ}")
+    return _decode_mgxc_text(_read_exact(buf, attr))
+
+
+def _parse_mgxc_meta_from_block(block: bytes, meta: _MgxcMeta) -> _MgxcMeta:
+    import io
+
+    br = io.BytesIO(block)
+    designer = meta.designer
+    artist = meta.artist
+    title = meta.title
+    song_id = meta.song_id
+    bgm_file = meta.bgm_file
+    preview_start_sec = meta.preview_start_sec
+    preview_stop_sec = meta.preview_stop_sec
+    has_preview_start = meta.has_preview_start
+    has_preview_stop = meta.has_preview_stop
+    difficulty = meta.difficulty
+    level_const = meta.level_const
+    while br.tell() < len(block):
+        name = _read_exact(br, 4).decode("utf-8", errors="ignore")
+        data = _read_field(br)
+        if name == "dsgn" and isinstance(data, str):
+            designer = data.strip()
+        elif name == "arts" and isinstance(data, str):
+            artist = data.strip()
+        elif name == "titl" and isinstance(data, str):
+            title = data.strip()
+        elif name == "sgid" and isinstance(data, str):
+            song_id = data.strip()
+        elif name == "wvfn" and isinstance(data, str):
+            bgm_file = data.strip()
+        elif name == "wvp0":
+            try:
+                preview_start_sec = float(data)
+                has_preview_start = True
+            except Exception:
+                preview_start_sec = 0.0
+        elif name == "wvp1":
+            try:
+                preview_stop_sec = float(data)
+                has_preview_stop = True
+            except Exception:
+                preview_stop_sec = 30.0
+        elif name == "diff":
+            try:
+                difficulty = int(data)
+            except Exception:
+                difficulty = 3
+        elif name == "cnst":
+            try:
+                level_const = float(data)
+            except Exception:
+                level_const = None
+    return _MgxcMeta(
+        designer=designer,
+        artist=artist,
+        title=title,
+        song_id=song_id,
+        bgm_file=bgm_file,
+        preview_start_sec=preview_start_sec,
+        preview_stop_sec=preview_stop_sec,
+        has_preview_start=has_preview_start,
+        has_preview_stop=has_preview_stop,
+        difficulty=int(difficulty),
+        level_const=level_const,
+    )
+
+
+def _parse_mgxc_meta(path: Path) -> _MgxcMeta:
+    """仅解析 mgxc 的 meta 块（供标题/难度等元数据读取，不解析 evnt/dat2）。"""
+    meta = _MgxcMeta()
+    with path.open("rb") as f:
+        if _read_exact(f, 4) != b"MGXC":
+            raise ValueError("invalid mgxc header")
+        _read_exact(f, 8)  # block size + version
+        while True:
+            hdr = f.read(4)
+            if not hdr:
+                break
+            if len(hdr) != 4:
+                raise ValueError("broken mgxc block header")
+            size = _i32(_read_exact(f, 4))
+            if hdr == b"meta":
+                meta = _parse_mgxc_meta_from_block(_read_exact(f, size), meta)
+            else:
+                _read_exact(f, size)
+    return meta
+
+
 def _parse_mgxc(path: Path) -> tuple[_MgxcMeta, list[_MgxcEvent], list[_MgxcNote]]:
     meta = _MgxcMeta()
     events: list[_MgxcEvent] = []
@@ -218,80 +317,21 @@ def _parse_mgxc(path: Path) -> tuple[_MgxcMeta, list[_MgxcEvent], list[_MgxcNote
                     elif name == "mbkm":
                         _read_field(br)
                     elif name == "bmrk":
-                        _read_exact(br, 8 + int(_i32(_read_exact(br, 4))))  # skip wide hash
+                        _read_wide_field(br)  # hash
+                        _read_field(br)  # tick
+                        _read_wide_field(br)  # tag
+                        _read_wide_field(br)  # rgb
                     elif name == "rimg":
                         _read_field(br)
                         _read_field(br)
-                        w_typ = _i32(_read_exact(br, 4))
-                        w_len = _i32(_read_exact(br, 4))
-                        if w_typ == 4 and w_len > 0:
-                            _read_exact(br, w_len)
+                        _read_wide_field(br)
                         _read_exact(br, 4)
                         continue
                     else:
                         raise ValueError(f"unknown mgxc event tag: {name!r}")
                     _read_exact(br, 4)  # trailing zero
             elif hdr == b"meta":
-                import io
-
-                br = io.BytesIO(block)
-                designer = meta.designer
-                artist = meta.artist
-                title = meta.title
-                song_id = meta.song_id
-                bgm_file = meta.bgm_file
-                preview_start_sec = meta.preview_start_sec
-                preview_stop_sec = meta.preview_stop_sec
-                has_preview_start = meta.has_preview_start
-                has_preview_stop = meta.has_preview_stop
-                while br.tell() < len(block):
-                    name = _read_exact(br, 4).decode("utf-8", errors="ignore")
-                    data = _read_field(br)
-                    if name == "dsgn" and isinstance(data, str):
-                        designer = data.strip()
-                    elif name == "arts" and isinstance(data, str):
-                        artist = data.strip()
-                    elif name == "titl" and isinstance(data, str):
-                        title = data.strip()
-                    elif name == "sgid" and isinstance(data, str):
-                        song_id = data.strip()
-                    elif name == "wvfn" and isinstance(data, str):
-                        bgm_file = data.strip()
-                    elif name == "wvp0":
-                        try:
-                            preview_start_sec = float(data)
-                            has_preview_start = True
-                        except Exception:
-                            preview_start_sec = 0.0
-                    elif name == "wvp1":
-                        try:
-                            preview_stop_sec = float(data)
-                            has_preview_stop = True
-                        except Exception:
-                            preview_stop_sec = 30.0
-                    elif name == "diff":
-                        try:
-                            difficulty = int(data)
-                        except Exception:
-                            difficulty = 3
-                    elif name == "cnst":
-                        try:
-                            level_const = float(data)
-                        except Exception:
-                            level_const = None
-                meta = _MgxcMeta(
-                    designer=designer,
-                    artist=artist,
-                    title=title,
-                    song_id=song_id,
-                    bgm_file=bgm_file,
-                    preview_start_sec=preview_start_sec,
-                    preview_stop_sec=preview_stop_sec,
-                    has_preview_start=has_preview_start,
-                    has_preview_stop=has_preview_stop,
-                    difficulty=int(locals().get("difficulty", meta.difficulty)),
-                    level_const=locals().get("level_const", meta.level_const),
-                )
+                meta = _parse_mgxc_meta_from_block(block, meta)
             elif hdr == b"dat2":
                 import io
 
@@ -1352,10 +1392,7 @@ def convert_pgko_audio_to_chuni_from_pick(
     pick: PgkoChartPick, *, music_id_override: int | None = None
 ) -> dict[str, object]:
     """
-    Reuse pjsk audio pipeline for pgko:
-    - decode to 48k wav by ffmpeg (no forced 9s trim)
-    - build chuni cueFile/musicXXXX.acb/.awb
-    - preview window uses mgxc meta wvp0/wvp1
+    通过 PenguinTools.CLI ``media audio`` 生成中二 cueFile（含 SOFFSET / wvof 等元数据对齐）。
     """
     source_path = pick.path
     if pick.ext.lower().strip(".") != "mgxc":
@@ -1364,37 +1401,48 @@ def convert_pgko_audio_to_chuni_from_pick(
             raise RuntimeError("音频转码需要 mgxc（或可回退到同目录 mgxc）")
         source_path = fb
 
-    meta, _events, _notes = _parse_mgxc(source_path)
+    meta = _parse_mgxc_meta(source_path)
     src_audio = _resolve_mgxc_audio_file(meta, source_path)
     if src_audio is None:
         raise FileNotFoundError(f"未找到可用音频文件（mgxc={source_path.name}）")
 
-    music_id = int(music_id_override) if music_id_override is not None else _derive_music_id(meta, source_path)
-    # 仅当作者在 mgxc 中明确填写了 wvp0/wvp1 时才使用；否则统一默认 0-30 秒
-    if meta.has_preview_start and meta.has_preview_stop:
-        preview_start = max(0.0, float(meta.preview_start_sec))
-        preview_stop = float(meta.preview_stop_sec)
-        if preview_stop <= preview_start + 0.05:
-            preview_start, preview_stop = 0.0, 30.0
-    else:
-        preview_start, preview_stop = 0.0, 30.0
-
-    cache_root = source_path.parent
-    result = pjsk_ac.try_pipeline_pjsk_audio_to_chuni(
-        src_audio=src_audio,
-        music_id=music_id,
-        cache_root=cache_root,
-        trim_leading_sec=0.0,
-        preview_start_sec=preview_start,
-        preview_stop_sec=preview_stop,
+    music_id = (
+        int(music_id_override)
+        if music_id_override is not None
+        else _derive_music_id(meta, source_path)
     )
-    if result is None:
-        raise RuntimeError("音频转码失败：缺少 PyCriCodecsEx 或打包阶段失败")
-    result["musicId"] = music_id
-    result["audioSource"] = str(src_audio)
-    result["previewStartSec"] = preview_start
-    result["previewStopSec"] = preview_stop
-    return result
+
+    cache_root = source_path.parent.resolve()
+    export_root = cache_root / "chuni_cue" / f"_penguin_export_{music_id:04d}"
+    if export_root.exists():
+        shutil.rmtree(export_root, ignore_errors=True)
+    export_root.mkdir(parents=True, exist_ok=True)
+
+    payload = convert_audio_with_penguin_tools_cli(input_path=source_path, output_dir=export_root)
+    cue_dir = cue_bundle_dir_from_audio_payload(payload)
+    cli_sid = cli_song_id_from_payload(payload)
+    if cli_sid is None or cli_sid != music_id or cue_dir.name != f"cueFile{music_id:06d}":
+        cue_dir = relocate_cue_bundle_for_music_id(cue_dir, music_id=music_id)
+
+    acb_p = cue_dir / f"music{music_id:04d}.acb"
+    awb_p = cue_dir / f"music{music_id:04d}.awb"
+    cue_xml = cue_dir / "CueFile.xml"
+    if not acb_p.is_file() or not awb_p.is_file():
+        raise RuntimeError(f"PenguinTools 音频导出不完整：{cue_dir}")
+
+    def _rel(p: Path) -> str:
+        return p.resolve().relative_to(cache_root).as_posix()
+
+    return {
+        "musicId": music_id,
+        "audioSource": str(src_audio),
+        "cueDirectory": _rel(cue_dir),
+        "cueFileXml": _rel(cue_xml),
+        "acbFile": _rel(acb_p),
+        "awbFile": _rel(awb_p),
+        "backend": "cli",
+        "cliSongId": cli_sid,
+    }
 
 
 @dataclass(frozen=True)
@@ -1416,7 +1464,7 @@ def read_pgko_meta_for_pick(pick: PgkoChartPick) -> dict[str, object]:
         if fb is None:
             raise RuntimeError("读取元数据需要 mgxc（或可回退到同目录 mgxc）")
         source_path = fb
-    meta, _events, _notes = _parse_mgxc(source_path)
+    meta = _parse_mgxc_meta(source_path)
     return {
         "sourcePath": str(source_path),
         "title": meta.title,
@@ -1501,7 +1549,7 @@ def install_pgko_pick_to_acus(
             raise RuntimeError("安装到 ACUS 需要 mgxc（或可回退到同目录 mgxc）")
         source_path = fb
 
-    base_meta, _events, _notes = _parse_mgxc(source_path)
+    base_meta = _parse_mgxc_meta(source_path)
 
     mid = int(opts.music_id)
     mdir = acus_root / "music" / f"music{mid:04d}"
@@ -1514,7 +1562,7 @@ def install_pgko_pick_to_acus(
     chosen_by_slot: dict[str, tuple[Path, _MgxcMeta]] = {}
     for mg in mgxc_files:
         try:
-            mm, _e2, _n2 = _parse_mgxc(mg)
+            mm = _parse_mgxc_meta(mg)
         except Exception:
             continue
         slot = _slot_from_difficulty(int(mm.difficulty))
@@ -1540,7 +1588,7 @@ def install_pgko_pick_to_acus(
         slot_map[slot] = c2s_dst
         levels_by_type[slot] = _const_to_level_pair(mm.level_const)
 
-    # 封面一律按邻近 ugc 的 @JACKET 路径选取；与是否由 PenguinTools.CLI 生成 c2s 无关，并始终在本步骤重转 DDS（覆盖同名文件）。
+    # 封面：PenguinTools.CLI media jacket（--jacket-input 指向 ugc @JACKET 文件）
     jacket_raw = _resolve_jacket_path_from_ugc_near(source_path)
     if jacket_raw is None:
         declared = _try_read_ugc_jacket_filename_near(source_path)
@@ -1548,22 +1596,17 @@ def install_pgko_pick_to_acus(
             raise FileNotFoundError(
                 "导入 pgko：请在邻近 ugc 中声明 @JACKET <封面文件名>，"
                 "并把该图片放在与 mgxc 同一目录。"
-                "即使已用外部 exe 生成 c2s，封面仍须由此处按 ugc 指定文件重新生成。"
             )
         raise FileNotFoundError(
             f"ugc 中 @JACKET 指向 {declared!r}，但在 mgxc 同目录下未找到该文件。"
         )
     jacket_name = f"CHU_UI_Jacket_{mid:04d}.dds"
     jacket_dds = mdir / jacket_name
-    tmp_sq: Path | None = None
-    try:
-        tmp_sq = _prepare_square_jacket_png(jacket_raw, JACKET_BC3_EDGE, tool_path)
-        convert_to_bc3_dds(
-            tool_path=tool_path, input_image=tmp_sq, output_dds=jacket_dds
-        )
-    finally:
-        if tmp_sq is not None:
-            tmp_sq.unlink(missing_ok=True)
+    convert_jacket_with_penguin_tools_cli(
+        input_path=source_path,
+        output_path=jacket_dds,
+        jacket_input=jacket_raw,
+    )
 
     title = (base_meta.title or source_path.stem or str(mid)).strip()
     artist = ((base_meta.artist or "").strip() or "pgko")
