@@ -182,16 +182,8 @@ class MainWindow(MSFluentWindow):
         startup_mark("MainWindow.__init__:enter")
         with startup_span("MainWindow.super().__init__"):
             super().__init__()
-        # Win11 Mica / DWM 在部分机器上首次 show() 可阻塞数秒；桌面工具优先启动速度。
+        # Mica 首次 show 在部分机器上极慢；保留默认 DWM 阴影/圆角，仅关闭 Mica。
         self.setMicaEffectEnabled(False)
-        if sys.platform == "win32":
-            try:
-                hwnd = int(self.winId())
-                self.windowEffect.removeWindowAnimation(hwnd)
-                self.windowEffect.removeShadowEffect(hwnd)
-                self.windowEffect.removeBackgroundEffect(hwnd)
-            except Exception:
-                pass
         self.navigationInterface.hide()
         startup_mark("MainWindow.after_super")
 
@@ -245,12 +237,36 @@ class MainWindow(MSFluentWindow):
         self.resize(_DEFAULT_MAIN_WINDOW_WIDTH, _DEFAULT_MAIN_WINDOW_HEIGHT)
         startup_mark(f"MainWindow.after_resize_{phase}")
 
+    def _restore_frameless_chrome(self) -> None:
+        """show 后确保 Win11 圆角与窗口阴影（启动阶段仍不启用 Mica）。"""
+        if sys.platform != "win32":
+            return
+        try:
+            from ctypes import byref, c_int
+
+            from qframelesswindow.utils.win32_utils import isGreaterEqualWin11
+            from qframelesswindow.windows.c_structures import DWMWINDOWATTRIBUTE
+
+            hwnd = int(self.winId())
+            self.windowEffect.addShadowEffect(hwnd)
+            if isGreaterEqualWin11():
+                round_pref = c_int(2)  # DWMWCP_ROUND
+                self.windowEffect.DwmSetWindowAttribute(
+                    hwnd,
+                    DWMWINDOWATTRIBUTE.DWMWA_WINDOW_CORNER_PREFERENCE.value,
+                    byref(round_pref),
+                    4,
+                )
+        except Exception:
+            pass
+
     def apply_deferred_window_chrome(self) -> None:
         """show() 之后设置标题。实机测试 setWindowTitle 在 super 后同步调用可阻塞数秒。"""
         startup_mark("MainWindow.before_setWindowTitle")
         self.setWindowTitle(f"Chuni Eventer v{APP_VERSION}")
         startup_mark("MainWindow.after_setWindowTitle")
         self._apply_default_window_size("post_show")
+        self._restore_frameless_chrome()
 
     def deferred_build_ui(self) -> None:
         """show() 之后构建 UI 并加载首屏数据（隐藏窗口上创建 Fluent 控件极慢）。"""
