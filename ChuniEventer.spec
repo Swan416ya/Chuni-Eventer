@@ -8,7 +8,11 @@ from PyInstaller.utils.hooks import collect_all
 
 ROOT = Path(SPECPATH).resolve()
 sys.path.insert(0, str(ROOT / "packaging"))
-from pyinstaller_filters import ANALYSIS_EXCLUDES, apply_exe_size_filters
+from pyinstaller_filters import (
+    ANALYSIS_EXCLUDES,
+    PYQT6_HIDDENIMPORTS,
+    apply_exe_size_filters,
+)
 
 icon_file = ROOT / "assets" / "icon.ico"
 icon_path = str(icon_file) if icon_file.exists() else None
@@ -32,11 +36,14 @@ if icon_file.is_file():
 binaries: list = []
 hiddenimports: list = []
 
-for pkg in ("PyQt6", "qfluentwidgets", "qframelesswindow", "quicktex", "PIL", "PyCriCodecsEx"):
+# S2：PyQt6 不用 collect_all，改由 Analysis 依赖追踪 + PyInstaller Qt hook 按需收集
+for pkg in ("qfluentwidgets", "qframelesswindow", "quicktex", "PIL", "PyCriCodecsEx"):
     p_d, p_bin, p_hi = collect_all(pkg)
     datas += p_d
     binaries += p_bin
     hiddenimports += p_hi
+
+hiddenimports += PYQT6_HIDDENIMPORTS
 
 # quicktex 的 BC3 编码依赖 site-packages 根目录下的 _quicktex*.pyd（与 quicktex/ 包并列），
 # collect_all("quicktex") 不会带上该二进制；子进程 worker 也需能加载，故显式打入。
