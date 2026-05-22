@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import QThread, Qt, pyqtSignal
+from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -43,6 +44,7 @@ from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_m
 from .fluent_dialogs import fly_critical, fly_message, fly_question, fly_warning
 from .fluent_table import apply_fluent_sheet_table
 from .pjsk_sus_download_dialog import PjskSusDownloadDialog
+from .qthread_lifecycle import await_qthreads, finalize_qthread
 
 
 class _InstallToAcusThread(QThread):
@@ -116,6 +118,7 @@ class PjskInstallToAcusDialog(FluentCaptionDialog):
         self._bundle = bundle
         self._tool = tool_path
         self._thread: _InstallToAcusThread | None = None
+        self._pending_accept = False
         self._level_spins: dict[str, tuple[SpinBox, SpinBox]] = {}
 
         m = bundle.manifest
@@ -258,7 +261,7 @@ class PjskInstallToAcusDialog(FluentCaptionDialog):
             bundle=self._bundle,
             opts=opts,
             tool_path=self._tool,
-            parent=self,
+            parent=None,
         )
         self._thread = th
         th.progress.connect(self._on_thread_progress)
@@ -275,7 +278,7 @@ class PjskInstallToAcusDialog(FluentCaptionDialog):
         self._prog_bar.setValue(1000)
         self._prog_label.setText("完成")
         fly_message(self, "完成", "已写入 ACUS。可在管理页刷新查看乐曲与事件。")
-        self.accept()
+        self._pending_accept = True
 
     def _on_fail(self, msg: str) -> None:
         fly_critical(self, "写入失败", msg)
@@ -283,9 +286,23 @@ class PjskInstallToAcusDialog(FluentCaptionDialog):
         self._prog_bar.hide()
 
     def _on_thread_done(self) -> None:
+        th = self._thread
         self._thread = None
+        if th is not None:
+            finalize_qthread(th)
         if not self.isEnabled():
             self.setEnabled(True)
+        if self._pending_accept:
+            self._pending_accept = False
+            self.accept()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        await_qthreads(self._thread)
+        super().closeEvent(event)
+
+    def reject(self) -> None:
+        await_qthreads(self._thread)
+        super().reject()
 
 
 class PjskHubDialog(FluentCaptionDialog):

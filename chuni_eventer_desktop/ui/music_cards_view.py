@@ -27,6 +27,8 @@ from PyQt6.QtWidgets import (
 
 from qfluentwidgets import Action, FluentIcon as FIF, MenuAnimationType, RoundMenu, ScrollArea
 
+from .qthread_lifecycle import await_qthreads
+
 
 from ..acus_scan import MusicItem
 from ..dds_preview import ensure_dds_preview_png
@@ -535,7 +537,7 @@ class MusicCardsView(QWidget):
         self._jacket_worker = None
         if thread is not None and thread.isRunning():
             thread.quit()
-            thread.wait(60_000)
+        await_qthreads(thread, timeout_ms=60_000)
 
     def _prioritized_jacket_jobs(self) -> list[tuple[int, Path]]:
         tool = self._get_tool_path()

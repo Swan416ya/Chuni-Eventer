@@ -30,6 +30,7 @@ from ..system_voice_pack import (
 )
 from .fluent_dialogs import fly_critical, fly_message
 from .fluent_table import apply_fluent_sheet_table, sheet_list_hint_muted_colors
+from .qthread_lifecycle import await_qthreads, finalize_qthread
 from .sysvoice_preview_dialog import SysvoicePreviewDialog
 
 
@@ -288,7 +289,7 @@ class SystemVoicePackPage(QWidget):
             fly_critical(self.window(), "错误", "请填写预览图路径（浏览选择 PNG/DDS，或使用「预览图编辑器」生成 PNG）。")
             return
         self._pack_btn.setEnabled(False)
-        self._thread = QThread(self)
+        self._thread = QThread()
         self._worker = _PackWorker(
             acus_root=self._acus_root,
             audio_folder=self._audio_folder,
@@ -304,9 +305,12 @@ class SystemVoicePackPage(QWidget):
         self._worker.done.connect(self._thread.quit)
         self._worker.failed.connect(self._thread.quit)
         self._thread.finished.connect(self._worker.deleteLater)
-        self._thread.finished.connect(self._thread.deleteLater)
         self._thread.finished.connect(self._clear_pack_thread_refs)
         self._thread.start()
+
+    def hideEvent(self, event) -> None:
+        await_qthreads(self._thread)
+        super().hideEvent(event)
 
     def _on_pack_done(self, msg: str) -> None:
         fly_message(self.window(), "完成", msg)
@@ -318,6 +322,8 @@ class SystemVoicePackPage(QWidget):
         fly_critical(self.window(), "打包失败", msg)
 
     def _clear_pack_thread_refs(self) -> None:
+        th = self._thread
         self._pack_btn.setEnabled(True)
         self._worker = None
         self._thread = None
+        finalize_qthread(th)

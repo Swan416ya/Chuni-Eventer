@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QApplication, QFileDialog, QHBoxLayout, QLabel, QProgressDialog, QStackedWidget, QVBoxLayout, QWidget
 
 from qfluentwidgets import (
@@ -54,6 +55,7 @@ from .fluent_dialogs import (
     show_archive_readme_dialog,
     safe_dismiss_modal_progress_dialog,
 )
+from .qthread_lifecycle import await_qthreads
 from .nav_icons import (
     SVG_AVATAR,
     SVG_STAGE_BG,
@@ -192,6 +194,14 @@ class MainWindow(MSFluentWindow):
         self._index_progress: QProgressDialog | None = None
         self._bootstrap_thread: QThread | None = None
         self._install_startup_shell()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self._settings_page is not None:
+            tools = getattr(self._settings_page, "_tools", None)
+            if tools is not None and hasattr(tools, "await_bg_threads"):
+                tools.await_bg_threads()
+        await_qthreads(self._index_thread, self._bootstrap_thread)
+        super().closeEvent(event)
 
     def _install_startup_shell(self) -> None:
         """纯 Qt 占位页 + switchTo：避免空 stackedWidget 首次 show 触发 Fluent 重 init。"""

@@ -4,6 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QPoint, QThread, QTimer, pyqtSignal, Qt
+from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -30,6 +31,7 @@ from ..pjsk_sheet_client import (
 )
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
+from .qthread_lifecycle import await_qthreads, defer_finalize_qthread, qthread_running_safe
 from .fluent_table import apply_fluent_sheet_table
 from .pjsk_vocal_pick_dialog import PjskVocalPickDialog
 from .sus_c2s_debug_dialog import SusC2sDebugDialog
@@ -221,7 +223,7 @@ class PjskSusDownloadDialog(FluentCaptionDialog):
         self._table.setRowCount(0)
         self._musics.clear()
         self._diff_index.clear()
-        th = _LoadCatalogThread(parent=self)
+        th = _LoadCatalogThread(parent=None)
         self._load_thread = th
         th.ok.connect(self._on_catalog_ok)
         th.fail.connect(self._on_catalog_fail)
@@ -290,34 +292,31 @@ class PjskSusDownloadDialog(FluentCaptionDialog):
         return None
 
     def _pjsk_load_thread_busy(self) -> bool:
-        th = self._load_thread
-        if th is None:
-            return False
-        try:
-            return th.isRunning()
-        except RuntimeError:
-            self._load_thread = None
-            return False
+        return qthread_running_safe(self._load_thread)
 
     def _release_pjsk_load_thread(self, th: QObject) -> None:
         if self._load_thread is th:
             self._load_thread = None
-        th.deleteLater()
+        defer_finalize_qthread(th if isinstance(th, QThread) else None)
 
     def _pjsk_cache_thread_busy(self) -> bool:
-        th = self._cache_thread
-        if th is None:
-            return False
-        try:
-            return th.isRunning()
-        except RuntimeError:
-            self._cache_thread = None
-            return False
+        return qthread_running_safe(self._cache_thread)
 
     def _release_pjsk_cache_thread(self, th: QObject) -> None:
         if self._cache_thread is th:
             self._cache_thread = None
-        th.deleteLater()
+        defer_finalize_qthread(th if isinstance(th, QThread) else None)
+
+    def _await_bg_threads(self) -> None:
+        await_qthreads(self._load_thread, self._cache_thread)
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        self._await_bg_threads()
+        super().closeEvent(event)
+
+    def reject(self) -> None:
+        self._await_bg_threads()
+        super().reject()
 
     def _on_download(self) -> None:
         mid = self._selected_music_id()
@@ -376,7 +375,7 @@ class PjskSusDownloadDialog(FluentCaptionDialog):
             available_diffs=avail,
             vocal_assetbundle=vocal_ab,
             vocal_caption=vocal_cap,
-            parent=self,
+            parent=None,
         )
         self._cache_thread = th
         th.progress.connect(self._on_cache_progress)

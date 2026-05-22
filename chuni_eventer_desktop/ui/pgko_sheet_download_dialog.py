@@ -6,10 +6,11 @@ import logging
 import os
 import zipfile
 
-from PyQt6.QtCore import QThread, QUrl, pyqtSignal, Qt
-from PyQt6.QtGui import QBrush, QColor, QCloseEvent, QDesktopServices, QEnterEvent, QPixmap, QShowEvent
+from PyQt6.QtCore import QThread, QUrl, pyqtSignal, Qt, QModelIndex
+from PyQt6.QtGui import QBrush, QColor, QCloseEvent, QDesktopServices, QEnterEvent, QPixmap, QShowEvent, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QApplication,
+    QAbstractItemView,
     QDialog,
     QFormLayout,
     QHBoxLayout,
@@ -28,6 +29,7 @@ from qfluentwidgets import (
     LineEdit,
     PrimaryPushButton,
     PushButton,
+    TableView,
     isDarkTheme,
 )
 
@@ -56,14 +58,22 @@ from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_m
 from .fluent_dialogs import fly_message_async, fly_question_async, fly_warning
 from .fluent_table import (
     apply_fluent_sheet_table,
+    apply_fluent_tableview_header_style,
     mark_sheet_item_readonly,
     sheet_list_card_layout_margins,
     sheet_list_hint_muted_colors,
 )
+from .qthread_lifecycle import await_qthreads, defer_finalize_qthread, finalize_qthread, qthread_running_safe
 
 _PGKO_TABLE_COL_DETAIL = 2
 _PGKO_DETAIL_URL_ROLE = Qt.ItemDataRole.UserRole + 11
 log = logging.getLogger(__name__)
+
+
+def _readonly_std_item(text: str) -> QStandardItem:
+    it = QStandardItem(text)
+    it.setEditable(False)
+    return it
 
 
 def _pgko_debug_enabled() -> bool:
@@ -578,7 +588,7 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
         super().__init__(parent=parent)
         self.setWindowTitle("从 pgko.dev 下载谱面")
         self.setModal(True)
-        self.resize(780, 560)
+        self.resize(720, 520)
 
         self._entries: list[PgkoSheetEntry] = []
         self._fetch_thread: _FetchPgkoThread | None = None
@@ -596,7 +606,8 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
         credit.setText(
             '<p style="margin:0;line-height:1.5;">'
             '<span style="color:#c62828;font-weight:700;">※</span> '
-            "<b>pgko.dev</b> 列表数据与谱面转码（<b>mgxc → c2s</b>、音频、封面）均使用 "
+            f'<a href="{PGKO_BASE_URL}" style="color:#1565c0;font-weight:600;text-decoration:none;">'
+            "pgko.dev</a> 列表数据与谱面转码（<b>mgxc → c2s</b>、音频、封面）均使用 "
             '<a href="https://github.com/Foahh/PenguinTools" style="color:#1565c0;font-weight:600;text-decoration:none;">'
             "PenguinTools CLI</a>（作者 "
             '<a href="https://github.com/Foahh" style="color:#1565c0;font-weight:600;text-decoration:none;">Foahh</a>）。'
@@ -606,28 +617,31 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
 
         card = CardWidget(self)
         hint = BodyLabel(
-            "加载 pgko.dev 可下载条目。双击行或点「下载选中项」解压到本地缓存，并可转 c2s（需包内存在 mgxc；"
-            "依赖已安装的 PenguinTools CLI）。"
-            "若只有 UGC，请点「UGC → mgxc…」查看用 Margrete 手工导出 mgxc 的步骤，并浏览已缓存的 mgxc 包。"
+            "选择一行后点「下载选中项」；下载完成可转 c2s 并导入 ACUS（需 PenguinTools CLI 与包内 mgxc）。"
+            "仅有 UGC 时请点「UGC → mgxc…」。"
         )
         hint.setWordWrap(True)
         sheet_list_hint_muted_colors(hint)
 
-        self._table = QTableWidget(0, 3, self)
-        apply_fluent_sheet_table(self._table)
-        self._table.horizontalHeader().setStretchLastSection(False)
-        self._table.setHorizontalHeaderLabels(["标题", "艺术家", "详情"])
-        hh = self._table.horizontalHeader()
-        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
-        hh.resizeSection(1, 260)
-        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self._table.setTextElideMode(Qt.TextElideMode.ElideRight)
-        self._table.itemDoubleClicked.connect(lambda _it: self._on_download())
-        self._table.cellClicked.connect(self._on_pgko_table_cell_clicked)
+        self._model = QStandardItemModel(0, 3, self)
+        self._model.setHorizontalHeaderLabels(["曲名", "作曲家", "详情"])
+
+        self._table = TableView(self)
+        self._table.setModel(self._model)
+        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self._table.setAlternatingRowColors(True)
+        self._table.setSortingEnabled(True)
+        self._table.verticalHeader().setVisible(False)
+        self._table.horizontalHeader().setStretchLastSection(True)
+        apply_fluent_tableview_header_style(self._table, object_name="PgkoSheetTable")
+        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._table.setShowGrid(False)
+        self._table.doubleClicked.connect(lambda _idx: self._on_download())
+        self._table.clicked.connect(self._on_table_clicked)
         self._table.verticalScrollBar().valueChanged.connect(self._on_scroll_value_changed)
 
-        self._status = BodyLabel("点击“刷新列表”加载。")
+        self._status = BodyLabel("点击「刷新列表」加载。", card)
         self._status.setWordWrap(True)
 
         cly = QVBoxLayout(card)
@@ -707,37 +721,36 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
             window_modal=True,
         )
 
-    def _on_pgko_table_cell_clicked(self, row: int, col: int) -> None:
-        if col != _PGKO_TABLE_COL_DETAIL or row < 0:
+    def _on_table_clicked(self, index: QModelIndex) -> None:
+        if not index.isValid() or index.column() != _PGKO_TABLE_COL_DETAIL:
             return
-        it = self._table.item(row, col)
-        if it is None:
-            return
-        raw = it.data(_PGKO_DETAIL_URL_ROLE)
+        raw = self._model.data(index, _PGKO_DETAIL_URL_ROLE)
         if not isinstance(raw, str) or not raw.strip():
             return
         u = QUrl(raw.strip())
         if u.isValid() and u.scheme() in ("http", "https"):
             QDesktopServices.openUrl(u)
 
-    @staticmethod
-    def _thread_running_safe(th: QThread | None) -> bool:
-        if th is None:
-            return False
-        try:
-            return th.isRunning()
-        except RuntimeError:
-            return False
+    def _entry_for_row(self, row: int) -> PgkoSheetEntry | None:
+        if row < 0:
+            return None
+        id_idx = self._model.index(row, 0)
+        bundle_id = id_idx.data(Qt.ItemDataRole.UserRole)
+        if not isinstance(bundle_id, str) or not bundle_id:
+            return None
+        for e in self._entries:
+            if e.bundle_id == bundle_id:
+                return e
+        return None
 
     def _await_bg_threads(self, timeout_ms: int = 300_000) -> None:
-        for th in (
+        await_qthreads(
             self._fetch_thread,
             self._download_thread,
             self._convert_thread,
             self._ugc_exp_thread,
-        ):
-            if self._thread_running_safe(th):
-                th.wait(timeout_ms)
+            timeout_ms=timeout_ms,
+        )
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self._await_bg_threads()
@@ -756,8 +769,7 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
             # 先清空引用，再 wait/deleteLater，避免关闭弹窗时线程仍在运行
             if self._fetch_thread is th:
                 self._fetch_thread = None
-            th.wait(300_000)
-            th.deleteLater()
+            defer_finalize_qthread(th)
 
         th.finished.connect(_on_finished)
         th.start()
@@ -771,8 +783,7 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
         def _on_finished() -> None:
             if self._download_thread is th:
                 self._download_thread = None
-            th.wait(300_000)
-            th.deleteLater()
+            defer_finalize_qthread(th)
 
         th.finished.connect(_on_finished)
         th.start()
@@ -785,8 +796,7 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
         def _on_finished() -> None:
             if self._convert_thread is th:
                 self._convert_thread = None
-            th.wait(300_000)
-            th.deleteLater()
+            defer_finalize_qthread(th)
 
         th.finished.connect(_on_finished)
         th.start()
@@ -799,8 +809,7 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
         def _on_finished() -> None:
             if self._ugc_exp_thread is th:
                 self._ugc_exp_thread = None
-            th.wait(300_000)
-            th.deleteLater()
+            defer_finalize_qthread(th)
 
         th.finished.connect(_on_finished)
         th.start()
@@ -831,11 +840,11 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
                 f"在以下位置未找到可用于实验性转换的 UGC 文件：\n{output}",
             )
             return
-        if self._thread_running_safe(self._ugc_exp_thread):
+        if qthread_running_safe(self._ugc_exp_thread):
             return
         src = ugc_list[0]
         self._status.setText(f"实验性 UGC 转换中：{src.name} …")
-        self._attach_ugc_experimental_thread(_UgcExperimentalConvertThread(src, parent=self))
+        self._attach_ugc_experimental_thread(_UgcExperimentalConvertThread(src, parent=None))
 
     def _on_ugc_experimental_ok(self, out_path: str, backend: str) -> None:
         self._status.setText(
@@ -848,15 +857,15 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
         self._status.setText(f"实验性 UGC 转换失败。\n\n{msg}")
 
     def _on_refresh(self) -> None:
-        if self._thread_running_safe(self._fetch_thread):
+        if qthread_running_safe(self._fetch_thread):
             return
         self._next_cursor = None
         self._seen_bundle_ids.clear()
         self._is_fetching_more = False
         self._entries.clear()
-        self._table.setRowCount(0)
+        self._model.removeRows(0, self._model.rowCount())
         self._status.setText("正在加载 pgko.dev 列表…")
-        self._attach_fetch_thread(_FetchPgkoThread(cursor=None, parent=self))
+        self._attach_fetch_thread(_FetchPgkoThread(cursor=None, parent=None))
 
     def _on_fetch_ok(self, rows: object) -> None:
         if not isinstance(rows, PgkoSheetPage):
@@ -864,27 +873,32 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
             self._is_fetching_more = False
             return
         added = 0
-        for e in rows.entries:
-            if e.bundle_id in self._seen_bundle_ids:
-                continue
-            self._seen_bundle_ids.add(e.bundle_id)
-            self._entries.append(e)
-            r = self._table.rowCount()
-            self._table.insertRow(r)
-            t0 = QTableWidgetItem(e.title)
-            mark_sheet_item_readonly(t0)
-            self._table.setItem(r, 0, t0)
-            t1 = QTableWidgetItem(e.artist)
-            mark_sheet_item_readonly(t1)
-            self._table.setItem(r, 1, t1)
-            t2 = QTableWidgetItem("查看")
-            t2.setData(_PGKO_DETAIL_URL_ROLE, e.detail_url)
-            t2.setToolTip(e.detail_url)
-            link_c = "#64B5F6" if isDarkTheme() else "#1565C0"
-            t2.setForeground(QBrush(QColor(link_c)))
-            mark_sheet_item_readonly(t2)
-            self._table.setItem(r, 2, t2)
-            added += 1
+        link_c = "#64B5F6" if isDarkTheme() else "#1565C0"
+        self._table.setSortingEnabled(False)
+        try:
+            for e in rows.entries:
+                if e.bundle_id in self._seen_bundle_ids:
+                    continue
+                self._seen_bundle_ids.add(e.bundle_id)
+                self._entries.append(e)
+                r = self._model.rowCount()
+                self._model.insertRow(r)
+                c0 = _readonly_std_item(e.title)
+                c0.setData(e.bundle_id, Qt.ItemDataRole.UserRole)
+                c0.setTextAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+                self._model.setItem(r, 0, c0)
+                c1 = _readonly_std_item(e.artist)
+                c1.setTextAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+                self._model.setItem(r, 1, c1)
+                c2 = _readonly_std_item("查看")
+                c2.setData(e.detail_url, _PGKO_DETAIL_URL_ROLE)
+                c2.setToolTip(e.detail_url)
+                c2.setForeground(QBrush(QColor(link_c)))
+                c2.setTextAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+                self._model.setItem(r, 2, c2)
+                added += 1
+        finally:
+            self._table.setSortingEnabled(True)
         self._next_cursor = rows.next_cursor
         self._is_fetching_more = False
         if self._next_cursor:
@@ -910,13 +924,13 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
             return
         if self._is_fetching_more:
             return
-        if self._thread_running_safe(self._fetch_thread):
+        if qthread_running_safe(self._fetch_thread):
             return
         self._is_fetching_more = True
         self._status.setText(
             f"正在加载更多…（当前 {len(self._entries)} 条）"
         )
-        self._attach_fetch_thread(_FetchPgkoThread(cursor=self._next_cursor, parent=self))
+        self._attach_fetch_thread(_FetchPgkoThread(cursor=self._next_cursor, parent=None))
 
     def _on_scroll_value_changed(self, value: int) -> None:
         bar = self._table.verticalScrollBar()
@@ -925,20 +939,20 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
             self._fetch_more()
 
     def _selected(self) -> PgkoSheetEntry | None:
-        r = self._table.currentRow()
-        if r < 0 or r >= len(self._entries):
+        idx = self._table.currentIndex()
+        if not idx.isValid():
             return None
-        return self._entries[r]
+        return self._entry_for_row(idx.row())
 
     def _on_download(self) -> None:
         e = self._selected()
         if e is None:
             fly_warning(self, "未选择", "请先选择一条谱面。")
             return
-        if self._thread_running_safe(self._download_thread):
+        if qthread_running_safe(self._download_thread):
             return
         self._status.setText(f"正在下载：{e.title} …")
-        self._attach_download_thread(_DownloadPgkoThread(e, parent=self))
+        self._attach_download_thread(_DownloadPgkoThread(e, parent=None))
 
     def _on_download_resolved(self, text: str) -> None:
         # 直接输出解析到的下载链接，便于用户复制调试
@@ -991,11 +1005,11 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
 
     def _try_convert_pgko_to_c2s(self, output: Path) -> None:
         _pgko_dlog("_try_convert_pgko_to_c2s:start", output=str(output))
-        if self._thread_running_safe(self._convert_thread):
+        if qthread_running_safe(self._convert_thread):
             self._status.setText("已有转码任务在进行，请稍候…")
             return
         self._status.setText("正在转码，请稍候…")
-        self._attach_convert_thread(_ConvertPgkoThread(output, parent=self))
+        self._attach_convert_thread(_ConvertPgkoThread(output, parent=None))
 
     def _on_convert_pgko_ok(self, d: dict[str, object]) -> None:
         _pgko_dlog("_on_convert_pgko_ok", out=d.get("out"))
@@ -1177,8 +1191,7 @@ class _PgkoInstallConfigDialog(FluentCaptionDialog):
             self._thread = None
             self._ok_btn.setEnabled(True)
             if th is not None:
-                th.wait(300_000)
-                th.deleteLater()
+                finalize_qthread(th)
             pending = self._pending_accept_result
             if pending is not None:
                 self._pending_accept_result = None

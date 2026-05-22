@@ -22,6 +22,7 @@ from ..external_tools import (
     write_inventory_file,
 )
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
+from .qthread_lifecycle import await_qthreads, finalize_qthread
 from .rich_hint import rich_hint_label
 
 
@@ -194,7 +195,7 @@ class ToolsSettingsPanel(QWidget):
         dlg.setWindowModality(Qt.WindowModality.WindowModal)
         dlg.show()
 
-        thread = QThread(self)
+        thread = QThread()
         worker = _ToolInstallWorker(spec, self._cfg)
         worker.moveToThread(thread)
 
@@ -218,17 +219,21 @@ class ToolsSettingsPanel(QWidget):
             fly_critical(self, "安装失败", "未知错误")
 
         def on_stopped() -> None:
+            th = self._install_thread
             self._install_thread = None
+            finalize_qthread(th)
 
         worker.progress.connect(on_progress)
         worker.finished.connect(on_done)
         worker.finished.connect(thread.quit)
         thread.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
         thread.finished.connect(on_stopped)
         self._install_thread = thread
         thread.started.connect(worker.run)
         thread.start()
+
+    def await_bg_threads(self) -> None:
+        await_qthreads(self._install_thread)
 
     def _open_tools_dir(self) -> None:
         d = tools_root_dir()

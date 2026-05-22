@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 
 from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal
-from PyQt6.QtGui import QStandardItem, QStandardItemModel
+from PyQt6.QtGui import QCloseEvent, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QApplication,
     QAbstractItemView,
@@ -37,6 +37,7 @@ from .fluent_dialogs import (
     safe_dismiss_modal_progress_dialog,
     show_archive_readme_dialog,
 )
+from .qthread_lifecycle import await_qthreads, defer_finalize_qthread
 
 
 def _readonly_item(text: str) -> QStandardItem:
@@ -189,6 +190,17 @@ class SwanSheetDownloadDialog(FluentCaptionDialog):
 
         QTimer.singleShot(0, self._on_refresh)
 
+    def _await_bg_threads(self) -> None:
+        await_qthreads(self._fetch_thread, self._download_thread, self._install_thread)
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        self._await_bg_threads()
+        super().closeEvent(event)
+
+    def reject(self) -> None:
+        self._await_bg_threads()
+        super().reject()
+
     def _open_progress(self, title: str, text: str) -> QProgressDialog:
         dlg = QProgressDialog(self)
         dlg.setWindowTitle(title)
@@ -216,7 +228,7 @@ class SwanSheetDownloadDialog(FluentCaptionDialog):
         self._entries.clear()
         self._close_progress()
         self._progress_dialog = self._open_progress("SwanSite", "正在获取铺面列表…")
-        th = _FetchSheetsThread(base, parent=self)
+        th = _FetchSheetsThread(base, parent=None)
         self._fetch_thread = th
         th.phase.connect(self._on_fetch_phase)
         th.ok.connect(self._on_fetch_ok)
@@ -268,19 +280,18 @@ class SwanSheetDownloadDialog(FluentCaptionDialog):
         self._close_progress()
         if self._fetch_thread is th:
             self._fetch_thread = None
-        # 推迟销毁，避免 finished 先于 ok 入队时 deleteLater 影响尚未投递的 ok 槽
-        QTimer.singleShot(0, th.deleteLater)
+        defer_finalize_qthread(th)
 
     def _finalize_download_thread(self, th: _DownloadSheetThread) -> None:
         if self._download_thread is th:
             self._download_thread = None
-        QTimer.singleShot(0, th.deleteLater)
+        defer_finalize_qthread(th)
 
     def _finalize_install_thread(self, th: _InstallLocalArchiveThread) -> None:
         self._close_progress()
         if self._install_thread is th:
             self._install_thread = None
-        QTimer.singleShot(0, th.deleteLater)
+        defer_finalize_qthread(th)
 
     def _selected_entry(self) -> SheetListEntry | None:
         idx = self._table.currentIndex()
@@ -313,7 +324,7 @@ class SwanSheetDownloadDialog(FluentCaptionDialog):
             "SwanSite",
             "正在下载谱面包…",
         )
-        th = _DownloadSheetThread(base, e.content_id, parent=self)
+        th = _DownloadSheetThread(base, e.content_id, parent=None)
         self._download_thread = th
         th.phase.connect(self._on_install_phase)
         th.ok.connect(self._on_download_ok)
@@ -339,7 +350,7 @@ class SwanSheetDownloadDialog(FluentCaptionDialog):
             "SwanSite",
             "正在解压并写入 ACUS…",
         )
-        ith = _InstallLocalArchiveThread(tmp, self._acus_root, parent=self)
+        ith = _InstallLocalArchiveThread(tmp, self._acus_root, parent=None)
         self._install_thread = ith
         ith.phase.connect(self._on_install_phase)
         ith.ok.connect(self._on_install_ok)
