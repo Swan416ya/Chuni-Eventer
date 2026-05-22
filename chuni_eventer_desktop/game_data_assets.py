@@ -8,7 +8,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from .acus_workspace import app_cache_dir
+from .acus_workspace import cue_export_scratch_dir
 from .pjsk_audio_chuni import CHUNITHM_HCA_KEY
 
 
@@ -345,23 +345,27 @@ def export_cue_dir_to_ogg(cue_dir: Path, output_ogg: Path) -> None:
     except ImportError as e:
         raise RuntimeError("需要 PyCriCodecsEx 才能解码游戏音频。请执行：pip install PyCriCodecsEx") from e
 
-    awb = AWB(str(awb_path))
+    awb = AWB(awb_path.read_bytes())
     if awb.numfiles < 1:
         raise RuntimeError("AWB 内无音轨")
     hca_bytes = awb.get_file_at(0)
     if not isinstance(hca_bytes, bytes) or not hca_bytes:
         raise RuntimeError("无法读取 AWB 音轨数据")
 
-    scratch_root = app_cache_dir() / "cue_export_scratch"
-    scratch_root.mkdir(parents=True, exist_ok=True)
+    scratch_root = cue_export_scratch_dir()
 
-    with tempfile.TemporaryDirectory(prefix="chuni_cue_export_", dir=str(scratch_root)) as td:
-        hca_path = Path(td) / "track.hca"
+    with tempfile.TemporaryDirectory(
+        prefix="chuni_cue_export_",
+        dir=str(scratch_root),
+        ignore_cleanup_errors=True,
+    ) as td:
         wav_path = Path(td) / "track.wav"
         tmp_ogg = Path(td) / "track.ogg"
-        hca_path.write_bytes(hca_bytes)
-        hc = HCACodec(str(hca_path), key=CHUNITHM_HCA_KEY)
-        wav_path.write_bytes(hc.decode())
+        hc = HCACodec(hca_bytes, key=CHUNITHM_HCA_KEY)
+        try:
+            wav_path.write_bytes(hc.decode())
+        finally:
+            del hc
 
         ff = _ffmpeg_exe()
         if ff is None:

@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "0.7.5",
+    [string]$Version = "0.7.6",
     [switch]$SkipPyInstaller,
     [Alias("SkipBridge")][switch]$SkipPenguinToolsCli,
     # 懒人包默认不再打入 Compressonator（exe 内已有 quicktex）；需完整离线 DDS 回退时显式 -IncludeCompressonator

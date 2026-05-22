@@ -310,6 +310,7 @@ def _nameplate_item_to_catalog_row(n: NamePlateItem, source: str, *, pack: Path)
         "id": n.name.id,
         "name": (n.name.str or "").strip() or f"NamePlate{n.name.id}",
         "image_relpath": (n.image_path or "").strip(),
+        "release_tag_str": (n.release_tag.str if n.release_tag else "") or "",
         "source": source,
         "xml_relpath": xml_relpath,
     }
@@ -325,6 +326,7 @@ def _trophy_item_to_catalog_row(t: TrophyItem, source: str, *, pack: Path) -> di
         "name": (t.name.str or "").strip() or f"Trophy{t.name.id}",
         "explain": (t.explain_text or "").strip(),
         "rare_type": t.rare_type,
+        "release_tag_str": (t.release_tag.str if t.release_tag else "") or "",
         "image_relpath": (t.image_path or "").strip(),
         "source": source,
         "xml_relpath": xml_relpath,

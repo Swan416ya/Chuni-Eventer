@@ -82,6 +82,7 @@ class NamePlateItem:
     xml_path: Path
     name: IdStr
     image_path: str
+    release_tag: IdStr | None = None
 
 
 @dataclass(frozen=True)
@@ -91,6 +92,7 @@ class TrophyItem:
     explain_text: str
     rare_type: int | None
     image_path: str
+    release_tag: IdStr | None = None
 
 
 @dataclass(frozen=True)
@@ -595,7 +597,8 @@ def scan_nameplates(acus_root: Path) -> list[NamePlateItem]:
             if not name:
                 continue
             img = (r.findtext("image/path") or "").strip()
-            items.append(NamePlateItem(p, name, img))
+            release_tag = _get_idstr(r.find("releaseTagName"))
+            items.append(NamePlateItem(p, name, img, release_tag))
         except Exception:
             continue
     return sorted(items, key=lambda x: x.name.id)
@@ -613,7 +616,8 @@ def scan_trophies(acus_root: Path) -> list[TrophyItem]:
             rare_raw = (r.findtext("rareType") or "").strip()
             rare_type = int(rare_raw) if rare_raw.isdigit() else None
             img = (r.findtext("image/path") or "").strip()
-            items.append(TrophyItem(p, name, explain, rare_type, img))
+            release_tag = _get_idstr(r.find("releaseTagName"))
+            items.append(TrophyItem(p, name, explain, rare_type, img, release_tag))
         except Exception:
             continue
     return sorted(items, key=lambda x: x.name.id)

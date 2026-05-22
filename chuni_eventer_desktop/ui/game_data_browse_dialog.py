@@ -53,19 +53,19 @@ _KIND_META: dict[GameDataKind, dict[str, Any]] = {
     },
     "nameplate": {
         "title": "游戏名牌",
-        "hint": "双击行预览名牌贴图 DDS，并可导出 PNG。",
-        "columns": ["ID", "名称", "数据包"],
+        "hint": "双击行预览名牌贴图 DDS，并可导出 PNG。可按版本标签筛选。",
+        "columns": ["ID", "名称", "版本", "数据包"],
         "catalog_attr": "nameplate_catalog",
         "scan": scan_game_nameplate_catalog,
-        "filters": ("source",),
+        "filters": ("tag", "source"),
     },
     "trophy": {
         "title": "游戏称号",
-        "hint": "双击行预览称号贴图 DDS，并可导出 PNG。",
-        "columns": ["ID", "名称", "稀有度", "说明", "数据包"],
+        "hint": "双击行预览称号贴图 DDS，并可导出 PNG。可按版本标签、稀有度筛选。",
+        "columns": ["ID", "名称", "版本", "稀有度", "说明", "数据包"],
         "catalog_attr": "trophy_catalog",
         "scan": scan_game_trophy_catalog,
-        "filters": ("source",),
+        "filters": ("tag", "rare", "source"),
     },
 }
 
@@ -105,6 +105,8 @@ class GameDataBrowseDialog(FluentCaptionDialog):
         self._filter_genre.addItem("全部流派", None, "")
         self._filter_works = FluentComboBox(self)
         self._filter_works.addItem("全部作品", None, "")
+        self._filter_rare = FluentComboBox(self)
+        self._filter_rare.addItem("全部稀有度", None, "")
         self._filter_source = FluentComboBox(self)
         self._filter_source.addItem("全部数据包", None, "")
 
@@ -117,6 +119,7 @@ class GameDataBrowseDialog(FluentCaptionDialog):
         self._lbl_tag = QLabel("版本")
         self._lbl_genre = QLabel("流派")
         self._lbl_works = QLabel("作品")
+        self._lbl_rare = QLabel("稀有度")
         self._lbl_source = QLabel("数据包")
         fl.addWidget(self._lbl_tag)
         fl.addWidget(self._filter_tag, stretch=1)
@@ -124,6 +127,8 @@ class GameDataBrowseDialog(FluentCaptionDialog):
         fl.addWidget(self._filter_genre, stretch=1)
         fl.addWidget(self._lbl_works)
         fl.addWidget(self._filter_works, stretch=1)
+        fl.addWidget(self._lbl_rare)
+        fl.addWidget(self._filter_rare, stretch=1)
         fl.addWidget(self._lbl_source)
         fl.addWidget(self._filter_source, stretch=1)
         fl.addWidget(self._search, stretch=2)
@@ -132,6 +137,7 @@ class GameDataBrowseDialog(FluentCaptionDialog):
         show_tag = "tag" in filters
         show_genre = "genre" in filters
         show_works = "works" in filters
+        show_rare = "rare" in filters
         show_source = "source" in filters
         self._lbl_tag.setVisible(show_tag)
         self._filter_tag.setVisible(show_tag)
@@ -139,6 +145,8 @@ class GameDataBrowseDialog(FluentCaptionDialog):
         self._filter_genre.setVisible(show_genre)
         self._lbl_works.setVisible(show_works)
         self._filter_works.setVisible(show_works)
+        self._lbl_rare.setVisible(show_rare)
+        self._filter_rare.setVisible(show_rare)
         self._lbl_source.setVisible(show_source)
         self._filter_source.setVisible(show_source)
 
@@ -182,6 +190,7 @@ class GameDataBrowseDialog(FluentCaptionDialog):
         self._filter_tag.currentIndexChanged.connect(self._apply_filter)
         self._filter_genre.currentIndexChanged.connect(self._apply_filter)
         self._filter_works.currentIndexChanged.connect(self._apply_filter)
+        self._filter_rare.currentIndexChanged.connect(self._apply_filter)
         self._filter_source.currentIndexChanged.connect(self._apply_filter)
 
         self._load_rows()
@@ -244,6 +253,15 @@ class GameDataBrowseDialog(FluentCaptionDialog):
                 s.add(w)
         return sorted(s)
 
+    def _all_rare_types(self) -> list[str]:
+        s: set[str] = set()
+        for r in self._rows:
+            v = r.get("rare_type")
+            if v is None:
+                continue
+            s.add(str(int(v)))
+        return sorted(s, key=lambda x: int(x))
+
     def _all_sources(self) -> list[str]:
         s: set[str] = set()
         for r in self._rows:
@@ -260,14 +278,17 @@ class GameDataBrowseDialog(FluentCaptionDialog):
         cur_t = self._filter_tag.currentData()
         cur_g = self._filter_genre.currentData()
         cur_w = self._filter_works.currentData()
+        cur_r = self._filter_rare.currentData()
         cur_s = self._filter_source.currentData()
         self._filter_tag.blockSignals(True)
         self._filter_genre.blockSignals(True)
         self._filter_works.blockSignals(True)
+        self._filter_rare.blockSignals(True)
         self._filter_source.blockSignals(True)
         self._filter_tag.clear()
         self._filter_genre.clear()
         self._filter_works.clear()
+        self._filter_rare.clear()
         self._filter_source.clear()
         self._filter_tag.addItem("全部版本", None, "")
         for t in self._all_tags():
@@ -278,16 +299,21 @@ class GameDataBrowseDialog(FluentCaptionDialog):
         self._filter_works.addItem("全部作品", None, "")
         for w in self._all_works():
             self._filter_works.addItem(w, None, w)
+        self._filter_rare.addItem("全部稀有度", None, "")
+        for rv in self._all_rare_types():
+            self._filter_rare.addItem(rv, None, rv)
         self._filter_source.addItem("全部数据包", None, "")
         for s in self._all_sources():
             self._filter_source.addItem(s, None, s)
         self._restore_combo(self._filter_tag, cur_t)
         self._restore_combo(self._filter_genre, cur_g)
         self._restore_combo(self._filter_works, cur_w)
+        self._restore_combo(self._filter_rare, cur_r)
         self._restore_combo(self._filter_source, cur_s)
         self._filter_tag.blockSignals(False)
         self._filter_genre.blockSignals(False)
         self._filter_works.blockSignals(False)
+        self._filter_rare.blockSignals(False)
         self._filter_source.blockSignals(False)
 
     @staticmethod
@@ -326,11 +352,13 @@ class GameDataBrowseDialog(FluentCaptionDialog):
             return [
                 str(r.get("id", "")),
                 str(r.get("name", "")),
+                str(r.get("release_tag_str", "")),
                 str(r.get("source", "")),
             ]
         return [
             str(r.get("id", "")),
             str(r.get("name", "")),
+            str(r.get("release_tag_str", "")),
             "" if r.get("rare_type") is None else str(r.get("rare_type")),
             str(r.get("explain", "")),
             str(r.get("source", "")),
@@ -340,6 +368,7 @@ class GameDataBrowseDialog(FluentCaptionDialog):
         tag_f = str(self._filter_tag.currentData() or "").strip()
         gen_f = str(self._filter_genre.currentData() or "").strip()
         works_f = str(self._filter_works.currentData() or "").strip()
+        rare_f = str(self._filter_rare.currentData() or "").strip()
         src_f = str(self._filter_source.currentData() or "").strip()
         needle = self._search.text().strip().lower()
 
@@ -352,6 +381,10 @@ class GameDataBrowseDialog(FluentCaptionDialog):
                     return False
             if works_f and str(r.get("works_str") or "").strip() != works_f:
                 return False
+            if rare_f:
+                rv = r.get("rare_type")
+                if rv is None or str(int(rv)) != rare_f:
+                    return False
             if src_f:
                 blob = str(r.get("source") or "")
                 if src_f not in blob:

@@ -51,6 +51,17 @@ def app_cache_dir() -> Path:
     return app_root_dir() / ".cache"
 
 
+def cue_export_scratch_dir() -> Path:
+    """音频导出临时目录（LOCALAPPDATA，避免项目路径空格与 HCACodec 占文件导致清理失败）。"""
+    import os
+    import tempfile
+
+    base = os.environ.get("LOCALAPPDATA") or os.environ.get("TEMP") or tempfile.gettempdir()
+    d = Path(base) / "ChuniEventer" / "cue_export_scratch"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def acus_workspace_cache_id(acus_root: Path) -> str:
     """Short stable id from the resolved ACUS path (for cache subdirectories)."""
     try:
