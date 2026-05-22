@@ -8,6 +8,7 @@ import sys
 import traceback
 from pathlib import Path
 
+from PyQt6.QtCore import QTimer
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QWidget
 
@@ -16,7 +17,7 @@ from .frozen_runtime import ensure_pyinstaller_dll_search_path
 from qfluentwidgets import Theme, setTheme
 
 from .acus_workspace import app_cache_dir
-from .ui.main_window import MainWindow
+from .startup_profile import schedule_startup_summaries, startup_mark, startup_span
 
 
 def _app_icon_path() -> Path:
@@ -136,21 +137,42 @@ def _setup_crash_logging() -> None:
 
 
 def main() -> int:
-    ensure_pyinstaller_dll_search_path()
+    startup_mark("app.main:enter")
+    with startup_span("ensure_pyinstaller_dll"):
+        ensure_pyinstaller_dll_search_path()
+    startup_mark("app.main:after_dll")
     _set_windows_appusermodel_id()
-    _setup_crash_logging()
+    with startup_span("setup_crash_logging"):
+        _setup_crash_logging()
     _setup_dialog_debug_logging()
+    startup_mark("app.main:before_QApplication")
     app = QApplication(sys.argv)
+    startup_mark("app.main:after_QApplication")
     app.setApplicationName("chuni eventer desktop")
     icon_path = _app_icon_path()
     if icon_path.is_file():
         app.setWindowIcon(QIcon(str(icon_path)))
     setTheme(Theme.AUTO)
+    startup_mark("app.main:before_import_MainWindow")
+    from .ui.main_window import MainWindow
 
+    startup_mark("app.main:before_MainWindow_ctor")
     w = MainWindow()
+    startup_mark("app.main:after_MainWindow_ctor")
     if icon_path.is_file():
         w.setWindowIcon(QIcon(str(icon_path)))
+    startup_mark("app.main:before_show")
+    startup_mark("app.main:show_begin")
     w.show()
+    startup_mark("app.main:show_end")
+    w._apply_default_window_size("show")
+    startup_mark("app.main:after_show")
     if icon_path.suffix.lower() == ".ico":
         _set_windows_hwnd_icons_from_ico(w, icon_path)
+    startup_mark("app.main:before_deferred_build_ui")
+    QTimer.singleShot(0, w.deferred_build_ui)
+    QTimer.singleShot(0, w.apply_deferred_window_chrome)
+    startup_mark("app.main:after_schedule_deferred_build_ui")
+    schedule_startup_summaries(QTimer)
+    startup_mark("app.main:before_exec")
     return app.exec()

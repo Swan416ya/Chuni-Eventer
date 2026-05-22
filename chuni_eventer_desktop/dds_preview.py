@@ -34,6 +34,41 @@ def remove_cached_pngs_for_dds_basenames(basenames: Iterable[str]) -> None:
         remove_cached_png_for_dds_basename(b)
 
 
+def ensure_dds_preview_png(
+    *,
+    acus_root: Path,
+    compressonatorcli_path: Path | None,
+    dds_path: Path,
+) -> Path | None:
+    """
+    确保 DDS 对应预览 PNG 已写入 ``.cache/dds_preview/``。
+    可在后台线程调用（不涉及 QPixmap）。
+    """
+    if not dds_path.exists():
+        return None
+
+    cache = preview_cache_dir(acus_root)
+    cache.mkdir(parents=True, exist_ok=True)
+    png_path = cache / (dds_path.name + ".png")
+
+    should_rebuild = not png_path.exists()
+    if not should_rebuild:
+        try:
+            should_rebuild = dds_path.stat().st_mtime_ns > png_path.stat().st_mtime_ns
+        except OSError:
+            should_rebuild = True
+
+    if should_rebuild:
+        if compressonatorcli_path is None and not quicktex_available():
+            return None
+        try:
+            convert_dds_to_png(tool_path=compressonatorcli_path, input_dds=dds_path, output_png=png_path)
+        except (DdsToolError, OSError, PermissionError):
+            return None
+
+    return png_path if png_path.is_file() else None
+
+
 def dds_to_pixmap(
     *,
     acus_root: Path,
@@ -48,29 +83,13 @@ def dds_to_pixmap(
     优先 quicktex；否则使用已配置的 compressonatorcli。
     restrict=False 时返回原图尺寸，由界面按容器宽度自行缩放。
     """
-    if not dds_path.exists():
+    png_path = ensure_dds_preview_png(
+        acus_root=acus_root,
+        compressonatorcli_path=compressonatorcli_path,
+        dds_path=dds_path,
+    )
+    if png_path is None:
         return None
-
-    cache = preview_cache_dir(acus_root)
-    cache.mkdir(parents=True, exist_ok=True)
-    png_path = cache / (dds_path.name + ".png")
-
-    should_rebuild = not png_path.exists()
-    if not should_rebuild:
-        try:
-            # If DDS was updated/replaced after the cached PNG was produced,
-            # force regenerate to avoid stale preview after delete/recreate flows.
-            should_rebuild = dds_path.stat().st_mtime_ns > png_path.stat().st_mtime_ns
-        except OSError:
-            should_rebuild = True
-
-    if should_rebuild:
-        if compressonatorcli_path is None and not quicktex_available():
-            return None
-        try:
-            convert_dds_to_png(tool_path=compressonatorcli_path, input_dds=dds_path, output_png=png_path)
-        except (DdsToolError, OSError, PermissionError):
-            return None
 
     pm = QPixmap(str(png_path))
     if pm.isNull():

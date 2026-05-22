@@ -43,18 +43,11 @@ def enumerate_game_data_roots(game_root: Path) -> list[Path]:
     扫描给定目录下所有数据包根路径。
 
     规则：
-    - 递归查找目录名匹配 ``A???``（A 开头且总长度 4）的文件夹
-    - 若该目录包含相关资源子目录（music/stage/ddsImage/ddsMap/chara/reward/releaseTag）
-      则视作一个数据包根
-    - 兼容旧输入：若用户直接把目录指到某个数据包根（自身含 music 等），也会收录
+    - 优先定向探测常见 CHUNITHM 安装布局（避免 ``rglob("*")`` 扫整盘）
+    - 定向未找到时再 fallback 全树递归
+    - 目录名匹配 ``A???``（A 开头且总长度 4），且含 music/stage 等资源子目录
+    - 兼容用户直接把目录指到某个数据包根
     """
-    roots: list[Path] = []
-    try:
-        root = game_root.expanduser().resolve()
-    except OSError:
-        return []
-    if not root.is_dir():
-        return []
     pack_markers = ("music", "stage", "ddsImage", "ddsMap", "chara", "reward", "releaseTag")
 
     def _looks_like_pack_dir(p: Path) -> bool:
@@ -69,39 +62,71 @@ def enumerate_game_data_roots(game_root: Path) -> list[Path]:
     def _is_a4_dir_name(name: str) -> bool:
         return len(name) == 4 and name.upper().startswith("A")
 
-    # 兼容：用户直接选中了某个包根
-    try:
-        if _looks_like_pack_dir(root):
-            roots.append(root.resolve())
-    except OSError:
-        pass
+    def _try_add(candidate: Path, seen: set[Path], out: list[Path]) -> None:
+        if not _looks_like_pack_dir(candidate):
+            return
+        try:
+            rr = candidate.resolve()
+        except OSError:
+            return
+        if rr in seen:
+            return
+        seen.add(rr)
+        out.append(rr)
 
-    # 主规则：递归收集所有 A??? 目录
+    def _scan_a4_children(parent: Path, seen: set[Path], out: list[Path]) -> None:
+        try:
+            children = list(parent.iterdir())
+        except OSError:
+            return
+        for child in children:
+            if not child.is_dir():
+                continue
+            if _is_a4_dir_name(child.name):
+                _try_add(child, seen, out)
+
     try:
-        for p in root.rglob("*"):
-            if not p.is_dir():
-                continue
-            if not _is_a4_dir_name(p.name):
-                continue
-            if not _looks_like_pack_dir(p):
-                continue
-            try:
-                roots.append(p.resolve())
-            except OSError:
-                continue
+        root = game_root.expanduser().resolve()
     except OSError:
-        pass
+        return []
+    if not root.is_dir():
+        return []
 
     seen: set[Path] = set()
     out: list[Path] = []
-    for r in roots:
+
+    _try_add(root, seen, out)
+
+    _scan_a4_children(root, seen, out)
+
+    data_dir = root / "data"
+    if data_dir.is_dir():
+        _scan_a4_children(data_dir, seen, out)
         try:
-            rr = r.resolve()
+            for tier in data_dir.iterdir():
+                if not tier.is_dir():
+                    continue
+                opt = tier / "opt"
+                if opt.is_dir():
+                    _scan_a4_children(opt, seen, out)
         except OSError:
-            continue
-        if rr not in seen:
-            seen.add(rr)
-            out.append(rr)
+            pass
+
+    bin_option = root / "bin" / "option"
+    if bin_option.is_dir():
+        _scan_a4_children(bin_option, seen, out)
+
+    if not out:
+        try:
+            for p in root.rglob("*"):
+                if not p.is_dir():
+                    continue
+                if not _is_a4_dir_name(p.name):
+                    continue
+                _try_add(p, seen, out)
+        except OSError:
+            pass
+
     return out
 
 

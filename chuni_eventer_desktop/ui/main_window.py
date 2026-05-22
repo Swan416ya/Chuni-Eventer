@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, Qt, QThread, QTimer, pyqtSignal
-from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QProgressDialog, QStackedWidget, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QApplication, QFileDialog, QHBoxLayout, QLabel, QProgressDialog, QStackedWidget, QVBoxLayout, QWidget
 
 from qfluentwidgets import (
     BodyLabel,
@@ -32,7 +33,6 @@ from ..game_data_index import GameDataIndex, load_cached_game_index, rebuild_and
 from ..sheet_install import install_zip_to_acus, peek_root_readme_from_archive
 from ..dds_quicktex import quicktex_available
 from .manager_widget import ManagerWidget
-from .settings_page import SettingsPage
 from .chara_add_dialog import CharaAddDialog
 from .map_add_dialog import MapAddDialog, RewardCreateDialog, ensure_reward_xml, reward_dialog_bundle
 from .map_icon_dialog import MapIconAddEditDialog
@@ -64,6 +64,9 @@ from .nav_icons import (
     SVG_TROPHY,
     nav_qicon,
 )
+from ..startup_profile import schedule_startup_summaries, startup_mark, startup_span
+
+startup_mark("main_window:module_imported")
 
 
 _scan_log_logger: logging.Logger | None = None
@@ -128,24 +131,29 @@ class _GameIndexWorker(QObject):
         self._acus_root = acus_root
 
     def run(self) -> None:
+        from ..startup_profile import startup_mark, startup_span
+
         lg = _scan_logger()
         lg.info("scan_start game_root=%s tool=%s", self._game_root, self._compressonatorcli_path)
+        startup_mark("_GameIndexWorker.run:enter", game_root=str(self._game_root))
 
         def _on_progress(msg: str, cur: int, total: int) -> None:
             lg.info("scan_progress cur=%s total=%s msg=%s", cur, total, msg)
             self.progress.emit(str(msg), int(cur), int(total))
 
         try:
-            idx, err = rebuild_and_save_game_index(
-                self._game_root,
-                self._compressonatorcli_path,
-                progress=_on_progress,
-                prewarm_dds_preview=False,
-            )
+            with startup_span("_GameIndexWorker.rebuild_and_save_game_index"):
+                idx, err = rebuild_and_save_game_index(
+                    self._game_root,
+                    self._compressonatorcli_path,
+                    progress=_on_progress,
+                    prewarm_dds_preview=False,
+                )
             if isinstance(idx, GameDataIndex):
                 _on_progress("正在刷新 ACUS/charaWorks 排序表 XML …", 0, 0)
                 try:
-                    refresh_chara_works_sorts_with_game(self._acus_root, self._game_root)
+                    with startup_span("_GameIndexWorker.refresh_chara_works_sorts"):
+                        refresh_chara_works_sorts_with_game(self._acus_root, self._game_root)
                 except Exception as e:
                     lg.exception("scan_finish_with_post_step_error game_root=%s", self._game_root)
                     self.finished.emit(None, f"索引已完成，但刷新 charaWorks 失败：{e}")
@@ -164,23 +172,113 @@ class _GameIndexWorker(QObject):
         except Exception:
             lg.exception("scan_crash_unhandled game_root=%s", self._game_root)
             self.finished.emit(None, "扫描线程发生未处理异常，请查看 .cache/logs/index_scan.log")
+        startup_mark("_GameIndexWorker.run:exit")
 
 
 class MainWindow(MSFluentWindow):
     """主窗口：Fluent 底栏导航 + 单一内容区（ACUS 管理）。"""
 
     def __init__(self) -> None:
-        super().__init__()
-        self.setWindowTitle(f"Chuni Eventer v{APP_VERSION}")
-        self.resize(_DEFAULT_MAIN_WINDOW_WIDTH, _DEFAULT_MAIN_WINDOW_HEIGHT)
+        startup_mark("MainWindow.__init__:enter")
+        with startup_span("MainWindow.super().__init__"):
+            super().__init__()
+        # Win11 Mica / DWM 在部分机器上首次 show() 可阻塞数秒；桌面工具优先启动速度。
+        self.setMicaEffectEnabled(False)
+        if sys.platform == "win32":
+            try:
+                hwnd = int(self.winId())
+                self.windowEffect.removeWindowAnimation(hwnd)
+                self.windowEffect.removeShadowEffect(hwnd)
+                self.windowEffect.removeBackgroundEffect(hwnd)
+            except Exception:
+                pass
+        self.navigationInterface.hide()
+        startup_mark("MainWindow.after_super")
 
-        self._cfg = AcusConfig.load()
-        apply_resolved_paths_to_config(self._cfg)
-        self._acus_root = ensure_acus_layout(game_root=self._cfg.game_root or None)
+        with startup_span("MainWindow.config"):
+            self._cfg = AcusConfig.load()
+            apply_resolved_paths_to_config(self._cfg)
+            self._acus_root = ensure_acus_layout(game_root=self._cfg.game_root or None)
+        startup_mark("MainWindow.__init__:after_config")
+
+        self._heavy_ui_built = False
+        self._startup_shell: QWidget | None = None
+        self._manager = None
+        self._settings_page = None
         self._in_others_mode = False
         self._in_avatar_mode = False
         self._in_settings_mode = False
+        self._current_category_index = 2
+        self._nav_specs: list[tuple[str, object, str, str, str]] = []
 
+        self._index_thread: QThread | None = None
+        self._index_worker: _GameIndexWorker | None = None
+        self._index_progress: QProgressDialog | None = None
+        self._bootstrap_thread: QThread | None = None
+        self._install_startup_shell()
+        startup_mark("MainWindow.__init__:ready")
+
+    def _install_startup_shell(self) -> None:
+        """纯 Qt 占位页 + switchTo：避免空 stackedWidget 首次 show 触发 Fluent 重 init。"""
+        startup_mark("MainWindow.startup_shell:begin")
+        self._startup_shell = QWidget()
+        self._startup_shell.setObjectName("startupShell")
+        shell_lay = QVBoxLayout(self._startup_shell)
+        shell_lay.setContentsMargins(24, 24, 24, 24)
+        shell_hint = QLabel("正在加载工作区…", self._startup_shell)
+        shell_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        shell_lay.addStretch(1)
+        shell_lay.addWidget(shell_hint)
+        shell_lay.addStretch(1)
+        self.stackedWidget.addWidget(self._startup_shell)
+        startup_mark("MainWindow.startup_shell:before_switchTo")
+        self.switchTo(self._startup_shell)
+        startup_mark("MainWindow.startup_shell:after_switchTo")
+        startup_mark("MainWindow.startup_shell:end")
+
+    def _apply_default_window_size(self, phase: str) -> None:
+        startup_mark(
+            f"MainWindow.before_resize_{phase}",
+            w=_DEFAULT_MAIN_WINDOW_WIDTH,
+            h=_DEFAULT_MAIN_WINDOW_HEIGHT,
+        )
+        self.resize(_DEFAULT_MAIN_WINDOW_WIDTH, _DEFAULT_MAIN_WINDOW_HEIGHT)
+        startup_mark(f"MainWindow.after_resize_{phase}")
+
+    def apply_deferred_window_chrome(self) -> None:
+        """show() 之后设置标题。实机测试 setWindowTitle 在 super 后同步调用可阻塞数秒。"""
+        startup_mark("MainWindow.before_setWindowTitle")
+        self.setWindowTitle(f"Chuni Eventer v{APP_VERSION}")
+        startup_mark("MainWindow.after_setWindowTitle")
+        self._apply_default_window_size("post_show")
+
+    def deferred_build_ui(self) -> None:
+        """show() 之后构建 UI 并加载首屏数据（隐藏窗口上创建 Fluent 控件极慢）。"""
+        if self._heavy_ui_built:
+            return
+        startup_mark("MainWindow.deferred_build_ui:enter")
+        with startup_span("MainWindow._build_workspace_ui"):
+            self._build_workspace_ui()
+        with startup_span("MainWindow._build_navigation"):
+            self._build_navigation()
+        if self._startup_shell is not None:
+            self.stackedWidget.removeWidget(self._startup_shell)
+            self._startup_shell.deleteLater()
+            self._startup_shell = None
+        startup_mark("MainWindow.deferred_build_ui:before_switchTo")
+        self.switchTo(self._workspace)
+        startup_mark("MainWindow.deferred_build_ui:after_switchTo")
+        self.navigationInterface.show()
+        self.navigationInterface.setCurrentItem("nav_music")
+        self._apply_default_window_size("post_build")
+        self._heavy_ui_built = True
+        startup_mark("MainWindow.deferred_build_ui:before_post_show_tasks")
+        QTimer.singleShot(0, lambda: self._apply_category("Music", "歌曲"))
+        QTimer.singleShot(0, self._ensure_game_index_background)
+        QTimer.singleShot(0, self._bootstrap_external_tools)
+        startup_mark("MainWindow.deferred_build_ui:exit")
+
+    def _build_workspace_ui(self) -> None:
         self._workspace = QWidget()
         self._workspace.setObjectName("acusWorkspace")
         wlay = QVBoxLayout(self._workspace)
@@ -200,23 +298,30 @@ class MainWindow(MSFluentWindow):
         self._game_music_browser_btn.clicked.connect(self._on_game_music_browser)
         self._refresh_btn = PushButton("刷新")
         self._refresh_btn.clicked.connect(self._on_refresh)
+        self._index_status = BodyLabel("", self)
+        self._index_status.setWordWrap(True)
+        self._index_status.setTextColor("#B45309", "#FBBF24")
+        self._index_status.hide()
         self._add_btn = PrimaryPushButton("新增")
         self._add_btn.clicked.connect(self._on_add)
         header.addWidget(self._title_lbl, alignment=Qt.AlignmentFlag.AlignVCenter)
         header.addStretch(1)
         header.addWidget(self._search, alignment=Qt.AlignmentFlag.AlignVCenter)
+        header.addWidget(self._index_status, alignment=Qt.AlignmentFlag.AlignVCenter)
         header.addWidget(self._game_music_browser_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
         header.addWidget(self._refresh_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
         header.addWidget(self._add_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
         wlay.addLayout(header)
 
-        self._manager = ManagerWidget(
-            acus_root=self._acus_root,
-            get_tool_path=self._get_tool_path_or_none,
-            get_game_index=self._resolve_game_index,
-            get_game_root=lambda: self._cfg.game_root or "",
-            embedded=True,
-        )
+        with startup_span("MainWindow.ManagerWidget"):
+            self._manager = ManagerWidget(
+                acus_root=self._acus_root,
+                get_tool_path=self._get_tool_path_or_none,
+                get_game_index=self._resolve_game_index,
+                get_game_root=lambda: self._cfg.game_root or "",
+                embedded=True,
+            )
+        startup_mark("MainWindow._build_workspace_ui:after_manager")
         self._search.textChanged.connect(self._manager.set_search_text)
 
         self._primary_body = QWidget(self._workspace)
@@ -275,18 +380,9 @@ class MainWindow(MSFluentWindow):
 
         self.stackedWidget.addWidget(self._workspace)
 
-        self._settings_page = SettingsPage(
-            cfg=self._cfg,
-            acus_root=self._acus_root,
-            get_tool_path=self._get_tool_path_or_none,
-            get_game_index=self._resolve_game_index,
-            on_settings_saved=self._on_settings_saved,
-            on_request_game_rescan=self._request_game_index_rescan,
-            parent=self,
-        )
-        self.stackedWidget.addWidget(self._settings_page)
-
-        self._nav_specs: list[tuple[str, object, str, str, str]] = [
+    def _build_navigation(self) -> None:
+        startup_mark("MainWindow._build_navigation:before_nav_qicon")
+        self._nav_specs = [
             ("nav_chara", nav_qicon(SVG_CHARA), "角色", "Chara", "角色"),
             ("nav_map", nav_qicon(SVG_MAP), "地图", "Map", "地图"),
             ("nav_music", nav_qicon(SVG_MUSIC), "歌曲", "Music", "歌曲"),
@@ -296,6 +392,7 @@ class MainWindow(MSFluentWindow):
             ("nav_nameplate", nav_qicon(SVG_NAMEPLATE), "名牌", "NamePlate", "名牌"),
             ("nav_others", FluentIcon.APPLICATION, "其他", "__Others__", "其他"),
         ]
+        startup_mark("MainWindow._build_navigation:after_nav_qicon", count=len(self._nav_specs))
         for route_key, icon, text, kind, title in self._nav_specs:
             if kind == "__Others__":
                 self.navigationInterface.addItem(
@@ -330,22 +427,29 @@ class MainWindow(MSFluentWindow):
             onClick=self._enter_settings_mode,
             position=NavigationItemPosition.BOTTOM,
         )
+        startup_mark("MainWindow._build_navigation:exit")
 
-        self.switchTo(self._workspace)
-        self._current_category_index = 2
-        self.navigationInterface.setCurrentItem("nav_music")
-        # 延后到事件循环下一轮再扫 ACUS / 建歌曲卡片，让窗口先完成 show()，体感启动更快
-        QTimer.singleShot(0, lambda: self._apply_category("Music", "歌曲"))
+    def _ensure_settings_page(self):
+        from .settings_page import SettingsPage
 
-        self._index_thread: QThread | None = None
-        self._index_worker: _GameIndexWorker | None = None
-        self._index_progress: QProgressDialog | None = None
-        self._bootstrap_thread: QThread | None = None
-        QTimer.singleShot(0, self._ensure_game_index_background)
-        QTimer.singleShot(0, self._bootstrap_external_tools)
+        if self._settings_page is not None:
+            return self._settings_page
+        with startup_span("MainWindow.SettingsPage.lazy_create"):
+            self._settings_page = SettingsPage(
+                cfg=self._cfg,
+                acus_root=self._acus_root,
+                get_tool_path=self._get_tool_path_or_none,
+                get_game_index=self._resolve_game_index,
+                on_settings_saved=self._on_settings_saved,
+                on_request_game_rescan=self._request_game_index_rescan,
+                parent=self,
+            )
+            self.stackedWidget.addWidget(self._settings_page)
+        return self._settings_page
 
     def _bootstrap_external_tools(self) -> None:
         """Lite 单 exe 首次启动：在 exe 旁自动下载 .tools；懒人包已含工具则跳过。"""
+        startup_mark("MainWindow._bootstrap_external_tools:enter")
         if not getattr(sys, "frozen", False):
             return
         if self._cfg.external_tools_bootstrap_done:
@@ -360,6 +464,7 @@ class MainWindow(MSFluentWindow):
         if not started:
             self._cfg.external_tools_bootstrap_done = True
             self._cfg.save()
+        startup_mark("MainWindow._bootstrap_external_tools:exit", started=started)
 
     def _resolve_game_index(self):
         gr = (self._cfg.game_root or "").strip()
@@ -368,6 +473,7 @@ class MainWindow(MSFluentWindow):
         return load_cached_game_index(gr)
 
     def _ensure_game_index_background(self) -> None:
+        startup_mark("MainWindow._ensure_game_index_background:enter")
         gr_raw = (self._cfg.game_root or "").strip()
         if not gr_raw:
             fly_message_async(
@@ -381,9 +487,21 @@ class MainWindow(MSFluentWindow):
             return
 
         gr = Path(gr_raw).expanduser()
-        if load_cached_game_index(str(gr)) is not None:
+        with startup_span("MainWindow.load_cached_game_index"):
+            cached = load_cached_game_index(str(gr))
+        if cached is not None:
+            startup_mark("MainWindow._ensure_game_index_background:cache_hit")
             return
 
+        startup_mark("MainWindow._ensure_game_index_background:start_thread")
+        fly_message_async(
+            self,
+            "后台扫描",
+            "正在后台建立游戏数据索引，可先浏览 ACUS 内容。\n"
+            "进度见窗口顶部提示；完成后会弹出摘要。",
+            single_button=True,
+            window_modal=False,
+        )
         self._start_index_thread(gr)
 
     def _start_index_thread(self, game_root: Path, compressonatorcli_path: Path | None = None) -> None:
@@ -430,7 +548,8 @@ class MainWindow(MSFluentWindow):
             single_button=True,
             window_modal=True,
         )
-        self._settings_page.refresh_game_data_view()
+        if self._settings_page is not None:
+            self._settings_page.refresh_game_data_view()
 
     def _on_index_thread_stopped(self) -> None:
         _scan_logger().info("scan_thread_stopped")
@@ -440,18 +559,22 @@ class MainWindow(MSFluentWindow):
 
     def _show_index_progress_dialog(self, text: str) -> None:
         self._hide_index_progress_dialog()
+        self._index_status.setText(text)
+        self._index_status.show()
         dlg = QProgressDialog(self)
         dlg.setWindowTitle("扫描游戏数据")
         dlg.setLabelText(text)
         dlg.setRange(0, 0)
         dlg.setCancelButton(None)
         dlg.setMinimumDuration(0)
-        # 禁止用户在扫描期间操作其它界面；完成后自动关闭。
-        dlg.setWindowModality(Qt.WindowModality.ApplicationModal)
+        # 非模态：不阻塞首屏与其它 ACUS 操作
+        dlg.setWindowModality(Qt.WindowModality.NonModal)
         dlg.show()
         self._index_progress = dlg
 
     def _on_background_index_progress(self, msg: str, cur: int, total: int) -> None:
+        self._index_status.setText(msg)
+        self._index_status.show()
         dlg = self._index_progress
         if dlg is None:
             return
@@ -463,6 +586,8 @@ class MainWindow(MSFluentWindow):
             dlg.setRange(0, 0)
 
     def _hide_index_progress_dialog(self) -> None:
+        self._index_status.hide()
+        self._index_status.setText("")
         if self._index_progress is None:
             return
         safe_dismiss_modal_progress_dialog(self._index_progress)
@@ -472,6 +597,8 @@ class MainWindow(MSFluentWindow):
         return resolve_compressonatorcli_path(self._cfg)
 
     def _mount_manager_primary(self) -> None:
+        if self._manager is None:
+            return
         if self._manager.parentWidget() is self._primary_body:
             return
         old = self._manager.parentWidget()
@@ -484,6 +611,8 @@ class MainWindow(MSFluentWindow):
             pl.addWidget(self._manager, stretch=1)
 
     def _mount_manager_others(self) -> None:
+        if self._manager is None:
+            return
         if self._manager.parentWidget() is self._others_manager_slot:
             return
         old = self._manager.parentWidget()
@@ -494,6 +623,8 @@ class MainWindow(MSFluentWindow):
         self._others_manager_layout.addWidget(self._manager, stretch=1)
 
     def _mount_manager_avatar(self) -> None:
+        if self._manager is None:
+            return
         if self._manager.parentWidget() is self._avatar_manager_slot:
             return
         old = self._manager.parentWidget()
@@ -528,7 +659,7 @@ class MainWindow(MSFluentWindow):
             self._exit_avatar_mode()
             self._exit_others_mode()
             self._in_settings_mode = True
-            self.switchTo(self._settings_page)
+            self.switchTo(self._ensure_settings_page())
             self.navigationInterface.setCurrentItem("nav_settings")
         except Exception:
             _scan_logger().exception("ui_enter_settings_crash")
@@ -614,6 +745,10 @@ class MainWindow(MSFluentWindow):
         self._apply_category(kind, title)
 
     def _apply_category(self, kind: str, title: str) -> None:
+        startup_mark("MainWindow._apply_category:enter", kind=kind)
+        if self._manager is None:
+            startup_mark("MainWindow._apply_category:skip", reason="manager_not_ready")
+            return
         self._search.setText("")
         self._title_lbl.setText(title)
         placeholders = {
@@ -634,6 +769,7 @@ class MainWindow(MSFluentWindow):
         self._search.setPlaceholderText(placeholders.get(kind, "搜索当前列表…"))
         self._game_music_browser_btn.setVisible(kind == "Music")
         self._manager.set_kind(kind)
+        startup_mark("MainWindow._apply_category:exit", kind=kind)
 
     def _restore_current_category_header(self) -> None:
         if self._in_avatar_mode:
@@ -683,6 +819,8 @@ class MainWindow(MSFluentWindow):
         self._start_index_thread(game_root, compressonatorcli_path)
 
     def _on_refresh(self) -> None:
+        if self._manager is None:
+            return
         self._manager.reload()
 
     def _on_add(self) -> None:

@@ -11,6 +11,7 @@ from PyQt6.QtCore import (
     QRect,
     QRectF,
     Qt,
+    QThread,
     QTimer,
     pyqtProperty,
     pyqtSignal,
@@ -28,8 +29,9 @@ from qfluentwidgets import Action, FluentIcon as FIF, MenuAnimationType, RoundMe
 
 
 from ..acus_scan import MusicItem
-from ..dds_preview import dds_to_pixmap
+from ..dds_preview import ensure_dds_preview_png
 from ..dds_quicktex import quicktex_available
+from ..startup_profile import startup_mark, startup_span
 
 
 def _is_dark_ui() -> bool:
@@ -111,6 +113,12 @@ class FlipMusicCard(QFrame):
         self.update()
 
     angle = pyqtProperty(float, fget=get_angle, fset=set_angle)
+
+    def set_jacket(self, jacket: QPixmap | None) -> None:
+        if jacket is None or jacket.isNull():
+            return
+        self._jacket = jacket
+        self.update()
 
     def _target_angle(self) -> float:
         return 180.0 if self._angle < 90.0 else 0.0
@@ -430,6 +438,47 @@ class _MusicViewportResizeFilter(QObject):
         return False
 
 
+class _JacketLoadWorker(QObject):
+    loaded = pyqtSignal(int, str)
+    finished = pyqtSignal()
+
+    def __init__(
+        self,
+        *,
+        jobs: list[tuple[int, Path]],
+        acus_root: Path,
+        tool_path: Path | None,
+        generation: int,
+        generation_ref: list[int],
+    ) -> None:
+        super().__init__()
+        self._jobs = jobs
+        self._acus_root = acus_root
+        self._tool_path = tool_path
+        self._generation = generation
+        self._generation_ref = generation_ref
+
+    def run(self) -> None:
+        loaded = 0
+        for music_id, dds_path in self._jobs:
+            if self._generation_ref[0] != self._generation:
+                break
+            png_path = ensure_dds_preview_png(
+                acus_root=self._acus_root,
+                compressonatorcli_path=self._tool_path,
+                dds_path=dds_path,
+            )
+            if png_path is not None and self._generation_ref[0] == self._generation:
+                self.loaded.emit(music_id, str(png_path))
+                loaded += 1
+        startup_mark(
+            "_JacketLoadWorker.run:finished",
+            jobs=len(self._jobs),
+            loaded=loaded,
+        )
+        self.finished.emit()
+
+
 class MusicCardsView(QWidget):
     """正方形卡片网格，随宽度换列，纵向滚动。"""
 
@@ -455,6 +504,10 @@ class MusicCardsView(QWidget):
         self._last_grid_cols = -1
         self._last_card_size = -1
         self._last_viewport_w = -1
+        self._card_by_id: dict[int, FlipMusicCard] = {}
+        self._jacket_load_generation_ref: list[int] = [0]
+        self._jacket_thread: QThread | None = None
+        self._jacket_worker: _JacketLoadWorker | None = None
 
         self._scroll = ScrollArea(self)
         # False：内容区按网格真实宽高布局，否则视口会把子控件压成单列竖排
@@ -476,6 +529,99 @@ class MusicCardsView(QWidget):
 
         self._vp_resize_filter = _MusicViewportResizeFilter(self)
         self._scroll.viewport().installEventFilter(self._vp_resize_filter)
+        self._scroll.verticalScrollBar().valueChanged.connect(self._on_scroll_for_jackets)
+
+    def _on_scroll_for_jackets(self, _value: int) -> None:
+        if self._last_items and self._jacket_thread is None:
+            self._schedule_jacket_loads()
+
+    def _stop_jacket_loader(self) -> None:
+        self._jacket_load_generation_ref[0] += 1
+        thread = self._jacket_thread
+        if thread is not None and thread.isRunning():
+            thread.quit()
+        self._jacket_thread = None
+        self._jacket_worker = None
+
+    def _prioritized_jacket_jobs(self) -> list[tuple[int, Path]]:
+        tool = self._get_tool_path()
+        if tool is None and not quicktex_available():
+            return []
+        jobs: list[tuple[int, Path]] = []
+        visible: set[int] = set()
+        cols = self._last_grid_cols if self._last_grid_cols > 0 else 4
+        card_size = self._last_card_size if self._last_card_size > 0 else 120
+        if self._cards and card_size > 0:
+            scroll_y = self._scroll.verticalScrollBar().value()
+            vp_h = max(1, self._scroll.viewport().height())
+            gap = self._grid.verticalSpacing()
+            margin = self._grid.contentsMargins().top()
+            row_h = card_size + gap
+            first_row = max(0, (scroll_y - margin) // max(1, row_h))
+            last_row = (scroll_y + vp_h + margin) // max(1, row_h) + 1
+            for row in range(first_row, last_row + 1):
+                for col in range(cols):
+                    idx = row * cols + col
+                    if idx < len(self._last_items):
+                        visible.add(idx)
+
+        def _append_at(idx: int) -> None:
+            it = self._last_items[idx]
+            if it.name.id in self._jacket_cache:
+                return
+            rel = it.jacket_path.strip()
+            if not rel:
+                return
+            dds_path = it.xml_path.parent / rel
+            jobs.append((it.name.id, dds_path))
+
+        for idx in sorted(visible):
+            _append_at(idx)
+        for idx in range(len(self._last_items)):
+            if idx not in visible:
+                _append_at(idx)
+        return jobs
+
+    def _on_jacket_loaded(self, music_id: int, png_path: str) -> None:
+        pm = QPixmap(png_path)
+        if pm.isNull():
+            return
+        pm = pm.scaled(900, 900, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        self._jacket_cache[music_id] = pm
+        card = self._card_by_id.get(music_id)
+        if card is not None:
+            card.set_jacket(pm)
+
+    def _on_jacket_loader_finished(self) -> None:
+        self._jacket_thread = None
+        self._jacket_worker = None
+
+    def _schedule_jacket_loads(self) -> None:
+        jobs = self._prioritized_jacket_jobs()
+        if not jobs:
+            return
+        startup_mark("MusicCardsView._schedule_jacket_loads:start", jobs=len(jobs))
+        self._stop_jacket_loader()
+        generation = self._jacket_load_generation_ref[0]
+        tool = self._get_tool_path()
+        thread = QThread(self)
+        worker = _JacketLoadWorker(
+            jobs=jobs,
+            acus_root=self._acus_root,
+            tool_path=tool,
+            generation=generation,
+            generation_ref=self._jacket_load_generation_ref,
+        )
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.loaded.connect(self._on_jacket_loaded)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        worker.finished.connect(self._on_jacket_loader_finished)
+        thread.finished.connect(thread.deleteLater)
+        self._jacket_thread = thread
+        self._jacket_worker = worker
+        thread.start()
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -504,6 +650,8 @@ class MusicCardsView(QWidget):
         self._rebuild_grid()
 
     def clear_cards(self) -> None:
+        self._stop_jacket_loader()
+        self._card_by_id.clear()
         for c in self._cards:
             c.deleteLater()
         self._cards.clear()
@@ -514,15 +662,18 @@ class MusicCardsView(QWidget):
                 w.deleteLater()
 
     def set_items(self, items: list[MusicItem], get_tool_path) -> None:
+        startup_mark("MusicCardsView.set_items:enter", count=len(items))
         self._last_items = list(items)
         self._get_tool_path = get_tool_path
         self._jacket_cache.clear()
         self._last_grid_cols = -1
         self._last_card_size = -1
         self._last_viewport_w = -1
-        self._rebuild_grid()
+        with startup_span("MusicCardsView._rebuild_grid", count=len(items)):
+            self._rebuild_grid()
         QTimer.singleShot(0, self._relayout_if_geometry_changed)
         QTimer.singleShot(50, self._relayout_if_geometry_changed)
+        startup_mark("MusicCardsView.set_items:exit", count=len(items))
 
     def _cols_and_size(self) -> tuple[int, int]:
         """优先每行 4 张；宽度不足时依次减列，保证横向排满后再换行。"""
@@ -549,25 +700,12 @@ class MusicCardsView(QWidget):
             self._content.setMinimumSize(0, 0)
             self._content.resize(self._scroll.viewport().width(), 0)
             return
-        tool = self._get_tool_path()
         cols, card_size = self._cols_and_size()
 
         for idx, it in enumerate(items):
             jacket: QPixmap | None = self._jacket_cache.get(it.name.id)
-            if jacket is None:
-                rel = it.jacket_path.strip()
-                if rel and (tool is not None or quicktex_available()):
-                    dds_path = it.xml_path.parent / rel
-                    jacket = dds_to_pixmap(
-                        acus_root=self._acus_root,
-                        compressonatorcli_path=tool,
-                        dds_path=dds_path,
-                        max_w=900,
-                        max_h=900,
-                    )
-                    if jacket is not None and not jacket.isNull():
-                        self._jacket_cache[it.name.id] = jacket
             card = FlipMusicCard(it, jacket, card_size)
+            self._card_by_id[it.name.id] = card
             card.doubleClickedMusic.connect(self.doubleClickedMusic.emit)
             card.deleteRequested.connect(self.musicDeleteRequested.emit)
             card.trophyRequested.connect(self.musicTrophyRequested.emit)
@@ -591,6 +729,7 @@ class MusicCardsView(QWidget):
         tw = m.left() + m.right() + cols * card_size + max(0, cols - 1) * hs
         th = m.top() + m.bottom() + rows * card_size + max(0, rows - 1) * vs
         self._content.setFixedSize(tw, th)
+        self._schedule_jacket_loads()
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
