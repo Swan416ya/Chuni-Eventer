@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 import xml.etree.ElementTree as ET
+from datetime import datetime
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
@@ -34,7 +35,7 @@ from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_m
 from .fluent_dialogs import fly_critical, fly_message
 from .name_glyph_preview import wrap_name_input_with_preview
 from .trophy_pjsk_generator_dialog import TrophyPjskGeneratorDialog
-from .trophy_texture_compose_dialog import TrophyTextureComposeDialog
+from .trophy_texture_compose_dialog import compose_trophy_title_png
 
 
 def _safe_int(text: str) -> int | None:
@@ -313,18 +314,13 @@ class TrophyAddDialog(FluentCaptionDialog):
                 self.image_edit,
                 "选择称号图片",
                 dim_hint=(
-                    "可选；若使用图片：参考分辨率 608 × 148 像素。"
+                    "可选；若使用图片：宽 608，高 80 或 148 像素均可直接选择。"
+                    "608×80 会在写入时自动扩展透明区并叠加模板；608×148 整图顶对齐后叠模板。"
                     "下方可留空，内容物请靠在整张图最上方排版。"
                     " 也可直接上传 DDS（必须 BC3/DXT5）。"
                 ),
             )
         )
-        editor_btn = PushButton("称号贴图编辑器（608×148 / 608×80）…", self)
-        editor_btn.setToolTip(
-            "上传 608×148 或 608×80 的位图；若为 80 高会自动向下扩展透明区并叠加工具模板 trophy.png。"
-        )
-        editor_btn.clicked.connect(self._open_trophy_texture_editor)
-        img_lay.addWidget(editor_btn)
         pjsk_btn = PushButton("PJSK 自助生成称号贴图…", self)
         pjsk_btn.setToolTip("选择 PJSK Trophy 底板与 line，输入文字后自动生成 608×148 PNG 并填入。")
         pjsk_btn.clicked.connect(self._open_pjsk_trophy_generator)
@@ -428,43 +424,23 @@ class TrophyAddDialog(FluentCaptionDialog):
         if p:
             edit.setText(p)
 
-    def _open_trophy_texture_editor(self) -> None:
+    def _prepare_trophy_ingest_image(self, src: Path) -> Path:
+        """608×80 / 608×148 位图在写入时自动叠模板；DDS 与 PJSK 成品图原样导入。"""
+        if src.suffix.lower() == ".dds":
+            return src
+        if src.name.startswith("pjsk_trophy_"):
+            return src
+        try:
+            composed = compose_trophy_title_png(user_image_path=src)
+        except ValueError:
+            return src
         out_dir = acus_generated_dir(self._acus_root, "trophy_compose_png")
-        parent_win = self.window()
-        aw = QApplication.activeWindow()
-        print(
-            f"[trophy-debug] open texture editor ts={time.time():.3f} "
-            f"self_visible={self.isVisible()} self_enabled={self.isEnabled()} "
-            f"parent={type(parent_win).__name__ if parent_win is not None else None} "
-            f"active={type(aw).__name__ if aw is not None else None}"
-        )
-        dlg = TrophyTextureComposeDialog(out_dir=out_dir, parent=parent_win)
-        print(
-            f"[trophy-debug] texture dlg created ts={time.time():.3f} "
-            f"visible={dlg.isVisible()} modal={dlg.isModal()} "
-            f"modality={int(dlg.windowModality())} "
-            f"parent={type(dlg.parentWidget()).__name__ if dlg.parentWidget() is not None else None}"
-        )
-        code = dlg.exec()
-        print(f"[trophy-debug] texture dlg finished ts={time.time():.3f} code={code}")
-        try:
-            dlg.setWindowModality(Qt.WindowModality.NonModal)
-            dlg.hide()
-        except Exception:
-            pass
-        dlg.deleteLater()
-        QApplication.processEvents()
-        try:
-            self.setEnabled(True)
-            self.raise_()
-            self.activateWindow()
-        except Exception:
-            pass
-        if code != QDialog.DialogCode.Accepted:
-            return
-        if dlg.result_png_path is not None:
-            self.image_edit.setText(str(dlg.result_png_path))
-            self._sync_rare_ui()
+        out_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        out = out_dir / f"trophy_ingest_{ts}.png"
+        if not composed.save(str(out), "PNG"):
+            raise ValueError(f"无法写入合成 PNG：{out}")
+        return out
 
     def _open_pjsk_trophy_generator(self) -> None:
         out_dir = acus_generated_dir(self._acus_root, "trophy_compose_png")
@@ -490,23 +466,15 @@ class TrophyAddDialog(FluentCaptionDialog):
         )
         code = dlg.exec()
         print(f"[trophy-debug] pjsk dlg finished ts={time.time():.3f} code={code}")
-        try:
-            dlg.setWindowModality(Qt.WindowModality.NonModal)
-            dlg.hide()
-        except Exception:
-            pass
-        dlg.deleteLater()
-        QApplication.processEvents()
+        result_path = dlg.result_png_path if code == QDialog.DialogCode.Accepted else None
         try:
             self.setEnabled(True)
             self.raise_()
             self.activateWindow()
         except Exception:
             pass
-        if code != QDialog.DialogCode.Accepted:
-            return
-        if dlg.result_png_path is not None:
-            self.image_edit.setText(str(dlg.result_png_path))
+        if result_path is not None:
+            self.image_edit.setText(str(result_path))
             self._sync_rare_ui()
 
     def _run(self) -> None:
@@ -533,7 +501,8 @@ class TrophyAddDialog(FluentCaptionDialog):
                 if not src.exists():
                     raise ValueError("称号图片路径不存在")
                 dds_path = tdir / dds_name
-                ingest_to_bc3_dds(tool_path=self._tool, input_path=src, output_dds=dds_path)
+                ingest_src = self._prepare_trophy_ingest_image(src)
+                ingest_to_bc3_dds(tool_path=self._tool, input_path=ingest_src, output_dds=dds_path)
                 image_path_xml = dds_name
 
             if image_path_xml:
