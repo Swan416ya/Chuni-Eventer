@@ -132,6 +132,8 @@ class SettingsDialog(FluentCaptionDialog):
         self.resize(520, 520)
         self._general = GameDataSettingsPanel(
             cfg=cfg,
+            acus_root=acus_root,
+            get_tool_path=get_tool_path,
             on_request_game_rescan=on_request_game_rescan,
             parent=self,
         )

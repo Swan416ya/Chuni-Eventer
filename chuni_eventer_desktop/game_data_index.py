@@ -7,12 +7,23 @@ from pathlib import Path
 from typing import Any, Callable
 import xml.etree.ElementTree as ET
 
-from .acus_scan import CharaItem, MusicItem, scan_charas, scan_dds_images, scan_music, scan_nameplates, scan_stages, scan_trophies
+from .acus_scan import (
+    CharaItem,
+    MusicItem,
+    NamePlateItem,
+    TrophyItem,
+    scan_charas,
+    scan_dds_images,
+    scan_music,
+    scan_nameplates,
+    scan_stages,
+    scan_trophies,
+)
 from .acus_workspace import app_cache_dir
 from .dds_convert import convert_dds_to_png
 
 
-INDEX_VERSION = 3
+INDEX_VERSION = 4
 INDEX_FILENAME = "game_data_index.json"
 
 # (说明文字, 当前步, 总步)；总步为 0 时表示不确定进度
@@ -252,7 +263,11 @@ def prewarm_game_dds_preview_pngs(
     return ok, total
 
 
-def _music_item_to_catalog_row(m: MusicItem, source: str) -> dict[str, Any]:
+def _music_item_to_catalog_row(m: MusicItem, source: str, *, pack: Path) -> dict[str, Any]:
+    try:
+        xml_relpath = str(m.xml_path.relative_to(pack))
+    except ValueError:
+        xml_relpath = m.xml_path.name
     return {
         "id": m.name.id,
         "title": (m.name.str or "").strip() or f"Music{m.name.id}",
@@ -262,7 +277,78 @@ def _music_item_to_catalog_row(m: MusicItem, source: str) -> dict[str, Any]:
         "release_tag_id": m.release_tag.id if m.release_tag else None,
         "release_tag_str": (m.release_tag.str if m.release_tag else "") or "",
         "source": source,
+        "xml_relpath": xml_relpath,
+        "jacket_relpath": (m.jacket_path or "").strip(),
+        "cue_id": m.cue_file.id if m.cue_file else None,
+        "levels": list(m.levels),
     }
+
+
+def _chara_item_to_catalog_row(c: CharaItem, source: str, *, pack: Path) -> dict[str, Any]:
+    try:
+        xml_relpath = str(c.xml_path.relative_to(pack))
+    except ValueError:
+        xml_relpath = c.xml_path.name
+    return {
+        "id": c.name.id,
+        "name": (c.name.str or "").strip() or f"Chara{c.name.id}",
+        "default_image_key": (c.default_image_key or "").strip(),
+        "release_tag_str": (c.release_tag.str if c.release_tag else "") or "",
+        "works_str": (c.works.str if c.works else "") or "",
+        "works_id": c.works.id if c.works else None,
+        "source": source,
+        "xml_relpath": xml_relpath,
+    }
+
+
+def _nameplate_item_to_catalog_row(n: NamePlateItem, source: str, *, pack: Path) -> dict[str, Any]:
+    try:
+        xml_relpath = str(n.xml_path.relative_to(pack))
+    except ValueError:
+        xml_relpath = n.xml_path.name
+    return {
+        "id": n.name.id,
+        "name": (n.name.str or "").strip() or f"NamePlate{n.name.id}",
+        "image_relpath": (n.image_path or "").strip(),
+        "source": source,
+        "xml_relpath": xml_relpath,
+    }
+
+
+def _trophy_item_to_catalog_row(t: TrophyItem, source: str, *, pack: Path) -> dict[str, Any]:
+    try:
+        xml_relpath = str(t.xml_path.relative_to(pack))
+    except ValueError:
+        xml_relpath = t.xml_path.name
+    return {
+        "id": t.name.id,
+        "name": (t.name.str or "").strip() or f"Trophy{t.name.id}",
+        "explain": (t.explain_text or "").strip(),
+        "rare_type": t.rare_type,
+        "image_relpath": (t.image_path or "").strip(),
+        "source": source,
+        "xml_relpath": xml_relpath,
+    }
+
+
+def _merge_catalog_by_id(rows: list[dict[str, Any]], *, id_key: str = "id") -> list[dict[str, Any]]:
+    by_id: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        iid = int(row[id_key])
+        if iid not in by_id:
+            by_id[iid] = dict(row)
+            continue
+        prev = by_id[iid]
+        s0 = str(prev.get("source") or "")
+        s1 = str(row.get("source") or "")
+        if s1 and s1 not in s0:
+            prev["source"] = s0 + ("; " if s0 else "") + s1
+        for k, v in row.items():
+            if k == "source":
+                continue
+            if v and not prev.get(k):
+                prev[k] = v
+    return sorted(by_id.values(), key=lambda x: int(x[id_key]))
 
 
 def merge_music_catalog_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -296,10 +382,58 @@ def scan_game_music_catalog(game_root: Path) -> list[dict[str, Any]]:
         src = _relative_under(gr, pack)
         try:
             for m in scan_music(pack):
-                rows.append(_music_item_to_catalog_row(m, src))
+                rows.append(_music_item_to_catalog_row(m, src, pack=pack))
         except Exception:
             continue
     return merge_music_catalog_rows(rows)
+
+
+def scan_game_chara_catalog(game_root: Path) -> list[dict[str, Any]]:
+    try:
+        gr = game_root.expanduser().resolve()
+    except OSError:
+        return []
+    rows: list[dict[str, Any]] = []
+    for pack in enumerate_game_data_roots(gr):
+        src = _relative_under(gr, pack)
+        try:
+            for c in scan_charas(pack):
+                rows.append(_chara_item_to_catalog_row(c, src, pack=pack))
+        except Exception:
+            continue
+    return _merge_catalog_by_id(rows)
+
+
+def scan_game_nameplate_catalog(game_root: Path) -> list[dict[str, Any]]:
+    try:
+        gr = game_root.expanduser().resolve()
+    except OSError:
+        return []
+    rows: list[dict[str, Any]] = []
+    for pack in enumerate_game_data_roots(gr):
+        src = _relative_under(gr, pack)
+        try:
+            for n in scan_nameplates(pack):
+                rows.append(_nameplate_item_to_catalog_row(n, src, pack=pack))
+        except Exception:
+            continue
+    return _merge_catalog_by_id(rows)
+
+
+def scan_game_trophy_catalog(game_root: Path) -> list[dict[str, Any]]:
+    try:
+        gr = game_root.expanduser().resolve()
+    except OSError:
+        return []
+    rows: list[dict[str, Any]] = []
+    for pack in enumerate_game_data_roots(gr):
+        src = _relative_under(gr, pack)
+        try:
+            for t in scan_trophies(pack):
+                rows.append(_trophy_item_to_catalog_row(t, src, pack=pack))
+        except Exception:
+            continue
+    return _merge_catalog_by_id(rows)
 
 
 def _aggregate_stages_dds_from_roots(roots: list[Path]) -> tuple[list[tuple[int, str]], list[tuple[int, str]], list[tuple[int, str]]]:
@@ -467,6 +601,9 @@ class GameDataIndex:
     indexed_at: str
     music: list[tuple[int, str]]
     music_catalog: list[dict[str, Any]]
+    chara_catalog: list[dict[str, Any]]
+    nameplate_catalog: list[dict[str, Any]]
+    trophy_catalog: list[dict[str, Any]]
     stage: list[tuple[int, str]]
     dds_image: list[tuple[int, str]]
     dds_map: list[tuple[int, str]]
@@ -483,6 +620,9 @@ class GameDataIndex:
             "indexed_at": self.indexed_at,
             "music": [{"id": a, "str": b} for a, b in self.music],
             "music_catalog": self.music_catalog,
+            "chara_catalog": self.chara_catalog,
+            "nameplate_catalog": self.nameplate_catalog,
+            "trophy_catalog": self.trophy_catalog,
             "stage": [{"id": a, "str": b} for a, b in self.stage],
             "dds_image": [{"id": a, "str": b} for a, b in self.dds_image],
             "dds_map": [{"id": a, "str": b} for a, b in self.dds_map],
@@ -547,6 +687,43 @@ class GameDataIndex:
         if not roots_scanned and a1:
             roots_scanned = [a1]
 
+        def read_catalog(key: str) -> list[dict[str, Any]]:
+            raw = data.get(key)
+            if not isinstance(raw, list):
+                return []
+            out: list[dict[str, Any]] = []
+            for it in raw:
+                if isinstance(it, dict) and it.get("id") is not None:
+                    out.append(dict(it))
+            return out
+
+        chara_catalog = read_catalog("chara_catalog")
+        nameplate_catalog = read_catalog("nameplate_catalog")
+        trophy_catalog = read_catalog("trophy_catalog")
+        if ver < 4 and not chara_catalog:
+            chara_catalog = [
+                {"id": cid, "name": cstr, "default_image_key": "", "source": a1, "xml_relpath": ""}
+                for cid, cstr in read_pairs("chara")
+            ]
+        if ver < 4 and not nameplate_catalog:
+            nameplate_catalog = [
+                {"id": cid, "name": cstr, "image_relpath": "", "source": a1, "xml_relpath": ""}
+                for cid, cstr in read_pairs("nameplate")
+            ]
+        if ver < 4 and not trophy_catalog:
+            trophy_catalog = [
+                {
+                    "id": cid,
+                    "name": cstr,
+                    "explain": "",
+                    "rare_type": None,
+                    "image_relpath": "",
+                    "source": a1,
+                    "xml_relpath": "",
+                }
+                for cid, cstr in read_pairs("trophy")
+            ]
+
         return cls(
             game_root=gr,
             roots_scanned=roots_scanned,
@@ -554,6 +731,9 @@ class GameDataIndex:
             indexed_at=ts,
             music=music,
             music_catalog=music_catalog,
+            chara_catalog=chara_catalog,
+            nameplate_catalog=nameplate_catalog,
+            trophy_catalog=trophy_catalog,
             stage=read_pairs("stage"),
             dds_image=read_pairs("dds_image"),
             dds_map=read_pairs("dds_map"),
@@ -588,6 +768,12 @@ def build_game_data_index(
     game_root: Path,
     progress: GameIndexProgress | None = None,
 ) -> GameDataIndex:
+    """
+    建立游戏数据索引。
+
+    - ``*_catalog`` 与四类 ``music/chara/...`` 对：供设置页浏览与用户查看。
+    - ``stage`` / ``dds_image`` / ``dds_map``：不在设置页展示，但供 ``merged_stage_pairs`` 等编辑功能使用。
+    """
     gr = game_root.resolve()
     _pg(progress, "正在枚举数据包…", 0, 0)
     roots = enumerate_game_data_roots(gr)
@@ -595,6 +781,9 @@ def build_game_data_index(
     roots_rel = [_relative_under(gr, p) for p in roots]
 
     catalog_rows: list[dict[str, Any]] = []
+    chara_rows: list[dict[str, Any]] = []
+    np_rows: list[dict[str, Any]] = []
+    tr_rows: list[dict[str, Any]] = []
     nroots = len(roots)
     for i, pack in enumerate(roots):
         src = _relative_under(gr, pack)
@@ -606,20 +795,39 @@ def build_game_data_index(
         )
         try:
             for m in scan_music(pack):
-                catalog_rows.append(_music_item_to_catalog_row(m, src))
+                catalog_rows.append(_music_item_to_catalog_row(m, src, pack=pack))
         except Exception:
-            continue
+            pass
+        _pg(progress, f"正在读取 {src}/chara/**/Chara.xml …", i + 1, max(nroots, 1))
+        try:
+            for c in scan_charas(pack):
+                chara_rows.append(_chara_item_to_catalog_row(c, src, pack=pack))
+        except Exception:
+            pass
+        _pg(progress, f"正在读取 {src}/namePlate/**/NamePlate.xml …", i + 1, max(nroots, 1))
+        try:
+            for n in scan_nameplates(pack):
+                np_rows.append(_nameplate_item_to_catalog_row(n, src, pack=pack))
+        except Exception:
+            pass
+        _pg(progress, f"正在读取 {src}/trophy/**/Trophy.xml …", i + 1, max(nroots, 1))
+        try:
+            for t in scan_trophies(pack):
+                tr_rows.append(_trophy_item_to_catalog_row(t, src, pack=pack))
+        except Exception:
+            pass
+
     merged_catalog = merge_music_catalog_rows(catalog_rows)
     music_pairs = [(int(r["id"]), str(r["title"])) for r in merged_catalog]
+    merged_chara = _merge_catalog_by_id(chara_rows)
+    merged_np = _merge_catalog_by_id(np_rows)
+    merged_tr = _merge_catalog_by_id(tr_rows)
+    chara_pairs = [(int(r["id"]), str(r["name"])) for r in merged_chara]
+    np_pairs = [(int(r["id"]), str(r["name"])) for r in merged_np]
+    tr_pairs = [(int(r["id"]), str(r["name"])) for r in merged_tr]
 
-    _pg(progress, "正在汇总 stage/dds 资源 …", 0, 0)
+    _pg(progress, "正在汇总 stage / ddsImage / ddsMap（供编辑功能使用）…", 0, 0)
     stage_t, dds_i_t, dds_m_t = _aggregate_stages_dds_from_roots_with_progress(
-        roots=roots,
-        game_root=gr,
-        progress=progress,
-    )
-    _pg(progress, "正在汇总 chara/namePlate/trophy 资源 …", 0, 0)
-    chara_t, np_t, tr_t = _aggregate_chara_np_trophy_from_roots_with_progress(
         roots=roots,
         game_root=gr,
         progress=progress,
@@ -633,12 +841,15 @@ def build_game_data_index(
         indexed_at=now,
         music=sorted(music_pairs, key=lambda x: x[0]),
         music_catalog=merged_catalog,
+        chara_catalog=merged_chara,
+        nameplate_catalog=merged_np,
+        trophy_catalog=merged_tr,
         stage=stage_t,
         dds_image=dds_i_t,
         dds_map=dds_m_t,
-        chara=chara_t,
-        nameplate=np_t,
-        trophy=tr_t,
+        chara=sorted(chara_pairs, key=lambda x: x[0]),
+        nameplate=sorted(np_pairs, key=lambda x: x[0]),
+        trophy=sorted(tr_pairs, key=lambda x: x[0]),
     )
 
 
@@ -653,7 +864,7 @@ def rebuild_and_save_game_index(
     compressonatorcli_path: Path | None = None,
     progress: GameIndexProgress | None = None,
     *,
-    prewarm_dds_preview: bool = True,
+    prewarm_dds_preview: bool = False,
 ) -> tuple[GameDataIndex | None, str]:
     root = game_root.expanduser().resolve()
     _pg(progress, "正在检查游戏根目录…", 0, 0)

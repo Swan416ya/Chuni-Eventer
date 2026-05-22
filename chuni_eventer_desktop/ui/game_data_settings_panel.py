@@ -3,127 +3,81 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
-from PyQt6.QtWidgets import QHBoxLayout, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtGui import QIcon, QMouseEvent
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
-from qfluentwidgets import BodyLabel, CardWidget, LineEdit, PushButton
+from qfluentwidgets import BodyLabel, CaptionLabel, CardWidget, LineEdit, PushButton
 
 from ..acus_workspace import AcusConfig, resolve_compressonatorcli_path
 from ..game_data_index import GameDataIndex, load_cached_game_index
 from .fluent_dialogs import fly_critical, fly_warning
-from .rich_hint import rich_hint_label
+from .game_data_browse_dialog import GameDataBrowseDialog, GameDataKind
+from .nav_icons import SVG_CHARA, SVG_MUSIC, SVG_NAMEPLATE, SVG_TROPHY, nav_qicon
 
 _log = logging.getLogger("chuni.settings_dialog")
 
-_PREVIEW_LIMIT = 30
-
-_READ_LOGIC_TEXT = (
-    "1. 在下方填写**游戏安装根目录**（通常含 `data`、`bin` 文件夹；也可直接指向某个 `A001` 等数据包目录）。\n"
-    "2. 保存或点击「重新扫描」后，程序会递归查找名称形如 **A???**、且含有 `music` / `stage` / `ddsImage` / "
-    "`ddsMap` / `chara` 等子目录的数据包根。\n"
-    "3. 对每个数据包读取 `Music.xml`、`Stage.xml`、`ddsMap`、`Chara.xml` 等，按 ID 合并去重，"
-    "结果写入 exe 旁的 `.cache/game_data_index.json`。\n"
-    "4. 歌曲、地图、奖励、背景等编辑界面的下拉列表与校验，均会使用该缓存；"
-    "更换目录或游戏更新后请重新扫描。"
-)
+_TILE_ICON_PX = 52
+_TILE_MIN_H = 96
 
 
-def _pair_lines(pairs: list[tuple[int, str]], *, limit: int = _PREVIEW_LIMIT) -> list[str]:
-    lines: list[str] = []
-    for mid, name in pairs[:limit]:
-        lines.append(f"{mid:05d} · {name}")
-    rest = len(pairs) - limit
-    if rest > 0:
-        lines.append(f"… 另有 {rest} 条未列出")
-    return lines
+class _GameDataCategoryTile(CardWidget):
+    """白底描边卡片：上图标下文字，单行排列。"""
 
+    def __init__(
+        self,
+        label: str,
+        icon: QIcon,
+        *,
+        on_click: Callable[[], None],
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._on_click = on_click
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setMinimumHeight(_TILE_MIN_H)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-def _music_catalog_lines(catalog: list[dict[str, Any]], *, limit: int = _PREVIEW_LIMIT) -> list[str]:
-    lines: list[str] = []
-    for row in catalog[:limit]:
-        mid = row.get("id")
-        try:
-            mid_i = int(mid)
-        except (TypeError, ValueError):
-            continue
-        title = str(row.get("title") or row.get("str") or f"Music{mid_i}").strip()
-        artist = str(row.get("artist") or "").strip()
-        tag = str(row.get("release_tag_str") or "").strip()
-        extra = " · ".join(x for x in (artist, tag) if x)
-        lines.append(f"{mid_i:05d} · {title}" + (f"（{extra}）" if extra else ""))
-    rest = len(catalog) - limit
-    if rest > 0:
-        lines.append(f"… 另有 {rest} 条未列出")
-    return lines
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(12, 14, 12, 14)
+        lay.setSpacing(10)
+        lay.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
+        icon_lbl = QLabel(self)
+        icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        pm = icon.pixmap(QSize(_TILE_ICON_PX, _TILE_ICON_PX))
+        icon_lbl.setPixmap(pm)
+        icon_lbl.setFixedSize(_TILE_ICON_PX + 8, _TILE_ICON_PX + 8)
 
-def fill_game_index_tree(tree: QTreeWidget, idx: GameDataIndex | None, *, configured_root: str) -> None:
-    tree.clear()
-    root_item = tree.invisibleRootItem()
+        text = CaptionLabel(label, self)
+        text.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
-    if idx is None:
-        QTreeWidgetItem(root_item, ["尚未建立索引", "请设置目录并重新扫描"])
-        tree.expandAll()
-        return
+        lay.addWidget(icon_lbl, 0, Qt.AlignmentFlag.AlignHCenter)
+        lay.addWidget(text, 0, Qt.AlignmentFlag.AlignHCenter)
 
-    cfg = configured_root.strip()
-    cached_root = (idx.game_root or "").strip()
-    mismatch = bool(cfg and cached_root and Path(cfg).expanduser().resolve() != Path(cached_root).expanduser().resolve())
-
-    meta = QTreeWidgetItem(root_item, ["索引概况", ""])
-    QTreeWidgetItem(meta, ["游戏根目录", cached_root or "—"])
-    QTreeWidgetItem(meta, ["索引时间", idx.indexed_at or "—"])
-    QTreeWidgetItem(meta, ["数据包数量", str(len(idx.roots_scanned))])
-    if mismatch:
-        QTreeWidgetItem(meta, ["提示", "当前填写的目录与缓存索引不一致，请重新扫描"])
-
-    packs = QTreeWidgetItem(root_item, [f"数据包路径（{len(idx.roots_scanned)}）", ""])
-    for rel in idx.roots_scanned[:20]:
-        QTreeWidgetItem(packs, [rel, ""])
-    if len(idx.roots_scanned) > 20:
-        QTreeWidgetItem(packs, [f"… 另有 {len(idx.roots_scanned) - 20} 个", ""])
-
-    sections: list[tuple[str, list[str]]] = []
-    if idx.music_catalog:
-        sections.append((f"乐曲（{len(idx.music_catalog)}）", _music_catalog_lines(idx.music_catalog)))
-    else:
-        sections.append((f"乐曲（{len(idx.music)}）", _pair_lines(idx.music)))
-    sections.extend(
-        [
-            (f"场景 Stage（{len(idx.stage)}）", _pair_lines(idx.stage)),
-            (f"DDS 贴图 ddsImage（{len(idx.dds_image)}）", _pair_lines(idx.dds_image)),
-            (f"地图 ddsMap（{len(idx.dds_map)}）", _pair_lines(idx.dds_map)),
-            (f"角色 Chara（{len(idx.chara)}）", _pair_lines(idx.chara)),
-            (f"名牌 NamePlate（{len(idx.nameplate)}）", _pair_lines(idx.nameplate)),
-            (f"称号 Trophy（{len(idx.trophy)}）", _pair_lines(idx.trophy)),
-        ]
-    )
-
-    for title, lines in sections:
-        parent = QTreeWidgetItem(root_item, [title, f"{len(lines) if lines and not lines[-1].startswith('…') else ''}"])
-        if not lines:
-            QTreeWidgetItem(parent, ["（无）", ""])
-        else:
-            for line in lines:
-                QTreeWidgetItem(parent, [line, ""])
-
-    tree.expandToDepth(1)
-
+    def mouseReleaseEvent(self, event: QMouseEvent | None) -> None:
+        if event is not None and event.button() == Qt.MouseButton.LeftButton:
+            self._on_click()
+        super().mouseReleaseEvent(event)
 
 class GameDataSettingsPanel(QWidget):
-    """设置 → 游戏数据：读取逻辑、目录配置、索引结果预览。"""
+    """设置 → 游戏数据：目录配置与四类资源浏览。"""
 
     def __init__(
         self,
         *,
         cfg: AcusConfig,
+        acus_root: Path,
+        get_tool_path: Callable[[], Path | None],
         get_game_index: Callable[[], GameDataIndex | None] | None = None,
         on_request_game_rescan: Callable[[Path, Path | None], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent=parent)
         self._cfg = cfg
+        self._acus_root = acus_root
+        self._get_tool_path = get_tool_path
         self._get_game_index = get_game_index or (lambda: None)
         self._on_request_game_rescan = on_request_game_rescan
 
@@ -131,21 +85,13 @@ class GameDataSettingsPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 8)
         layout.setSpacing(16)
 
-        logic_card = CardWidget(self)
-        logic_lay = QVBoxLayout(logic_card)
-        logic_lay.setContentsMargins(16, 16, 16, 16)
-        logic_lay.setSpacing(8)
-        logic_lay.addWidget(BodyLabel("读取逻辑", self))
-        logic_lay.addWidget(rich_hint_label(_READ_LOGIC_TEXT, self, color="#4B5563"))
-        layout.addWidget(logic_card)
-
         dir_card = CardWidget(self)
         dir_lay = QVBoxLayout(dir_card)
         dir_lay.setContentsMargins(16, 16, 16, 16)
         dir_lay.setSpacing(12)
         dir_lay.addWidget(BodyLabel("游戏数据目录", self))
         dir_hint = BodyLabel(
-            "指向已安装 CHUNITHM 的数据位置，用于建立下方列表中的乐曲、场景等资源索引。",
+            "请选择包含 bin 和 data 两个文件夹的最上层文件夹。",
             self,
         )
         dir_hint.setWordWrap(True)
@@ -153,7 +99,7 @@ class GameDataSettingsPanel(QWidget):
         dir_lay.addWidget(dir_hint)
 
         self.game_root = LineEdit(self)
-        self.game_root.setPlaceholderText("例如 D:\\Games\\CHUNITHM 或 …\\A001 的上一级")
+        self.game_root.setPlaceholderText("例如 D:\\Games\\CHUNITHM")
         if cfg.game_root:
             self.game_root.setText(cfg.game_root)
         game_browse = PushButton("浏览文件夹…", self)
@@ -169,32 +115,43 @@ class GameDataSettingsPanel(QWidget):
         dir_lay.addLayout(game_row)
         layout.addWidget(dir_card)
 
-        data_card = CardWidget(self)
-        data_lay = QVBoxLayout(data_card)
-        data_lay.setContentsMargins(16, 16, 16, 16)
-        data_lay.setSpacing(8)
-        data_lay.addWidget(BodyLabel("已读取的数据", self))
-        self._data_hint = BodyLabel("", self)
-        self._data_hint.setWordWrap(True)
-        self._data_hint.setStyleSheet("color:#6B7280;font-size:13px;")
-        data_lay.addWidget(self._data_hint)
+        browse_card = CardWidget(self)
+        browse_lay = QVBoxLayout(browse_card)
+        browse_lay.setContentsMargins(16, 16, 16, 16)
+        browse_lay.setSpacing(12)
+        browse_lay.addWidget(BodyLabel("浏览游戏数据", self))
+        self._summary = BodyLabel("", self)
+        self._summary.setWordWrap(True)
+        self._summary.setStyleSheet("color:#6B7280;font-size:13px;")
+        browse_lay.addWidget(self._summary)
 
-        self._index_tree = QTreeWidget(self)
-        self._index_tree.setHeaderLabels(["条目", ""])
-        self._index_tree.setColumnHidden(1, True)
-        self._index_tree.setRootIsDecorated(True)
-        self._index_tree.setAlternatingRowColors(True)
-        self._index_tree.setMinimumHeight(280)
-        data_lay.addWidget(self._index_tree)
-        layout.addWidget(data_card, stretch=1)
-
+        row = QHBoxLayout()
+        row.setSpacing(12)
+        row.setContentsMargins(0, 4, 0, 0)
+        specs: list[tuple[str, GameDataKind, str]] = [
+            ("乐曲", "music", SVG_MUSIC),
+            ("角色", "chara", SVG_CHARA),
+            ("称号", "trophy", SVG_TROPHY),
+            ("名牌", "nameplate", SVG_NAMEPLATE),
+        ]
+        for label, kind, svg in specs:
+            tile = _GameDataCategoryTile(
+                label,
+                nav_qicon(svg),
+                on_click=lambda k=kind: self._open_browse(k),
+                parent=self,
+            )
+            row.addWidget(tile, 1)
+        browse_lay.addLayout(row)
+        layout.addWidget(browse_card)
         tools_hint = BodyLabel(
-            "DDS 工具、FFmpeg、PenguinTools.CLI、mua 等请在【设置 → 外部工具】中配置。",
+            "预览曲绘/立绘需 quicktex 或 compressonatorcli；导出 OGG 需 PyCriCodecsEx 与 ffmpeg。",
             self,
         )
         tools_hint.setWordWrap(True)
         tools_hint.setStyleSheet("color:#6B7280;font-size:13px;")
         layout.addWidget(tools_hint)
+        layout.addStretch(1)
 
         self.refresh_index_display()
 
@@ -204,21 +161,45 @@ class GameDataSettingsPanel(QWidget):
             gr = self.game_root.text().strip() or (self._cfg.game_root or "").strip()
             if gr:
                 idx = load_cached_game_index(gr)
-        configured = self.game_root.text().strip() or (self._cfg.game_root or "")
         if idx is None:
-            self._data_hint.setText("暂无缓存。保存目录后将自动后台扫描，或点击「重新扫描」。")
-        else:
-            self._data_hint.setText(
-                f"共 {len(idx.music)} 首乐曲、{len(idx.stage)} 个场景、"
-                f"{len(idx.dds_image)} 条 DDS 贴图、{len(idx.dds_map)} 条地图 ddsMap、"
-                f"{len(idx.chara)} 个角色、{len(idx.nameplate)} 个名牌、{len(idx.trophy)} 个称号。"
-            )
-        fill_game_index_tree(self._index_tree, idx, configured_root=configured)
+            self._summary.setText("暂无索引。保存目录后将自动后台扫描，或点击「重新扫描」。")
+            return
+        self._summary.setText(
+            f"已索引 {len(idx.music_catalog or idx.music)} 首乐曲、"
+            f"{len(idx.chara_catalog or idx.chara)} 个角色、"
+            f"{len(idx.trophy_catalog or idx.trophy)} 个称号、"
+            f"{len(idx.nameplate_catalog or idx.nameplate)} 个名牌。"
+            f"（stage / ddsImage / ddsMap 等 {len(idx.stage) + len(idx.dds_image) + len(idx.dds_map)} 条已同步，供新增乐曲选 stage 等编辑功能使用。）"
+        )
+
+    def _game_root_path(self) -> Path | None:
+        raw = self.game_root.text().strip() or (self._cfg.game_root or "").strip()
+        if not raw:
+            return None
+        p = Path(raw).expanduser()
+        return p if p.is_dir() else None
+
+    def _open_browse(self, kind: GameDataKind) -> None:
+        root = self._game_root_path()
+        if root is None:
+            fly_warning(self, "未设置目录", "请先选择有效的游戏数据目录并重新扫描。")
+            return
+        GameDataBrowseDialog(
+            kind=kind,
+            game_root=root,
+            acus_root=self._acus_root,
+            get_index=self._get_game_index,
+            get_tool_path=self._get_tool_path,
+            parent=self.window(),
+        ).exec()
 
     def _pick_game_root(self) -> None:
         from PyQt6.QtWidgets import QFileDialog
 
-        d = QFileDialog.getExistingDirectory(self, "选择游戏数据目录（含 A001）")
+        d = QFileDialog.getExistingDirectory(
+            self,
+            "选择游戏数据目录",
+        )
         if d:
             self.game_root.setText(d)
 

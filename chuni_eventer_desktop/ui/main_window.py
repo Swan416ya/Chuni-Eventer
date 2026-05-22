@@ -152,8 +152,11 @@ class _GameIndexWorker(QObject):
                     return
             if isinstance(idx, GameDataIndex):
                 lg.info(
-                    "scan_finish_ok music=%s stage=%s dds_image=%s dds_map=%s",
+                    "scan_finish_ok music=%s chara=%s trophy=%s nameplate=%s stage=%s dds_image=%s dds_map=%s",
                     len(idx.music),
+                    len(idx.chara),
+                    len(idx.trophy),
+                    len(idx.nameplate),
                     len(idx.stage),
                     len(idx.dds_image),
                     len(idx.dds_map),
@@ -521,8 +524,9 @@ class MainWindow(MSFluentWindow):
         fly_message_async(
             self,
             "索引完成",
-            f"已缓存游戏内乐曲 {len(idx.music)}、场景 {len(idx.stage)}、"
-            f"DDSImage {len(idx.dds_image)}、ddsMap {len(idx.dds_map)} 条（仅 ID 与名称）。",
+            f"已缓存游戏内乐曲 {len(idx.music)}、角色 {len(idx.chara)}、"
+            f"称号 {len(idx.trophy)}、名牌 {len(idx.nameplate)}；"
+            f"场景 {len(idx.stage)}、DDSImage {len(idx.dds_image)}、ddsMap {len(idx.dds_map)} 供编辑功能使用。",
             single_button=True,
             window_modal=True,
         )
@@ -770,15 +774,18 @@ class MainWindow(MSFluentWindow):
     def _on_game_music_browser(self) -> None:
         try:
             _scan_logger().info("ui_click_game_music_browser")
-            from .game_music_browser_dialog import GameMusicBrowserDialog
+            from .game_data_browse_dialog import GameDataBrowseDialog
 
             raw = (self._cfg.game_root or "").strip()
             if not raw:
                 fly_message(self, "提示", "请先在【设置】中配置「游戏数据目录」。")
                 return
-            dlg = GameMusicBrowserDialog(
+            dlg = GameDataBrowseDialog(
+                kind="music",
                 game_root=Path(raw).expanduser(),
+                acus_root=self._acus_root,
                 get_index=self._resolve_game_index,
+                get_tool_path=self._get_tool_path_or_none,
                 parent=self,
             )
             dlg.exec()

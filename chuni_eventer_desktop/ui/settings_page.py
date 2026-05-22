@@ -72,6 +72,8 @@ class SettingsPage(QWidget):
         self._about = SettingsAboutPanel(parent=self)
         self._game_data = GameDataSettingsPanel(
             cfg=cfg,
+            acus_root=acus_root,
+            get_tool_path=get_tool_path,
             get_game_index=get_game_index or (lambda: None),
             on_request_game_rescan=on_request_game_rescan,
             parent=self,

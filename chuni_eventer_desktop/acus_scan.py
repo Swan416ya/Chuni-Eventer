@@ -73,6 +73,8 @@ class CharaItem:
     xml_path: Path
     name: IdStr
     default_image_key: str
+    release_tag: IdStr | None = None
+    works: IdStr | None = None
 
 
 @dataclass(frozen=True)
@@ -501,7 +503,9 @@ def scan_charas(acus_root: Path) -> list[CharaItem]:
             if not name:
                 continue
             default_key = (r.findtext("defaultImages/str") or "").strip()
-            items.append(CharaItem(p, name, default_key))
+            release_tag = _get_idstr(r.find("releaseTagName"))
+            works = _get_idstr(r.find("works"))
+            items.append(CharaItem(p, name, default_key, release_tag, works))
         except Exception:
             continue
     return sorted(items, key=lambda x: x.name.id)
