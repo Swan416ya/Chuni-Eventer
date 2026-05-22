@@ -29,21 +29,32 @@ powershell -ExecutionPolicy Bypass -File ".\scripts\build_windows.ps1" -Version 
 
 ## 产物位置
 
-- 主程序：`dist/ChuniEventer.exe`
-- 分发目录：`dist/release/Chuni-Eventer-v0.5.0/`
-- 分发压缩包：`dist/Chuni-Eventer-v0.5.0.zip`
+- 主程序（Lite）：`dist/ChuniEventer.exe` 与 `dist/release/ChuniEventer.exe`（同一构建，推荐作为 GitHub Release 默认附件）
+- 离线懒人包目录：`dist/release/Chuni-Eventer-v0.5.0/`
+- 离线懒人包 zip：`dist/Chuni-Eventer-v0.5.0.zip`
+
+### Lite 单 exe
+
+仅 `ChuniEventer.exe`。首次运行可在 exe 同级通过「设置 → 外部工具」按需下载 `.tools`（FFmpeg、PenguinTools.CLI 等）。
+
+### 离线懒人包（zip）
 
 分发目录中会包含：
 
 - `ChuniEventer.exe`
-- `.tools/PenguinToolsCLI/` 目录下 **self-contained 发布输出**（含 `PenguinTools.CLI.exe`；资源内嵌，不含 pdb）
+- `.tools/ffmpeg/bin/ffmpeg.exe`（**不含 ffprobe**，应用未使用）
+- `.tools/PenguinToolsCLI/`（self-contained，含 `PenguinTools.CLI.exe`）
+- `.tools/PenguinTools/`（含 `mua.exe` 等 Stage 资源，若存在）
+- （**默认不含**）`.tools/CompressonatorCLI/` — exe 内已带 quicktex；需离线 DDS 回退时用 `-IncludeCompressonator` 构建
 - （若存在）对应版本的 `GITHUB_RELEASE_vX.Y.Z.md`
 
 ## 可选参数
 
 - `-Version 0.5.0`：设置分发目录和 zip 的版本号
-- `-SkipPyInstaller`：跳过主程序构建（仅重组装）
+- `-SkipPyInstaller`：跳过主程序构建（仅重组装懒人包）
 - `-SkipPenguinToolsCli`：跳过 `PenguinTools.CLI` 发布与打包（保留旧参数名 `-SkipBridge` 作为别名）
+- `-IncludeCompressonator`：懒人包额外打入 Compressonator CLI（约 +147 MB；默认关闭）
+- `-SkipCompressonator`：与旧脚本兼容；显式跳过 Compressonator（默认已跳过，一般无需再传）
 
 ## 校验建议
 

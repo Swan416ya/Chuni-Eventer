@@ -51,7 +51,6 @@ from .fluent_dialogs import (
     fly_question_async,
 )
 from .music_cards_view import MusicCardsView
-from ..startup_profile import startup_mark, startup_span
 from .music_release_tag_dialog import MusicReleaseTagDialog
 from .music_stage_dialog import MusicStageSelectDialog
 
@@ -258,7 +257,6 @@ class ManagerWidget(QWidget):
         get_game_root: Callable[[], str] | None = None,
         embedded: bool = False,
     ) -> None:
-        startup_mark("ManagerWidget.__init__:enter")
         super().__init__()
         self._acus_root = acus_root
         self._get_tool_path = get_tool_path  # callable returning Path|None
@@ -430,7 +428,6 @@ class ManagerWidget(QWidget):
         self._items: list[object] = []
         # 不在此调用 reload()：默认分类为「事件」，而主窗口随后会切到实际分类（如歌曲），
         # 否则会先全量扫事件再扫目标分类，冷启动白白多一轮磁盘与表格构建。
-        startup_mark("ManagerWidget.__init__:exit")
 
     def set_kind(self, kind: str) -> None:
         """
@@ -480,7 +477,6 @@ class ManagerWidget(QWidget):
 
     def reload(self) -> None:
         k = self._kind_key()
-        startup_mark("ManagerWidget.reload:enter", kind=k)
         self.model.removeRows(0, self.model.rowCount())
         self._attrs_model.removeRows(0, self._attrs_model.rowCount())
         self._hide_preview_section()
@@ -540,10 +536,8 @@ class ManagerWidget(QWidget):
                 kind = it.map_filter.str if it.map_filter else ""
                 self._append_row(it.name.id, it.name.str, kind, it.xml_path, it)
         elif k == "Music":
-            with startup_span("ManagerWidget.scan_music"):
-                items = scan_music(self._acus_root)
+            items = scan_music(self._acus_root)
             self._items = items
-            startup_mark("ManagerWidget.reload:after_scan", kind=k, count=len(items))
         elif k == "Chara":
             items = scan_charas(self._acus_root)
             self._items = items
@@ -627,12 +621,10 @@ class ManagerWidget(QWidget):
 
         self._game_music_btn.setVisible(k == "Music" and not self._embedded)
 
-        with startup_span("ManagerWidget._apply_filter", kind=k):
-            self._apply_filter()
+        self._apply_filter()
         self._resize_columns_safely()
         if k != "Music" and self.proxy.rowCount() > 0:
             self.table.selectRow(0)
-        startup_mark("ManagerWidget.reload:exit", kind=k)
 
     def _hide_preview_section(self) -> None:
         self.preview_section.setVisible(False)

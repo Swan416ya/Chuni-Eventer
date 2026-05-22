@@ -5,13 +5,7 @@ import sys
 from .cli_flags import QUICKTEX_WORKER_ARG
 from .frozen_runtime import ensure_pyinstaller_dll_search_path
 from .quicktex_worker import main as quicktex_worker_main
-from .startup_profile import startup_begin, startup_mark
-
-startup_begin()
-startup_mark("__main__:before_app_import")
 from .app import main
-
-startup_mark("__main__:after_app_import")
 
 
 if __name__ == "__main__":
@@ -21,4 +15,3 @@ if __name__ == "__main__":
         ensure_pyinstaller_dll_search_path()
         raise SystemExit(quicktex_worker_main(sys.argv[2:6]))
     raise SystemExit(main())
-

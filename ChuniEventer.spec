@@ -1,11 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller：单文件 exe，控制台关闭（纯 GUI）。"""
 import importlib.util
+import sys
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all
 
 ROOT = Path(SPECPATH).resolve()
+sys.path.insert(0, str(ROOT / "packaging"))
+from pyinstaller_filters import ANALYSIS_EXCLUDES, apply_exe_size_filters
+
 icon_file = ROOT / "assets" / "icon.ico"
 icon_path = str(icon_file) if icon_file.exists() else None
 
@@ -52,12 +56,14 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=ANALYSIS_EXCLUDES,
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
     noarchive=False,
 )
+
+a = apply_exe_size_filters(a)
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 

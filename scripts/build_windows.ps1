@@ -2,8 +2,12 @@ param(
     [string]$Version = "0.7.5",
     [switch]$SkipPyInstaller,
     [Alias("SkipBridge")][switch]$SkipPenguinToolsCli,
+    # 懒人包默认不再打入 Compressonator（exe 内已有 quicktex）；需完整离线 DDS 回退时显式 -IncludeCompressonator
+    [switch]$IncludeCompressonator,
     [switch]$SkipCompressonator
 )
+
+$BundleCompressonator = $IncludeCompressonator -and (-not $SkipCompressonator)
 
 # Run from repo root is NOT required; script cd's to parent of scripts/
 $ErrorActionPreference = "Stop"
@@ -153,17 +157,14 @@ function Copy-FfmpegBundle([string]$toolsParent) {
     if (Test-Path $destDir) { Remove-Item $destDir -Recurse -Force }
     New-Item -ItemType Directory -Path $destDir -Force | Out-Null
     Copy-Item $ffmpegExe (Join-Path $destDir "ffmpeg.exe") -Force
-    $probe = Join-Path (Split-Path -Parent $ffmpegExe) "ffprobe.exe"
-    if (Test-Path $probe) {
-        Copy-Item $probe (Join-Path $destDir "ffprobe.exe") -Force
-    }
+    # 应用未使用 ffprobe；BtbN gpl 静态包内 ffprobe.exe 亦 ~193MB，故懒人包只带 ffmpeg.exe。
 }
 
-if (-not $SkipCompressonator) {
+if ($BundleCompressonator) {
     Write-Host "[4/5] Ensure Compressonator CLI bundle ..."
     Ensure-CompressonatorCli
 } else {
-    Write-Host "[4/5] Skip Compressonator bundle"
+    Write-Host "[4/5] Skip Compressonator bundle (default; pass -IncludeCompressonator for offline fallback)"
 }
 
 Write-Host "[5/6] Assemble distributable ..."
@@ -191,7 +192,7 @@ Write-Host "  Bundle FFmpeg into .tools ..."
 Copy-FfmpegBundle $OutTools
 Copy-FfmpegBundle $DistToolsRoot
 
-if (-not $SkipCompressonator) {
+if ($BundleCompressonator) {
     Copy-CompressonatorBundle $OutTools
     Copy-CompressonatorBundle $DistToolsRoot
 }
@@ -228,9 +229,11 @@ function Copy-PenguinToolsBundle([string]$toolsParent) {
 Copy-PenguinToolsBundle $OutTools
 Copy-PenguinToolsBundle $DistToolsRoot
 
-$ThirdParty = Join-Path $Root "packaging\THIRD_PARTY_COMPRESSONATOR.txt"
-if (Test-Path $ThirdParty) {
-    Copy-Item $ThirdParty (Join-Path $BundleDir "THIRD_PARTY_COMPRESSONATOR.txt") -Force
+if ($BundleCompressonator) {
+    $ThirdParty = Join-Path $Root "packaging\THIRD_PARTY_COMPRESSONATOR.txt"
+    if (Test-Path $ThirdParty) {
+        Copy-Item $ThirdParty (Join-Path $BundleDir "THIRD_PARTY_COMPRESSONATOR.txt") -Force
+    }
 }
 
 $ReleaseNote = Join-Path $Root ("packaging\GITHUB_RELEASE_v{0}.md" -f $Version)
@@ -238,16 +241,23 @@ if (Test-Path $ReleaseNote) {
     Copy-Item $ReleaseNote (Join-Path $BundleDir ("GITHUB_RELEASE_v{0}.md" -f $Version)) -Force
 }
 
+$readmeTools = if ($BundleCompressonator) {
+    "FFmpeg、Compressonator CLI、PenguinToolsCLI、mua"
+} else {
+    "FFmpeg、PenguinToolsCLI、mua"
+}
 $ReadmeBundle = @"
-Chuni Eventer v$Version（懒人包）
+Chuni Eventer v$Version（离线懒人包）
 
 解压本 zip 后目录内应包含：
   ChuniEventer.exe
-  .tools\          （FFmpeg、Compressonator、PenguinTools 等，与 exe 同级）
+  .tools\          （$readmeTools 等，与 exe 同级）
 
-直接双击 ChuniEventer.exe 即可使用，无需再下载依赖。
+直接双击 ChuniEventer.exe 即可使用，无需再下载上述依赖。
+DDS 转换默认使用 exe 内自带的 quicktex。若 quicktex 不可用且需 Compressonator 回退，请在
+「设置 - 外部工具」一键下载，或使用 -IncludeCompressonator 构建的完整懒人包。
 
-另提供「仅 exe」的 lite 版：为同一程序，首次运行会在 exe 旁自动下载 .tools。
+GitHub Release 默认推荐 Lite 单 exe：体积更小，可按需在首次运行时下载 .tools。
 "@
 Set-Content -Path (Join-Path $BundleDir "README.txt") -Value $ReadmeBundle -Encoding UTF8
 
@@ -265,8 +275,10 @@ Write-Host "Done."
 Write-Host "Build EXE (lite + 懒人包共用): $AppExe"
 Write-Host "PenguinTools.CLI: $PenguinToolsCliExe"
 Write-Host "FFmpeg: $(Join-Path $BundleDir '.tools\ffmpeg\bin\ffmpeg.exe')"
-if (-not $SkipCompressonator) {
+if ($BundleCompressonator) {
     Write-Host "CompressonatorCLI: $(Join-Path $BundleDir '.tools\CompressonatorCLI\compressonatorcli.exe')"
+} else {
+    Write-Host 'CompressonatorCLI: skipped (pass -IncludeCompressonator to bundle)'
 }
 Write-Host "懒人包目录: $BundleDir"
 Write-Host "懒人包 zip: $ZipBundle"

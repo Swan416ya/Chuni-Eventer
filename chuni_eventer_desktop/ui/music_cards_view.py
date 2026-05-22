@@ -31,8 +31,6 @@ from qfluentwidgets import Action, FluentIcon as FIF, MenuAnimationType, RoundMe
 from ..acus_scan import MusicItem
 from ..dds_preview import ensure_dds_preview_png
 from ..dds_quicktex import quicktex_available
-from ..startup_profile import startup_mark, startup_span
-
 
 def _is_dark_ui() -> bool:
     pal = QApplication.palette()
@@ -471,11 +469,6 @@ class _JacketLoadWorker(QObject):
             if png_path is not None and self._generation_ref[0] == self._generation:
                 self.loaded.emit(music_id, str(png_path))
                 loaded += 1
-        startup_mark(
-            "_JacketLoadWorker.run:finished",
-            jobs=len(self._jobs),
-            loaded=loaded,
-        )
         self.finished.emit()
 
 
@@ -600,7 +593,6 @@ class MusicCardsView(QWidget):
         jobs = self._prioritized_jacket_jobs()
         if not jobs:
             return
-        startup_mark("MusicCardsView._schedule_jacket_loads:start", jobs=len(jobs))
         self._stop_jacket_loader()
         generation = self._jacket_load_generation_ref[0]
         tool = self._get_tool_path()
@@ -662,18 +654,15 @@ class MusicCardsView(QWidget):
                 w.deleteLater()
 
     def set_items(self, items: list[MusicItem], get_tool_path) -> None:
-        startup_mark("MusicCardsView.set_items:enter", count=len(items))
         self._last_items = list(items)
         self._get_tool_path = get_tool_path
         self._jacket_cache.clear()
         self._last_grid_cols = -1
         self._last_card_size = -1
         self._last_viewport_w = -1
-        with startup_span("MusicCardsView._rebuild_grid", count=len(items)):
-            self._rebuild_grid()
+        self._rebuild_grid()
         QTimer.singleShot(0, self._relayout_if_geometry_changed)
         QTimer.singleShot(50, self._relayout_if_geometry_changed)
-        startup_mark("MusicCardsView.set_items:exit", count=len(items))
 
     def _cols_and_size(self) -> tuple[int, int]:
         """优先每行 4 张；宽度不足时依次减列，保证横向排满后再换行。"""

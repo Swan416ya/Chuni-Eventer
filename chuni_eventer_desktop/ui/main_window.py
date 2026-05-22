@@ -64,11 +64,6 @@ from .nav_icons import (
     SVG_TROPHY,
     nav_qicon,
 )
-from ..startup_profile import schedule_startup_summaries, startup_mark, startup_span
-
-startup_mark("main_window:module_imported")
-
-
 _scan_log_logger: logging.Logger | None = None
 
 # 启动窗口高度：在原先 720 基础上为左侧导航多预留约 2 个 Tab 项的垂直空间（Fluent 侧栏单项约 48～56px）。
@@ -131,29 +126,24 @@ class _GameIndexWorker(QObject):
         self._acus_root = acus_root
 
     def run(self) -> None:
-        from ..startup_profile import startup_mark, startup_span
-
         lg = _scan_logger()
         lg.info("scan_start game_root=%s tool=%s", self._game_root, self._compressonatorcli_path)
-        startup_mark("_GameIndexWorker.run:enter", game_root=str(self._game_root))
 
         def _on_progress(msg: str, cur: int, total: int) -> None:
             lg.info("scan_progress cur=%s total=%s msg=%s", cur, total, msg)
             self.progress.emit(str(msg), int(cur), int(total))
 
         try:
-            with startup_span("_GameIndexWorker.rebuild_and_save_game_index"):
-                idx, err = rebuild_and_save_game_index(
-                    self._game_root,
-                    self._compressonatorcli_path,
-                    progress=_on_progress,
-                    prewarm_dds_preview=False,
-                )
+            idx, err = rebuild_and_save_game_index(
+                self._game_root,
+                self._compressonatorcli_path,
+                progress=_on_progress,
+                prewarm_dds_preview=False,
+            )
             if isinstance(idx, GameDataIndex):
                 _on_progress("正在刷新 ACUS/charaWorks 排序表 XML …", 0, 0)
                 try:
-                    with startup_span("_GameIndexWorker.refresh_chara_works_sorts"):
-                        refresh_chara_works_sorts_with_game(self._acus_root, self._game_root)
+                    refresh_chara_works_sorts_with_game(self._acus_root, self._game_root)
                 except Exception as e:
                     lg.exception("scan_finish_with_post_step_error game_root=%s", self._game_root)
                     self.finished.emit(None, f"索引已完成，但刷新 charaWorks 失败：{e}")
@@ -172,26 +162,20 @@ class _GameIndexWorker(QObject):
         except Exception:
             lg.exception("scan_crash_unhandled game_root=%s", self._game_root)
             self.finished.emit(None, "扫描线程发生未处理异常，请查看 .cache/logs/index_scan.log")
-        startup_mark("_GameIndexWorker.run:exit")
 
 
 class MainWindow(MSFluentWindow):
     """主窗口：Fluent 底栏导航 + 单一内容区（ACUS 管理）。"""
 
     def __init__(self) -> None:
-        startup_mark("MainWindow.__init__:enter")
-        with startup_span("MainWindow.super().__init__"):
-            super().__init__()
+        super().__init__()
         # Mica 首次 show 在部分机器上极慢；保留默认 DWM 阴影/圆角，仅关闭 Mica。
         self.setMicaEffectEnabled(False)
         self.navigationInterface.hide()
-        startup_mark("MainWindow.after_super")
 
-        with startup_span("MainWindow.config"):
-            self._cfg = AcusConfig.load()
-            apply_resolved_paths_to_config(self._cfg)
-            self._acus_root = ensure_acus_layout(game_root=self._cfg.game_root or None)
-        startup_mark("MainWindow.__init__:after_config")
+        self._cfg = AcusConfig.load()
+        apply_resolved_paths_to_config(self._cfg)
+        self._acus_root = ensure_acus_layout(game_root=self._cfg.game_root or None)
 
         self._heavy_ui_built = False
         self._startup_shell: QWidget | None = None
@@ -208,11 +192,9 @@ class MainWindow(MSFluentWindow):
         self._index_progress: QProgressDialog | None = None
         self._bootstrap_thread: QThread | None = None
         self._install_startup_shell()
-        startup_mark("MainWindow.__init__:ready")
 
     def _install_startup_shell(self) -> None:
         """纯 Qt 占位页 + switchTo：避免空 stackedWidget 首次 show 触发 Fluent 重 init。"""
-        startup_mark("MainWindow.startup_shell:begin")
         self._startup_shell = QWidget()
         self._startup_shell.setObjectName("startupShell")
         shell_lay = QVBoxLayout(self._startup_shell)
@@ -223,19 +205,10 @@ class MainWindow(MSFluentWindow):
         shell_lay.addWidget(shell_hint)
         shell_lay.addStretch(1)
         self.stackedWidget.addWidget(self._startup_shell)
-        startup_mark("MainWindow.startup_shell:before_switchTo")
         self.switchTo(self._startup_shell)
-        startup_mark("MainWindow.startup_shell:after_switchTo")
-        startup_mark("MainWindow.startup_shell:end")
 
     def _apply_default_window_size(self, phase: str) -> None:
-        startup_mark(
-            f"MainWindow.before_resize_{phase}",
-            w=_DEFAULT_MAIN_WINDOW_WIDTH,
-            h=_DEFAULT_MAIN_WINDOW_HEIGHT,
-        )
         self.resize(_DEFAULT_MAIN_WINDOW_WIDTH, _DEFAULT_MAIN_WINDOW_HEIGHT)
-        startup_mark(f"MainWindow.after_resize_{phase}")
 
     def _restore_frameless_chrome(self) -> None:
         """show 后确保 Win11 圆角与窗口阴影（启动阶段仍不启用 Mica）。"""
@@ -262,9 +235,7 @@ class MainWindow(MSFluentWindow):
 
     def apply_deferred_window_chrome(self) -> None:
         """show() 之后设置标题。实机测试 setWindowTitle 在 super 后同步调用可阻塞数秒。"""
-        startup_mark("MainWindow.before_setWindowTitle")
         self.setWindowTitle(f"Chuni Eventer v{APP_VERSION}")
-        startup_mark("MainWindow.after_setWindowTitle")
         self._apply_default_window_size("post_show")
         self._restore_frameless_chrome()
 
@@ -272,27 +243,20 @@ class MainWindow(MSFluentWindow):
         """show() 之后构建 UI 并加载首屏数据（隐藏窗口上创建 Fluent 控件极慢）。"""
         if self._heavy_ui_built:
             return
-        startup_mark("MainWindow.deferred_build_ui:enter")
-        with startup_span("MainWindow._build_workspace_ui"):
-            self._build_workspace_ui()
-        with startup_span("MainWindow._build_navigation"):
-            self._build_navigation()
+        self._build_workspace_ui()
+        self._build_navigation()
         if self._startup_shell is not None:
             self.stackedWidget.removeWidget(self._startup_shell)
             self._startup_shell.deleteLater()
             self._startup_shell = None
-        startup_mark("MainWindow.deferred_build_ui:before_switchTo")
         self.switchTo(self._workspace)
-        startup_mark("MainWindow.deferred_build_ui:after_switchTo")
         self.navigationInterface.show()
         self.navigationInterface.setCurrentItem("nav_music")
         self._apply_default_window_size("post_build")
         self._heavy_ui_built = True
-        startup_mark("MainWindow.deferred_build_ui:before_post_show_tasks")
         QTimer.singleShot(0, lambda: self._apply_category("Music", "歌曲"))
         QTimer.singleShot(0, self._ensure_game_index_background)
         QTimer.singleShot(0, self._bootstrap_external_tools)
-        startup_mark("MainWindow.deferred_build_ui:exit")
 
     def _build_workspace_ui(self) -> None:
         self._workspace = QWidget()
@@ -329,15 +293,13 @@ class MainWindow(MSFluentWindow):
         header.addWidget(self._add_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
         wlay.addLayout(header)
 
-        with startup_span("MainWindow.ManagerWidget"):
-            self._manager = ManagerWidget(
-                acus_root=self._acus_root,
-                get_tool_path=self._get_tool_path_or_none,
-                get_game_index=self._resolve_game_index,
-                get_game_root=lambda: self._cfg.game_root or "",
-                embedded=True,
-            )
-        startup_mark("MainWindow._build_workspace_ui:after_manager")
+        self._manager = ManagerWidget(
+            acus_root=self._acus_root,
+            get_tool_path=self._get_tool_path_or_none,
+            get_game_index=self._resolve_game_index,
+            get_game_root=lambda: self._cfg.game_root or "",
+            embedded=True,
+        )
         self._search.textChanged.connect(self._manager.set_search_text)
 
         self._primary_body = QWidget(self._workspace)
@@ -397,7 +359,6 @@ class MainWindow(MSFluentWindow):
         self.stackedWidget.addWidget(self._workspace)
 
     def _build_navigation(self) -> None:
-        startup_mark("MainWindow._build_navigation:before_nav_qicon")
         self._nav_specs = [
             ("nav_chara", nav_qicon(SVG_CHARA), "角色", "Chara", "角色"),
             ("nav_map", nav_qicon(SVG_MAP), "地图", "Map", "地图"),
@@ -408,7 +369,6 @@ class MainWindow(MSFluentWindow):
             ("nav_nameplate", nav_qicon(SVG_NAMEPLATE), "名牌", "NamePlate", "名牌"),
             ("nav_others", FluentIcon.APPLICATION, "其他", "__Others__", "其他"),
         ]
-        startup_mark("MainWindow._build_navigation:after_nav_qicon", count=len(self._nav_specs))
         for route_key, icon, text, kind, title in self._nav_specs:
             if kind == "__Others__":
                 self.navigationInterface.addItem(
@@ -443,29 +403,26 @@ class MainWindow(MSFluentWindow):
             onClick=self._enter_settings_mode,
             position=NavigationItemPosition.BOTTOM,
         )
-        startup_mark("MainWindow._build_navigation:exit")
 
     def _ensure_settings_page(self):
         from .settings_page import SettingsPage
 
         if self._settings_page is not None:
             return self._settings_page
-        with startup_span("MainWindow.SettingsPage.lazy_create"):
-            self._settings_page = SettingsPage(
-                cfg=self._cfg,
-                acus_root=self._acus_root,
-                get_tool_path=self._get_tool_path_or_none,
-                get_game_index=self._resolve_game_index,
-                on_settings_saved=self._on_settings_saved,
-                on_request_game_rescan=self._request_game_index_rescan,
-                parent=self,
-            )
-            self.stackedWidget.addWidget(self._settings_page)
+        self._settings_page = SettingsPage(
+            cfg=self._cfg,
+            acus_root=self._acus_root,
+            get_tool_path=self._get_tool_path_or_none,
+            get_game_index=self._resolve_game_index,
+            on_settings_saved=self._on_settings_saved,
+            on_request_game_rescan=self._request_game_index_rescan,
+            parent=self,
+        )
+        self.stackedWidget.addWidget(self._settings_page)
         return self._settings_page
 
     def _bootstrap_external_tools(self) -> None:
         """Lite 单 exe 首次启动：在 exe 旁自动下载 .tools；懒人包已含工具则跳过。"""
-        startup_mark("MainWindow._bootstrap_external_tools:enter")
         if not getattr(sys, "frozen", False):
             return
         if self._cfg.external_tools_bootstrap_done:
@@ -480,7 +437,6 @@ class MainWindow(MSFluentWindow):
         if not started:
             self._cfg.external_tools_bootstrap_done = True
             self._cfg.save()
-        startup_mark("MainWindow._bootstrap_external_tools:exit", started=started)
 
     def _resolve_game_index(self):
         gr = (self._cfg.game_root or "").strip()
@@ -489,7 +445,6 @@ class MainWindow(MSFluentWindow):
         return load_cached_game_index(gr)
 
     def _ensure_game_index_background(self) -> None:
-        startup_mark("MainWindow._ensure_game_index_background:enter")
         gr_raw = (self._cfg.game_root or "").strip()
         if not gr_raw:
             fly_message_async(
@@ -503,13 +458,10 @@ class MainWindow(MSFluentWindow):
             return
 
         gr = Path(gr_raw).expanduser()
-        with startup_span("MainWindow.load_cached_game_index"):
-            cached = load_cached_game_index(str(gr))
+        cached = load_cached_game_index(str(gr))
         if cached is not None:
-            startup_mark("MainWindow._ensure_game_index_background:cache_hit")
             return
 
-        startup_mark("MainWindow._ensure_game_index_background:start_thread")
         fly_message_async(
             self,
             "后台扫描",
@@ -761,9 +713,7 @@ class MainWindow(MSFluentWindow):
         self._apply_category(kind, title)
 
     def _apply_category(self, kind: str, title: str) -> None:
-        startup_mark("MainWindow._apply_category:enter", kind=kind)
         if self._manager is None:
-            startup_mark("MainWindow._apply_category:skip", reason="manager_not_ready")
             return
         self._search.setText("")
         self._title_lbl.setText(title)
@@ -785,7 +735,6 @@ class MainWindow(MSFluentWindow):
         self._search.setPlaceholderText(placeholders.get(kind, "搜索当前列表…"))
         self._game_music_browser_btn.setVisible(kind == "Music")
         self._manager.set_kind(kind)
-        startup_mark("MainWindow._apply_category:exit", kind=kind)
 
     def _restore_current_category_header(self) -> None:
         if self._in_avatar_mode:
