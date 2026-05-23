@@ -117,6 +117,33 @@ def _dds_paths_from_dds_image_xml(dds_xml: Path) -> list[Path]:
     return out
 
 
+def resolve_catalog_xml_path(*, game_root: Path, row: dict) -> Path | None:
+    """根据 catalog 行的 source + xml_relpath 定位磁盘上的 XML。"""
+    xml_rel = str(row.get("xml_relpath") or "").strip()
+    if not xml_rel:
+        return None
+    for pack in catalog_source_packs(game_root, str(row.get("source") or "")):
+        xp = asset_in_pack(pack, xml_rel)
+        if xp.is_file():
+            return xp
+    return None
+
+
+def set_default_have_in_xml(xml_path: Path, *, default_have: bool) -> None:
+    """写入 Music / Trophy / NamePlate 等 XML 的 defaultHave（true=强制解锁）。"""
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+    el = root.find("defaultHave")
+    if el is None:
+        el = ET.SubElement(root, "defaultHave")
+    el.text = "true" if default_have else "false"
+    try:
+        ET.indent(root, space="  ")
+    except Exception:
+        pass
+    tree.write(xml_path, encoding="utf-8", xml_declaration=True)
+
+
 def resolve_chara_portrait_dds_in_pack(
     pack: Path,
     *,

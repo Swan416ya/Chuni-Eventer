@@ -234,6 +234,7 @@ def ensure_acus_layout(*, game_root: Path | str | None = None) -> Path:
         "event",
         "unlockChallenge",
         "course",
+        "courseRule",
         "reward",
         "cueFile",
         "namePlate",

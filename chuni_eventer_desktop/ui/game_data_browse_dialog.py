@@ -16,8 +16,13 @@ from PyQt6.QtWidgets import (
 
 from qfluentwidgets import BodyLabel, CardWidget, ComboBox as FluentComboBox, LineEdit, PrimaryPushButton, PushButton
 
+from ..game_data_assets import resolve_catalog_xml_path, set_default_have_in_xml
 from ..game_data_index import (
     GameDataIndex,
+    catalog_release_tag_id,
+    format_release_tag_version,
+    iter_release_tag_filter_options,
+    patch_catalog_default_have,
     scan_game_chara_catalog,
     scan_game_music_catalog,
     scan_game_nameplate_catalog,
@@ -25,7 +30,7 @@ from ..game_data_index import (
 )
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_warning
-from .fluent_table import apply_fluent_sheet_table
+from .fluent_table import apply_fluent_sheet_table, set_default_have_cell
 from .game_data_detail_dialog import (
     GameMusicDetailDialog,
     open_chara_image_dialog,
@@ -34,18 +39,20 @@ from .game_data_detail_dialog import (
 
 GameDataKind = Literal["music", "chara", "nameplate", "trophy"]
 
+_DEFAULT_HAVE_KINDS = frozenset({"music", "nameplate", "trophy"})
+
 _KIND_META: dict[GameDataKind, dict[str, Any]] = {
     "music": {
         "title": "游戏乐曲",
-        "hint": "双击行查看曲绘与导出音频。可按版本标签、流派筛选。",
-        "columns": ["ID", "曲名", "艺术家", "流派", "发布日", "版本标签", "数据包"],
+        "hint": "双击行查看曲绘与导出音频。可按版本 ID、流派筛选。勾选「强制解锁」会写回 Music.xml 的 defaultHave。",
+        "columns": ["ID", "曲名", "艺术家", "流派", "发布日", "版本", "数据包"],
         "catalog_attr": "music_catalog",
         "scan": scan_game_music_catalog,
         "filters": ("tag", "genre"),
     },
     "chara": {
         "title": "游戏角色",
-        "hint": "双击行预览默认立绘 DDS（多变体可切换），并可导出 PNG。可按版本标签、作品筛选。",
+        "hint": "双击行预览默认立绘 DDS（多变体可切换），并可导出 PNG。可按版本 ID、作品筛选。",
         "columns": ["ID", "名称", "作品", "版本", "默认立绘键", "数据包"],
         "catalog_attr": "chara_catalog",
         "scan": scan_game_chara_catalog,
@@ -53,7 +60,7 @@ _KIND_META: dict[GameDataKind, dict[str, Any]] = {
     },
     "nameplate": {
         "title": "游戏名牌",
-        "hint": "双击行预览名牌贴图 DDS，并可导出 PNG。可按版本标签筛选。",
+        "hint": "双击行预览名牌贴图 DDS，并可导出 PNG。可按版本 ID 筛选。勾选「强制解锁」会写回 NamePlate.xml 的 defaultHave。",
         "columns": ["ID", "名称", "版本", "数据包"],
         "catalog_attr": "nameplate_catalog",
         "scan": scan_game_nameplate_catalog,
@@ -61,11 +68,11 @@ _KIND_META: dict[GameDataKind, dict[str, Any]] = {
     },
     "trophy": {
         "title": "游戏称号",
-        "hint": "双击行预览称号贴图 DDS，并可导出 PNG。可按版本标签、稀有度筛选。",
-        "columns": ["ID", "名称", "版本", "稀有度", "说明", "数据包"],
+        "hint": "双击行预览称号贴图 DDS，并可导出 PNG。可按稀有度筛选。勾选「强制解锁」会写回 Trophy.xml 的 defaultHave。",
+        "columns": ["ID", "名称", "稀有度", "说明", "数据包"],
         "catalog_attr": "trophy_catalog",
         "scan": scan_game_trophy_catalog,
-        "filters": ("tag", "rare", "source"),
+        "filters": ("rare", "source"),
     },
 }
 
@@ -90,6 +97,8 @@ class GameDataBrowseDialog(FluentCaptionDialog):
         self._get_index = get_index
         self._get_tool_path = get_tool_path
         self._rows: list[dict[str, Any]] = []
+        self._populating_table = False
+        self._has_default_have_col = kind in _DEFAULT_HAVE_KINDS
 
         self.setWindowTitle(str(meta["title"]))
         self.setModal(True)
@@ -150,7 +159,7 @@ class GameDataBrowseDialog(FluentCaptionDialog):
         self._lbl_source.setVisible(show_source)
         self._filter_source.setVisible(show_source)
 
-        cols: list[str] = list(meta["columns"])
+        cols = self._table_header_labels()
         self._table = QTableWidget(0, len(cols), self)
         apply_fluent_sheet_table(self._table)
         self._table.setHorizontalHeaderLabels(cols)
@@ -159,8 +168,14 @@ class GameDataBrowseDialog(FluentCaptionDialog):
         self._table.setAlternatingRowColors(True)
         self._table.verticalHeader().setVisible(False)
         hh = self._table.horizontalHeader()
-        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        if self._has_default_have_col:
+            hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+            hh.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+            hh.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+            self._table.verticalHeader().setDefaultSectionSize(40)
+        else:
+            hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+            hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self._table.doubleClicked.connect(self._on_double_click)
 
         refresh = PushButton("从磁盘重新扫描", self)
@@ -197,6 +212,12 @@ class GameDataBrowseDialog(FluentCaptionDialog):
         self._fill_filters()
         self._apply_filter()
 
+    def _table_header_labels(self) -> list[str]:
+        cols = list(self._meta["columns"])
+        if self._has_default_have_col:
+            return ["强制解锁", *cols]
+        return cols
+
     def _catalog_from_index(self) -> list[dict[str, Any]]:
         idx = self._get_index()
         if idx is None:
@@ -227,14 +248,6 @@ class GameDataBrowseDialog(FluentCaptionDialog):
             return
         self._fill_filters()
         self._apply_filter()
-
-    def _all_tags(self) -> list[str]:
-        s: set[str] = set()
-        for r in self._rows:
-            t = str(r.get("release_tag_str") or "").strip()
-            if t:
-                s.add(t)
-        return sorted(s)
 
     def _all_genres(self) -> list[str]:
         s: set[str] = set()
@@ -290,9 +303,9 @@ class GameDataBrowseDialog(FluentCaptionDialog):
         self._filter_works.clear()
         self._filter_rare.clear()
         self._filter_source.clear()
-        self._filter_tag.addItem("全部版本", None, "")
-        for t in self._all_tags():
-            self._filter_tag.addItem(t, None, t)
+        self._filter_tag.addItem("全部版本", None, None)
+        for rid, label in iter_release_tag_filter_options(self._rows):
+            self._filter_tag.addItem(label, None, rid)
         self._filter_genre.addItem("全部流派", None, "")
         for g in self._all_genres():
             self._filter_genre.addItem(g, None, g)
@@ -327,6 +340,39 @@ class GameDataBrowseDialog(FluentCaptionDialog):
                 return
         cb.setCurrentIndex(0)
 
+    @staticmethod
+    def _row_default_have(r: dict[str, Any]) -> bool:
+        v = r.get("default_have")
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            return v.strip().lower() == "true"
+        return False
+
+    def _commit_default_have(self, row_data: dict[str, Any], want: bool) -> bool:
+        if self._row_default_have(row_data) == want:
+            return True
+        xml_path = resolve_catalog_xml_path(game_root=self._game_root, row=row_data)
+        if xml_path is None:
+            fly_warning(self, "无法写回", "未找到该条目对应的 XML 文件。")
+            return False
+        try:
+            set_default_have_in_xml(xml_path, default_have=want)
+        except OSError as e:
+            fly_critical(self, "写入失败", str(e))
+            return False
+        row_data["default_have"] = want
+        try:
+            patch_catalog_default_have(
+                self._get_index(),
+                catalog_attr=str(self._meta["catalog_attr"]),
+                row_id=int(row_data["id"]),
+                default_have=want,
+            )
+        except (TypeError, ValueError, KeyError):
+            pass
+        return True
+
     def _row_values(self, r: dict[str, Any]) -> list[str]:
         if self._kind == "music":
             genres = "、".join(str(x) for x in (r.get("genres") or []))
@@ -336,7 +382,7 @@ class GameDataBrowseDialog(FluentCaptionDialog):
                 str(r.get("artist", "")),
                 genres,
                 str(r.get("release_date", "")),
-                str(r.get("release_tag_str", "")),
+                format_release_tag_version(r),
                 str(r.get("source", "")),
             ]
         if self._kind == "chara":
@@ -344,7 +390,7 @@ class GameDataBrowseDialog(FluentCaptionDialog):
                 str(r.get("id", "")),
                 str(r.get("name", "")),
                 str(r.get("works_str", "")),
-                str(r.get("release_tag_str", "")),
+                format_release_tag_version(r),
                 str(r.get("default_image_key", "")),
                 str(r.get("source", "")),
             ]
@@ -352,20 +398,19 @@ class GameDataBrowseDialog(FluentCaptionDialog):
             return [
                 str(r.get("id", "")),
                 str(r.get("name", "")),
-                str(r.get("release_tag_str", "")),
+                format_release_tag_version(r),
                 str(r.get("source", "")),
             ]
         return [
             str(r.get("id", "")),
             str(r.get("name", "")),
-            str(r.get("release_tag_str", "")),
             "" if r.get("rare_type") is None else str(r.get("rare_type")),
             str(r.get("explain", "")),
             str(r.get("source", "")),
         ]
 
     def _apply_filter(self) -> None:
-        tag_f = str(self._filter_tag.currentData() or "").strip()
+        tag_id_f = self._filter_tag.currentData()
         gen_f = str(self._filter_genre.currentData() or "").strip()
         works_f = str(self._filter_works.currentData() or "").strip()
         rare_f = str(self._filter_rare.currentData() or "").strip()
@@ -373,8 +418,10 @@ class GameDataBrowseDialog(FluentCaptionDialog):
         needle = self._search.text().strip().lower()
 
         def ok(r: dict[str, Any]) -> bool:
-            if tag_f and str(r.get("release_tag_str") or "").strip() != tag_f:
-                return False
+            if tag_id_f is not None:
+                rid = catalog_release_tag_id(r)
+                if rid is None or rid != int(tag_id_f):
+                    return False
             if gen_f:
                 genres = [str(x).strip() for x in (r.get("genres") or [])]
                 if gen_f not in genres:
@@ -395,21 +442,35 @@ class GameDataBrowseDialog(FluentCaptionDialog):
             return needle in " ".join(parts).lower()
 
         filtered = [r for r in self._rows if ok(r)]
+        self._populating_table = True
         self._table.setRowCount(len(filtered))
         for row_i, r in enumerate(filtered):
+            col_offset = 0
+            if self._has_default_have_col:
+                set_default_have_cell(
+                    self._table,
+                    row_i,
+                    row_data=r,
+                    checked=self._row_default_have(r),
+                    on_commit=self._commit_default_have,
+                )
+                col_offset = 1
             vals = self._row_values(r)
             for col, v in enumerate(vals):
                 it = QTableWidgetItem(v)
-                it.setData(Qt.ItemDataRole.UserRole, r)
+                if col == 0:
+                    it.setData(Qt.ItemDataRole.UserRole, r)
                 it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                self._table.setItem(row_i, col, it)
+                self._table.setItem(row_i, col + col_offset, it)
+        self._populating_table = False
         self._table.resizeColumnsToContents()
 
     def _selected_row(self) -> dict[str, Any] | None:
         r = self._table.currentRow()
         if r < 0:
             return None
-        it = self._table.item(r, 0)
+        data_col = 1 if self._has_default_have_col else 0
+        it = self._table.item(r, data_col)
         if it is None:
             return None
         data = it.data(Qt.ItemDataRole.UserRole)

@@ -22,6 +22,58 @@ from .acus_scan import (
 from .acus_workspace import app_cache_dir
 from .dds_convert import convert_dds_to_png
 
+_CATALOG_INT_KEYS = frozenset({"release_tag_id", "works_id", "cue_id", "rare_type"})
+_CATALOG_BOOL_KEYS = frozenset({"default_have"})
+
+
+def catalog_release_tag_id(row: dict[str, Any]) -> int | None:
+    """catalog 行中的 releaseTagName/id（版本筛选按 id，不按 str）。"""
+    v = row.get("release_tag_id")
+    if v is None:
+        return None
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def format_release_tag_version(row: dict[str, Any]) -> str:
+    rid = catalog_release_tag_id(row)
+    if rid is None:
+        return ""
+    rs = str(row.get("release_tag_str") or "").strip()
+    return f"{rid} · {rs}" if rs else str(rid)
+
+
+def iter_release_tag_filter_options(rows: list[dict[str, Any]]) -> list[tuple[int, str]]:
+    labels: dict[int, str] = {}
+    for r in rows:
+        rid = catalog_release_tag_id(r)
+        if rid is None:
+            continue
+        if rid not in labels:
+            rs = str(r.get("release_tag_str") or "").strip()
+            labels[rid] = f"{rid} · {rs}" if rs else str(rid)
+    return sorted(labels.items(), key=lambda x: x[0])
+
+
+def _merge_catalog_scalar_fields(prev: dict[str, Any], row: dict[str, Any]) -> None:
+    for k, v in row.items():
+        if k == "source":
+            continue
+        if k in _CATALOG_INT_KEYS:
+            if v is not None and prev.get(k) is None:
+                prev[k] = v
+            continue
+        if k in _CATALOG_BOOL_KEYS:
+            if k not in prev:
+                prev[k] = bool(v)
+            elif bool(v):
+                prev[k] = True
+            continue
+        if v and not prev.get(k):
+            prev[k] = v
+
 
 INDEX_VERSION = 4
 INDEX_FILENAME = "game_data_index.json"
@@ -281,6 +333,7 @@ def _music_item_to_catalog_row(m: MusicItem, source: str, *, pack: Path) -> dict
         "jacket_relpath": (m.jacket_path or "").strip(),
         "cue_id": m.cue_file.id if m.cue_file else None,
         "levels": list(m.levels),
+        "default_have": bool(m.default_have),
     }
 
 
@@ -293,6 +346,7 @@ def _chara_item_to_catalog_row(c: CharaItem, source: str, *, pack: Path) -> dict
         "id": c.name.id,
         "name": (c.name.str or "").strip() or f"Chara{c.name.id}",
         "default_image_key": (c.default_image_key or "").strip(),
+        "release_tag_id": c.release_tag.id if c.release_tag else None,
         "release_tag_str": (c.release_tag.str if c.release_tag else "") or "",
         "works_str": (c.works.str if c.works else "") or "",
         "works_id": c.works.id if c.works else None,
@@ -310,7 +364,9 @@ def _nameplate_item_to_catalog_row(n: NamePlateItem, source: str, *, pack: Path)
         "id": n.name.id,
         "name": (n.name.str or "").strip() or f"NamePlate{n.name.id}",
         "image_relpath": (n.image_path or "").strip(),
+        "release_tag_id": n.release_tag.id if n.release_tag else None,
         "release_tag_str": (n.release_tag.str if n.release_tag else "") or "",
+        "default_have": bool(n.default_have),
         "source": source,
         "xml_relpath": xml_relpath,
     }
@@ -326,7 +382,7 @@ def _trophy_item_to_catalog_row(t: TrophyItem, source: str, *, pack: Path) -> di
         "name": (t.name.str or "").strip() or f"Trophy{t.name.id}",
         "explain": (t.explain_text or "").strip(),
         "rare_type": t.rare_type,
-        "release_tag_str": (t.release_tag.str if t.release_tag else "") or "",
+        "default_have": bool(t.default_have),
         "image_relpath": (t.image_path or "").strip(),
         "source": source,
         "xml_relpath": xml_relpath,
@@ -345,11 +401,7 @@ def _merge_catalog_by_id(rows: list[dict[str, Any]], *, id_key: str = "id") -> l
         s1 = str(row.get("source") or "")
         if s1 and s1 not in s0:
             prev["source"] = s0 + ("; " if s0 else "") + s1
-        for k, v in row.items():
-            if k == "source":
-                continue
-            if v and not prev.get(k):
-                prev[k] = v
+        _merge_catalog_scalar_fields(prev, row)
     return sorted(by_id.values(), key=lambda x: int(x[id_key]))
 
 
@@ -370,6 +422,7 @@ def merge_music_catalog_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
             s1 = str(row.get("source") or "")
             if s1 and s1 not in s0:
                 by_id[iid]["source"] = s0 + ("; " if s0 else "") + s1
+            _merge_catalog_scalar_fields(by_id[iid], row)
     return sorted(by_id.values(), key=lambda x: int(x["id"]))
 
 
@@ -861,6 +914,34 @@ def save_game_data_index(idx: GameDataIndex) -> None:
     p.write_text(json.dumps(idx.to_json(), ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def patch_catalog_default_have(
+    idx: GameDataIndex | None,
+    *,
+    catalog_attr: str,
+    row_id: int,
+    default_have: bool,
+) -> bool:
+    """勾选「强制解锁」后同步更新内存索引并写回 game_data_index.json。"""
+    if idx is None:
+        return False
+    catalog = getattr(idx, catalog_attr, None)
+    if not isinstance(catalog, list):
+        return False
+    rid = int(row_id)
+    for row in catalog:
+        if not isinstance(row, dict):
+            continue
+        try:
+            if int(row.get("id")) != rid:
+                continue
+        except (TypeError, ValueError):
+            continue
+        row["default_have"] = bool(default_have)
+        save_game_data_index(idx)
+        return True
+    return False
+
+
 def rebuild_and_save_game_index(
     game_root: Path,
     compressonatorcli_path: Path | None = None,
@@ -894,6 +975,30 @@ def merged_music_pairs(acus_root: Path, idx: GameDataIndex | None) -> list[tuple
     acus = _pairs_acus_music(acus_root)
     game = idx.music if idx else None
     return _merge_pairs(game, acus)
+
+
+def merged_music_catalog(
+    acus_root: Path,
+    idx: GameDataIndex | None,
+    *,
+    game_root: Path | str | None = None,
+) -> list[dict[str, Any]]:
+    """合并游戏索引/磁盘扫描与 ACUS 乐曲，供乐曲选择弹窗等使用。"""
+    rows: list[dict[str, Any]] = []
+    if idx is not None and idx.music_catalog:
+        rows.extend(dict(r) for r in idx.music_catalog if isinstance(r, dict))
+    elif game_root:
+        try:
+            rows.extend(scan_game_music_catalog(Path(game_root).expanduser()))
+        except Exception:
+            pass
+    try:
+        acus = acus_root.expanduser().resolve()
+    except OSError:
+        acus = acus_root
+    for m in scan_music(acus):
+        rows.append(_music_item_to_catalog_row(m, "ACUS", pack=acus))
+    return merge_music_catalog_rows(rows)
 
 
 def merged_stage_pairs(acus_root: Path, idx: GameDataIndex | None) -> list[tuple[int, str]]:

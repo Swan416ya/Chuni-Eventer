@@ -46,6 +46,7 @@ from .event_add_dialog import EventAddDialog
 from .quest_add_dialog import QuestAddDialog
 from .mapbonus_dialogs import MapBonusEditDialog
 from .stage_add_dialog import StageAddDialog
+from .course_rank_dialog import CourseRankEditDialog
 from .system_voice_pack_dialog import SystemVoicePackDialog
 from .fluent_dialogs import (
     fly_critical,
@@ -72,10 +73,11 @@ _scan_log_logger: logging.Logger | None = None
 _DEFAULT_MAIN_WINDOW_WIDTH = 1160
 _DEFAULT_MAIN_WINDOW_HEIGHT = 720 + 2 * 52
 
-# 「其他」分段 routeKey -> (ManagerWidget kind, 标题)；dict 插入顺序与 Segmented addItem 一致（跑图小人、系统语音置顶）
+# 「其他」分段 routeKey -> (ManagerWidget kind, 标题)；dict 插入顺序与 Segmented addItem 一致
 _OTHERS_ROUTE_KIND: dict[str, tuple[str, str]] = {
     "mapicon": ("MapIcon", "跑图小人"),
     "sysvoice": ("SystemVoice", "系统语音"),
+    "rankcourse": ("RankCourse", "段位组曲"),
     "event": ("Event", "事件"),
     "quest": ("Quest", "任务"),
     "reward": ("Reward", "奖励"),
@@ -328,6 +330,7 @@ class MainWindow(MSFluentWindow):
         self._others_seg = SegmentedWidget(self._page_others)
         self._others_seg.addItem("mapicon", "跑图小人")
         self._others_seg.addItem("sysvoice", "系统语音")
+        self._others_seg.addItem("rankcourse", "段位组曲")
         self._others_seg.addItem("event", "事件")
         self._others_seg.addItem("quest", "任务")
         self._others_seg.addItem("reward", "奖励")
@@ -749,6 +752,7 @@ class MainWindow(MSFluentWindow):
             "MapBonus": "搜索 MapBonus…",
             "MapIcon": "搜索跑图小人…",
             "SystemVoice": "搜索系统语音 ID、名称…",
+            "RankCourse": "搜索段位组曲 ID、名称、曲目…",
             "AvatarAccessory": "搜索企鹅装扮…",
         }
         self._search.setPlaceholderText(placeholders.get(kind, "搜索当前列表…"))
@@ -991,6 +995,17 @@ class MainWindow(MSFluentWindow):
             dlg.exec()
             return
 
+        if kind == "RankCourse":
+            dlg = CourseRankEditDialog(
+                acus_root=self._acus_root,
+                game_root=self._cfg.game_root or "",
+                get_index=self._resolve_game_index,
+                parent=self,
+            )
+            if dlg.exec() == dlg.DialogCode.Accepted:
+                self._on_refresh()
+            return
+
         if kind == "Stage":
             dlg = StageAddDialog(
                 acus_root=self._acus_root,
@@ -1044,6 +1059,6 @@ class MainWindow(MSFluentWindow):
             fly_warning(
                 self,
                 "未实现",
-                "当前已实现【新增角色】【新增地图】【新增事件】【新增任务】【新增歌曲课题称号】【新增称号】【新增名牌】【新增奖励】【系统语音打包向导】。"
+                "当前已实现【新增角色】【新增地图】【新增事件】【新增任务】【新增歌曲课题称号】【新增称号】【新增名牌】【新增奖励】【系统语音打包向导】【段位组曲】。"
                 "DDSImage 请直接在 ACUS 目录维护或用其它工具。",
             )

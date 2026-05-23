@@ -58,6 +58,7 @@ from ..chara_delete import delete_chara_from_acus
 from ..music_delete import execute_music_deletion, plan_music_deletion
 from ..map_export_bundle import export_map_bundle_to_zip
 from ..trophy_delete import execute_trophy_deletion, plan_trophy_deletion
+from ..course_rank import RankCourseItem, scan_rank_courses
 from ..acus_scan import (
     AvatarAccessoryItem,
     CharaItem,
@@ -109,6 +110,7 @@ _KIND_DEFS: tuple[tuple[str, str], ...] = (
     ("加成", "MapBonus"),
     ("DDS 贴图", "DDSImage"),
     ("系统语音", "SystemVoice"),
+    ("段位组曲", "RankCourse"),
     ("跑图小人", "MapIcon"),
     ("企鹅装扮", "AvatarAccessory"),
 )
@@ -372,6 +374,8 @@ class ManagerWidget(QWidget):
             self.model.setHorizontalHeaderLabels(["ID", "名称", "条件数", "type摘要", "来源(XML)"])
         elif k == "SystemVoice":
             self.model.setHorizontalHeaderLabels(["ID", "名称", "CueFile(id)", "预览图", "来源(XML)"])
+        elif k == "RankCourse":
+            self.model.setHorizontalHeaderLabels(["ID", "名称", "段位", "曲目摘要", "来源(XML)"])
         elif k == "MapIcon":
             self.model.setHorizontalHeaderLabels(["ID", "名称", "贴图路径", "来源(XML)"])
         elif k == "AvatarAccessory":
@@ -447,6 +451,11 @@ class ManagerWidget(QWidget):
             self._items = items
             for it in items:
                 self._append_system_voice_row(it)
+        elif k == "RankCourse":
+            items = scan_rank_courses(self._acus_root)
+            self._items = items
+            for it in items:
+                self._append_rank_course_row(it)
         elif k == "MapIcon":
             items = scan_map_icons(self._acus_root)
             self._items = items
@@ -683,6 +692,25 @@ class ManagerWidget(QWidget):
                 ("预览图路径", pv),
                 ("XML", self._rel_acus_path(it.xml_path)),
             ]
+        if isinstance(it, RankCourseItem):
+            rw = self._fmt_id_str(it.reward)
+            rp = it.rule_params
+            rule_detail = "—"
+            if rp is not None:
+                rule_detail = (
+                    f"总血量 {rp.life} / 回血+{rp.recovery_life} / Miss-{rp.damage_miss} / Atk-{rp.damage_attack} / "
+                    f"J-{rp.damage_justice} / JC-{rp.damage_justice_c}"
+                )
+            return [
+                ("组曲名", it.name.str or "—"),
+                ("课题 ID", str(it.name.id)),
+                ("段位", it.difficulty_label or "—"),
+                ("CourseRule ID", str(it.rule_id)),
+                ("规则参数", rule_detail),
+                ("通关奖励", rw),
+                ("曲目", it.music_summary or "—"),
+                ("XML", self._rel_acus_path(it.xml_path)),
+            ]
         if isinstance(it, MapIconItem):
             img = it.image_path.strip() or "—"
             return [
@@ -912,6 +940,22 @@ class ManagerWidget(QWidget):
             QStandardItem(it.name.str),
             QStandardItem(cue),
             QStandardItem(pv),
+            QStandardItem(src),
+        ]
+        cols[0].setData(it, Qt.ItemDataRole.UserRole)
+        for i, c in enumerate(cols):
+            c.setEditable(False)
+            self.model.setItem(row, i, c)
+
+    def _append_rank_course_row(self, it: RankCourseItem) -> None:
+        row = self.model.rowCount()
+        self.model.insertRow(row)
+        src = str(it.xml_path.relative_to(self._acus_root))
+        cols = [
+            QStandardItem(str(it.name.id)),
+            QStandardItem(it.name.str),
+            QStandardItem(it.difficulty_label or "—"),
+            QStandardItem(it.music_summary or "—"),
             QStandardItem(src),
         ]
         cols[0].setData(it, Qt.ItemDataRole.UserRole)
@@ -1567,7 +1611,7 @@ class ManagerWidget(QWidget):
         if not proxy_index.isValid():
             return
         k = self._kind_key()
-        if k not in ("Map", "Music", "MapBonus", "MapIcon", "AvatarAccessory"):
+        if k not in ("Map", "Music", "MapBonus", "MapIcon", "AvatarAccessory", "RankCourse"):
             return
         src_idx = self.proxy.mapToSource(proxy_index)
         item = self.model.item(src_idx.row(), 0)
@@ -1626,6 +1670,21 @@ class ManagerWidget(QWidget):
                 tool_path=self._get_tool_path(),
                 game_index=self._get_game_index(),
                 edit_map_icon_xml=payload.xml_path,
+                parent=self.window(),
+            )
+            if dlg.exec() == QDialog.DialogCode.Accepted:
+                self.reload()
+            return
+        if k == "RankCourse":
+            if not isinstance(payload, RankCourseItem):
+                return
+            from .course_rank_dialog import CourseRankEditDialog
+
+            dlg = CourseRankEditDialog(
+                acus_root=self._acus_root,
+                game_root=self._get_game_root(),
+                get_index=self._get_game_index,
+                edit_xml=payload.xml_path,
                 parent=self.window(),
             )
             if dlg.exec() == QDialog.DialogCode.Accepted:

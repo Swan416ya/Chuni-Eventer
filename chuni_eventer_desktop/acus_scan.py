@@ -26,6 +26,10 @@ def _get_idstr(node: ET.Element | None) -> IdStr | None:
     return IdStr(i, (str_el.text or "").strip())
 
 
+def parse_default_have_bool(root: ET.Element) -> bool:
+    return (root.findtext("defaultHave") or "").strip().lower() == "true"
+
+
 @dataclass(frozen=True)
 class DdsImageItem:
     xml_path: Path
@@ -51,6 +55,7 @@ class MusicItem:
     has_ultima: bool
     # ACUS 内 UnlockChallenge 是否引用本曲（乐曲卡片「完美挑战」角标）
     has_perfect_challenge: bool = False
+    default_have: bool = False
 
 
 @dataclass(frozen=True)
@@ -83,6 +88,7 @@ class NamePlateItem:
     name: IdStr
     image_path: str
     release_tag: IdStr | None = None
+    default_have: bool = False
 
 
 @dataclass(frozen=True)
@@ -92,7 +98,7 @@ class TrophyItem:
     explain_text: str
     rare_type: int | None
     image_path: str
-    release_tag: IdStr | None = None
+    default_have: bool = False
 
 
 @dataclass(frozen=True)
@@ -369,6 +375,7 @@ def scan_music(acus_root: Path) -> list[MusicItem]:
                     jacket_path=jacket,
                     has_ultima=has_ultima,
                     has_perfect_challenge=name.id in uc_mids,
+                    default_have=parse_default_have_bool(r),
                 )
             )
         except Exception:
@@ -598,7 +605,9 @@ def scan_nameplates(acus_root: Path) -> list[NamePlateItem]:
                 continue
             img = (r.findtext("image/path") or "").strip()
             release_tag = _get_idstr(r.find("releaseTagName"))
-            items.append(NamePlateItem(p, name, img, release_tag))
+            items.append(
+                NamePlateItem(p, name, img, release_tag, default_have=parse_default_have_bool(r))
+            )
         except Exception:
             continue
     return sorted(items, key=lambda x: x.name.id)
@@ -616,8 +625,9 @@ def scan_trophies(acus_root: Path) -> list[TrophyItem]:
             rare_raw = (r.findtext("rareType") or "").strip()
             rare_type = int(rare_raw) if rare_raw.isdigit() else None
             img = (r.findtext("image/path") or "").strip()
-            release_tag = _get_idstr(r.find("releaseTagName"))
-            items.append(TrophyItem(p, name, explain, rare_type, img, release_tag))
+            items.append(
+                TrophyItem(p, name, explain, rare_type, img, default_have=parse_default_have_bool(r))
+            )
         except Exception:
             continue
     return sorted(items, key=lambda x: x.name.id)

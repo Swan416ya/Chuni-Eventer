@@ -409,41 +409,7 @@ def write_perfect_challenge_course_xml(
     return out
 
 
-def append_course_sort(acus_root: Path, course_ids: list[int]) -> None:
-    sort_path = acus_root / "course" / "CourseSort.xml"
-    if not sort_path.exists():
-        sort_path.write_text(
-            """<?xml version="1.0" encoding="utf-8"?>
-<SerializeSortData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <dataName>course</dataName>
-  <SortList>
-  </SortList>
-</SerializeSortData>
-""",
-            encoding="utf-8",
-        )
-    root = ET.parse(sort_path).getroot()
-    sl = root.find("SortList")
-    if sl is None:
-        return
-    existing: set[int] = set()
-    for n in sl.findall("StringID/id"):
-        v = _safe_int(n.text)
-        if v is not None:
-            existing.add(v)
-    for cid in course_ids:
-        if cid in existing:
-            continue
-        s = ET.SubElement(sl, "StringID")
-        ET.SubElement(s, "id").text = str(int(cid))
-        ET.SubElement(s, "str")
-        ET.SubElement(s, "data")
-        existing.add(cid)
-    ET.indent(root, space="  ")
-    ET.ElementTree(root).write(sort_path, encoding="utf-8", xml_declaration=True)
-
-
-def find_courses_for_music(acus_root: Path, music_id: int) -> list[tuple[int, str]]:
+from .course_sort import append_course_sort
     """扫描已有课题是否引用该曲（供只读展示或迁移用）。"""
     found: dict[int, str] = {}
     root = acus_root / "course"

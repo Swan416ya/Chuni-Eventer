@@ -2,10 +2,20 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QAbstractItemView, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
+from collections.abc import Callable
+from typing import Any
 
-from qfluentwidgets import FluentStyleSheet, setCustomStyleSheet
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (
+    QAbstractItemView,
+    QHBoxLayout,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
+from qfluentwidgets import CheckBox, FluentStyleSheet, setCustomStyleSheet
 
 # 显式覆盖选中态，避免默认 QSS 在浅色卡片上出现「白字 + 浅底」导致看不见
 _LIGHT_SELECTION_QSS = """
@@ -56,6 +66,54 @@ def sheet_list_hint_muted_colors(widget: object) -> None:
 
 def mark_sheet_item_readonly(item: QTableWidgetItem) -> None:
     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+
+
+class DefaultHaveTableCell(QWidget):
+    """表格「强制解锁」列：居中 qfluentwidgets CheckBox（Fluent 表样式下 QTableWidgetItem 勾选框不可见）。"""
+
+    def __init__(
+        self,
+        *,
+        row_data: dict[str, Any],
+        checked: bool,
+        on_commit: Callable[[dict[str, Any], bool], bool],
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.row_data = row_data
+        self._on_commit = on_commit
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._cb = CheckBox(self)
+        self._cb.blockSignals(True)
+        self._cb.setChecked(checked)
+        self._cb.blockSignals(False)
+        self._cb.stateChanged.connect(self._on_state_changed)
+        lay.addWidget(self._cb)
+
+    def set_checked(self, checked: bool) -> None:
+        self._cb.blockSignals(True)
+        self._cb.setChecked(checked)
+        self._cb.blockSignals(False)
+
+    def _on_state_changed(self, _state: int) -> None:
+        want = self._cb.isChecked()
+        if not self._on_commit(self.row_data, want):
+            self.set_checked(not want)
+
+
+def set_default_have_cell(
+    table: QTableWidget,
+    row: int,
+    *,
+    row_data: dict[str, Any],
+    checked: bool,
+    on_commit: Callable[[dict[str, Any], bool], bool],
+) -> DefaultHaveTableCell:
+    cell = DefaultHaveTableCell(row_data=row_data, checked=checked, on_commit=on_commit, parent=table)
+    table.setCellWidget(row, 0, cell)
+    return cell
 
 
 def apply_fluent_tableview_header_style(table: QWidget, *, object_name: str) -> None:
