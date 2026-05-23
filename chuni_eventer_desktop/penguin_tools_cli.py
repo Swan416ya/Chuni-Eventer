@@ -311,8 +311,20 @@ def convert_jacket_with_penguin_tools_cli(
     return resolved_output
 
 
-def convert_audio_with_penguin_tools_cli(*, input_path: Path, output_dir: Path) -> dict[str, Any]:
+def convert_audio_with_penguin_tools_cli(
+    *,
+    input_path: Path,
+    output_dir: Path,
+    working_audio: Path | None = None,
+    cfg: object | None = None,
+) -> dict[str, Any]:
+    """``media audio``：input 可为 .mgxc / .ugc / .sus；PJSK 用 SUS 的 BPM/片头空白对齐音频。"""
     input_path = Path(input_path).resolve()
     output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    return _run_penguin_tools_cli(["media", "audio", str(input_path), str(output_dir)])
+    args = ["media", "audio", str(input_path), str(output_dir)]
+    if working_audio is not None:
+        wa = Path(working_audio).resolve()
+        if wa.is_file():
+            args.extend(["--working-audio", str(wa)])
+    return _run_penguin_tools_cli(args, cfg=cfg)

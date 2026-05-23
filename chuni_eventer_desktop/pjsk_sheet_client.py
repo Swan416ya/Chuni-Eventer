@@ -577,7 +577,7 @@ def save_pjsk_bundle_to_cache(
     SUS→c2s 在「转写 ACUS」时执行，不在此处生成 chuni/*.c2s。
 
     完整音频：与 PjskSUSPatcher 一致，来自 `musicVocals` 的 `assetbundleName` 与 long 音频 URL。
-    若已安装 ffmpeg 与 PyCriCodecsEx，会在同目录下额外生成去掉前约 9 秒后的 48k WAV，
+    若已安装 ffmpeg 与 PyCriCodecsEx，会在同目录下额外生成 48 kHz WAV 与中二用 ACB/AWB，
     以及 ``chuni_cue/cueFileXXXXXX/`` 下的 ``musicXXXX.acb`` / ``.awb``（逻辑对齐
     [PenguinTools MusicConverter](https://github.com/Foahh/PenguinTools/blob/main/PenguinTools.Core/Media/MusicConverter.cs)）。
     """
@@ -628,25 +628,9 @@ def save_pjsk_bundle_to_cache(
             "file": audio_rel,
             "format": ext,
         }
-        p("生成中二用 WAV / ACB·AWB（若环境齐全）…", None)
-        try:
-            chuni_extra = pjsk_ac.try_pipeline_pjsk_audio_to_chuni(
-                src_audio=audio_path,
-                music_id=music_id,
-                cache_root=root,
-                trim_leading_sec=pjsk_ac.PJSK_AUDIO_TRIM_LEADING_SEC,
-                on_log=lambda m: p(m, None),
-            )
-        except Exception as ex:
-            chuni_extra = None
-            p(f"中二音频管线跳过：{ex}", None)
-        if chuni_extra:
-            audio_manifest["chuni"] = chuni_extra
-        else:
-            audio_manifest["chuniPipelineNote"] = (
-                "可选：安装 ffmpeg（PATH）与 pip install PyCriCodecsEx，"
-                "并保留 chuni_eventer_desktop/data/dummy.acb 模板，即可自动生成 ACB/AWB。"
-            )
+        audio_manifest["chuniPipelineNote"] = (
+            "谱面下载完成后将尝试 PenguinTools.CLI + SUS 生成 ACB/AWB（与 mgxc 音频对齐逻辑一致）。"
+        )
 
     for pj in s2c.PJSK_CHUNI_DOWNLOAD_ORDER:
         if pj not in av:
@@ -676,7 +660,7 @@ def save_pjsk_bundle_to_cache(
         "完成 SUS→中二 c2s 并整理为游戏所需结构后，再复制进 ACUS；在此之前请勿把本目录当 ACUS 使用。\n"
         "- sus/ ：原始 SUS（normal / hard / expert / master / append，按曲目实际存在项下载）。\n"
         "- audio/ ：若选择了人声版本，则为完整曲长音频（flac/wav/mp3，视镜像而定）；"
-        "环境齐全时另有 48k 修剪 WAV 与 chuni_cue/ 下 ACB·AWB。\n"
+        "环境齐全时先裁片头约 9 秒，再由 PenguinTools + SUS 在 chuni_cue/ 生成 ACB·AWB。\n"
         "- chuni/ ：转写进 ACUS 时由程序调用 PenguinTools.CLI 从 SUS 生成 c2s 后写入。\n"
         "- 与 CHUNITHM 槽位对应：normal→BASIC(Easy)，hard→ADVANCED，expert→EXPERT，"
         "master→MASTER；有 append 时→ULTIMA，无 append 则无 ULTIMA 对应文件。\n"
@@ -695,6 +679,30 @@ def save_pjsk_bundle_to_cache(
         "c2sConversionImplemented": True,
     }
     if audio_manifest is not None:
+        if manifest_slots:
+            p("生成中二用音频（PenguinTools + SUS，若环境齐全）…", None)
+            try:
+                draft_manifest: dict[str, object] = {
+                    "slots": manifest_slots,
+                    "audio": audio_manifest,
+                }
+                chuni_extra = pjsk_ac.try_pipeline_pjsk_audio_via_penguin(
+                    bundle_root=root,
+                    manifest=draft_manifest,
+                    music_id=music_id,
+                    cache_root=root,
+                    on_log=lambda m: p(m, None),
+                )
+            except Exception as ex:
+                chuni_extra = None
+                p(f"中二音频管线跳过：{ex}", None)
+            if chuni_extra:
+                audio_manifest["chuni"] = chuni_extra
+            elif "chuniPipelineNote" not in audio_manifest:
+                audio_manifest["chuniPipelineNote"] = (
+                    "需要 PenguinTools.CLI、ffmpeg（PATH）与 PyCriCodecsEx；"
+                    "写入 ACUS 时仍会尝试生成音频。"
+                )
         manifest["audio"] = audio_manifest
     (root / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2),

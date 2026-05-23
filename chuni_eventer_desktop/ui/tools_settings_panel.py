@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, QThread, QUrl, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, QThread, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QVBoxLayout, QWidget
 
@@ -13,6 +14,7 @@ from ..acus_workspace import AcusConfig
 from ..external_tools import (
     ALL_TOOLS,
     ExternalToolSpec,
+    ToolInstallCancelled,
     _BUILTIN_PYTHON,
     apply_resolved_paths_to_config,
     install_tool,
@@ -22,27 +24,39 @@ from ..external_tools import (
     write_inventory_file,
 )
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
-from .qthread_lifecycle import await_qthreads, finalize_qthread
+from .qthread_lifecycle import finalize_qthread, shutdown_qthreads_for_exit
+from .tool_install_progress import dismiss_tool_install_progress
 from .rich_hint import rich_hint_label
 
 
 class _ToolInstallWorker(QObject):
-    progress = pyqtSignal(str)
+    progress = pyqtSignal(str, int)  # message, percent (-1 = indeterminate)
     finished = pyqtSignal(object)
 
-    def __init__(self, spec: ExternalToolSpec, cfg: AcusConfig) -> None:
+    def __init__(
+        self,
+        spec: ExternalToolSpec,
+        cfg: AcusConfig,
+        cancel: threading.Event,
+    ) -> None:
         super().__init__()
         self._spec = spec
         self._cfg = cfg
+        self._cancel = cancel
 
     def run(self) -> None:
         try:
             path = install_tool(
                 self._spec,
                 self._cfg,
-                on_progress=lambda msg: self.progress.emit(msg),
+                on_progress=lambda msg, pct: self.progress.emit(
+                    msg, -1 if pct is None else int(pct)
+                ),
+                cancel=self._cancel,
             )
             self.finished.emit(("ok", path))
+        except ToolInstallCancelled:
+            self.finished.emit(("cancel", ""))
         except Exception as e:
             self.finished.emit(("err", str(e)))
 
@@ -55,6 +69,8 @@ class ToolsSettingsPanel(QWidget):
         self._cfg = cfg
         self._rows: dict[str, tuple[ExternalToolSpec, LineEdit, BodyLabel]] = {}
         self._install_thread: QThread | None = None
+        self._install_cancel: threading.Event | None = None
+        self._install_progress_dialog = None
 
         tools_hint_text = (
             "外部程序默认安装在应用目录下的 `.tools/`（不随主程序 exe 打包）。"
@@ -88,7 +104,7 @@ class ToolsSettingsPanel(QWidget):
         row.addWidget(open_dir)
         row.addWidget(doc_btn)
         layout.addLayout(row)
-        layout.addStretch(1)
+        layout.setContentsMargins(0, 0, 0, 16)
 
         self.refresh_status()
 
@@ -184,28 +200,34 @@ class ToolsSettingsPanel(QWidget):
             fly_warning(self, "无法下载", f"{spec.name} 需手动安装，请使用「浏览」或查看发布页。")
             return
 
-        from .fluent_dialogs import safe_dismiss_modal_progress_dialog
-        from PyQt6.QtWidgets import QProgressDialog
-        from PyQt6.QtCore import Qt
+        from .tool_install_progress import ToolInstallProgressDialog, dismiss_tool_install_progress
 
-        dlg = QProgressDialog(f"正在安装 {spec.name}…", None, 0, 0, self)
-        dlg.setWindowTitle("外部工具")
-        dlg.setMinimumDuration(0)
-        dlg.setCancelButton(None)
-        dlg.setWindowModality(Qt.WindowModality.WindowModal)
-        dlg.show()
+        cancel = threading.Event()
+        self._install_cancel = cancel
 
-        thread = QThread()
-        worker = _ToolInstallWorker(spec, self._cfg)
+        dlg = ToolInstallProgressDialog(
+            self, title="外部工具", initial=f"正在安装 {spec.name}…"
+        )
+        self._install_progress_dialog = dlg
+        dlg.show_progress()
+
+        thread = QThread(self)
+        worker = _ToolInstallWorker(spec, self._cfg, cancel)
         worker.moveToThread(thread)
 
-        def on_progress(msg: str) -> None:
-            dlg.setLabelText(msg)
+        def on_progress(msg: str, percent: int) -> None:
+            if cancel.is_set():
+                return
+            dlg.update_progress(msg, None if percent < 0 else percent)
 
         def on_done(payload: object) -> None:
-            safe_dismiss_modal_progress_dialog(dlg)
+            dismiss_tool_install_progress(dlg)
+            self._install_progress_dialog = None
+            self._install_cancel = None
             if isinstance(payload, tuple) and len(payload) == 2:
                 kind, data = payload
+                if kind == "cancel":
+                    return
                 if kind == "ok" and isinstance(data, Path):
                     spec_row = self._rows.get(spec.id)
                     if spec_row:
@@ -223,8 +245,8 @@ class ToolsSettingsPanel(QWidget):
             self._install_thread = None
             finalize_qthread(th)
 
-        worker.progress.connect(on_progress)
-        worker.finished.connect(on_done)
+        worker.progress.connect(on_progress, Qt.ConnectionType.QueuedConnection)
+        worker.finished.connect(on_done, Qt.ConnectionType.QueuedConnection)
         worker.finished.connect(thread.quit)
         thread.finished.connect(worker.deleteLater)
         thread.finished.connect(on_stopped)
@@ -232,8 +254,16 @@ class ToolsSettingsPanel(QWidget):
         thread.started.connect(worker.run)
         thread.start()
 
+    def cancel_bg_download(self) -> None:
+        if self._install_cancel is not None:
+            self._install_cancel.set()
+        dismiss_tool_install_progress(self._install_progress_dialog)
+        self._install_progress_dialog = None
+
     def await_bg_threads(self) -> None:
-        await_qthreads(self._install_thread)
+        self.cancel_bg_download()
+        shutdown_qthreads_for_exit(self._install_thread)
+        self._install_thread = None
 
     def _open_tools_dir(self) -> None:
         d = tools_root_dir()

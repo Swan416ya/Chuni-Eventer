@@ -328,9 +328,10 @@ class PjskHubDialog(FluentCaptionDialog):
 
         card = CardWidget(self)
         c2s_unusable = BodyLabel(
-            "SUS→c2s 使用 PenguinTools.CLI，生成后会自动经 c2s-sanitize 清理谱面。"
-            "若未正确配置 PenguinTools.CLI 或 c2s-sanitize.exe，「转写到 ACUS」会报错。"
-            "即使转换成功，仍可能出现装饰长条转码问题或音频对不上的问题，属实验功能。"
+            "SUS→c2s 与音频 ACB/AWB 均使用 PenguinTools.CLI；"
+            "音频先 ffmpeg 裁掉片头约 9 秒，再按 SUS 内 BPM/空白小节交给 PenguinTools 对齐。"
+            "若未配置 PenguinTools.CLI 或 c2s-sanitize.exe，「转写到 ACUS」可能失败。"
+            "仍可能出现装饰长条转码或音画细微偏差，属实验功能。"
         )
         c2s_unusable.setWordWrap(True)
         c2s_unusable.setStyleSheet("color: #b45309; font-size: 13px;")

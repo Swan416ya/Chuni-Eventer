@@ -151,7 +151,7 @@ class GameDataSettingsPanel(QWidget):
         tools_hint.setWordWrap(True)
         tools_hint.setStyleSheet("color:#6B7280;font-size:13px;")
         layout.addWidget(tools_hint)
-        layout.addStretch(1)
+        layout.setContentsMargins(0, 0, 0, 16)
 
         self.refresh_index_display()
 

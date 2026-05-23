@@ -25,6 +25,7 @@ def _scroll_wrap(inner: QWidget) -> ScrollArea:
     scroll.setWidget(inner)
     scroll.setWidgetResizable(True)
     scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    scroll.setSizeAdjustPolicy(ScrollArea.SizeAdjustPolicy.AdjustIgnored)
     apply_fluent_transparent_scroll(scroll)
     return scroll
 

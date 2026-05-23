@@ -56,7 +56,8 @@ from .fluent_dialogs import (
     show_archive_readme_dialog,
     safe_dismiss_modal_progress_dialog,
 )
-from .qthread_lifecycle import await_qthreads
+from .external_tools_bootstrap import abort_tool_install_on_parent
+from .qthread_lifecycle import shutdown_qthreads_for_exit
 from .nav_icons import (
     SVG_AVATAR,
     SVG_STAGE_BG,
@@ -198,14 +199,20 @@ class MainWindow(MSFluentWindow):
         self._index_worker: _GameIndexWorker | None = None
         self._index_progress: QProgressDialog | None = None
         self._bootstrap_thread: QThread | None = None
+        self._shutting_down = False
         self._install_startup_shell()
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        self._shutting_down = True
         if self._settings_page is not None:
             tools = getattr(self._settings_page, "_tools", None)
-            if tools is not None and hasattr(tools, "await_bg_threads"):
-                tools.await_bg_threads()
-        await_qthreads(self._index_thread, self._bootstrap_thread)
+            if tools is not None and hasattr(tools, "cancel_bg_download"):
+                tools.cancel_bg_download()
+        abort_tool_install_on_parent(self)
+        self._hide_index_progress_dialog()
+        shutdown_qthreads_for_exit(self._index_thread, self._bootstrap_thread)
+        self._index_thread = None
+        self._bootstrap_thread = None
         super().closeEvent(event)
 
     def _install_startup_shell(self) -> None:

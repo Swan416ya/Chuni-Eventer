@@ -82,7 +82,10 @@ def main() -> int:
                     path = install_tool(
                         spec,
                         cfg,
-                        on_progress=lambda m, n=spec.name: print(f"    [{n}] {m.split(chr(10))[0]}"),
+                        on_progress=lambda m, pct, n=spec.name: print(
+                            f"    [{n}] {m.split(chr(10))[0]}"
+                            + (f" ({pct}%)" if pct is not None else "")
+                        ),
                     )
                     if not path.is_file():
                         print(f"  [FAIL] {spec.name}: 返回路径不是文件 {path}")

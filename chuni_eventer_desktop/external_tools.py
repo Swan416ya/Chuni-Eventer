@@ -14,6 +14,7 @@ import shutil
 import ssl
 import sys
 import tempfile
+import threading
 import urllib.request
 import zipfile
 from collections.abc import Callable
@@ -26,6 +27,18 @@ from .acus_workspace import AcusConfig, app_cache_dir, app_root_dir
 _log = logging.getLogger("chuni.external_tools")
 
 ArchiveKind = Literal["zip", "exe"]
+
+# message, percent(0–100)；None 表示不确定阶段（解压等）
+ToolProgressCallback = Callable[[str, int | None], None]
+
+
+class ToolInstallCancelled(Exception):
+    """用户关闭应用或主动中止外部工具下载/安装。"""
+
+
+def _check_cancel(cancel: threading.Event | None) -> None:
+    if cancel is not None and cancel.is_set():
+        raise ToolInstallCancelled()
 
 
 @dataclass(frozen=True)
@@ -324,27 +337,75 @@ def tools_inventory_markdown() -> str:
     return "\n".join(lines)
 
 
-def _http_download(url: str, dest: Path, *, on_progress: Callable[[str], None] | None = None) -> None:
-    dest.parent.mkdir(parents=True, exist_ok=True)
+def _report_progress(
+    on_progress: ToolProgressCallback | None,
+    message: str,
+    percent: int | None = None,
+) -> None:
     if on_progress:
-        on_progress(f"正在下载…\n{url}")
+        on_progress(message, percent)
+
+
+def _format_bytes(n: int) -> str:
+    if n < 1024 * 1024:
+        return f"{n / 1024:.1f} KB"
+    if n < 1024 * 1024 * 1024:
+        return f"{n / (1024 * 1024):.1f} MB"
+    return f"{n / (1024 * 1024 * 1024):.2f} GB"
+
+
+def _http_download(
+    url: str,
+    dest: Path,
+    *,
+    on_progress: ToolProgressCallback | None = None,
+    label: str = "正在下载",
+    cancel: threading.Event | None = None,
+) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    _check_cancel(cancel)
+    _log.info("tool_download_start url=%s dest=%s", url, dest)
+    _report_progress(on_progress, f"{label}…", 0)
 
     req = urllib.request.Request(url, headers={"User-Agent": "Chuni-Eventer/1.0"}, method="GET")
     ctx = ssl.create_default_context()
+    last_pct = -1
+    last_bytes_report = 0
     with urllib.request.urlopen(req, timeout=600, context=ctx) as resp:
         total = int(resp.headers.get("Content-Length") or 0)
         read = 0
         chunk = 256 * 1024
         with dest.open("wb") as f:
             while True:
+                _check_cancel(cancel)
                 buf = resp.read(chunk)
                 if not buf:
                     break
                 f.write(buf)
                 read += len(buf)
-                if on_progress and total > 0:
+                if not on_progress:
+                    continue
+                if total > 0:
                     pct = min(100, int(read * 100 / total))
-                    on_progress(f"正在下载… {pct}%")
+                    if pct != last_pct:
+                        last_pct = pct
+                        _report_progress(
+                            on_progress,
+                            f"{label} {_format_bytes(read)} / {_format_bytes(total)}（{pct}%）",
+                            pct,
+                        )
+                elif read - last_bytes_report >= 512 * 1024:
+                    last_bytes_report = read
+                    _report_progress(
+                        on_progress,
+                        f"{label} 已接收 {_format_bytes(read)}（总大小未知）",
+                        None,
+                    )
+    if on_progress:
+        if total > 0:
+            _report_progress(on_progress, f"{label}完成 {_format_bytes(read)}", 100)
+        else:
+            _report_progress(on_progress, f"{label}完成 {_format_bytes(read)}", 100)
 
 
 def _find_file_in_tree(root: Path, name: str) -> Path | None:
@@ -364,10 +425,11 @@ def _install_exe_from_zip(
     zip_path: Path,
     *,
     dest_exe: Path,
-    on_progress: Callable[[str], None] | None = None,
+    on_progress: ToolProgressCallback | None = None,
+    cancel: threading.Event | None = None,
 ) -> None:
-    if on_progress:
-        on_progress("正在解压…")
+    _check_cancel(cancel)
+    _report_progress(on_progress, "正在解压…", None)
     dest_exe.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=f"chuni_tool_{spec.id}_") as td:
         extract_root = Path(td)
@@ -397,10 +459,11 @@ def _extract_zip_into_dir(
     zip_path: Path,
     dest_dir: Path,
     *,
-    on_progress: Callable[[str], None] | None = None,
+    on_progress: ToolProgressCallback | None = None,
+    cancel: threading.Event | None = None,
 ) -> None:
-    if on_progress:
-        on_progress("正在解压…")
+    _check_cancel(cancel)
+    _report_progress(on_progress, "正在解压…", None)
     dest_dir.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(zip_path, "r") as zf:
         zf.extractall(dest_dir)
@@ -411,10 +474,9 @@ def _install_direct_exe(
     exe_cache: Path,
     *,
     dest_exe: Path,
-    on_progress: Callable[[str], None] | None = None,
+    on_progress: ToolProgressCallback | None = None,
 ) -> None:
-    if on_progress:
-        on_progress("正在安装…")
+    _report_progress(on_progress, "正在安装到 .tools …", 100)
     dest_exe.parent.mkdir(parents=True, exist_ok=True)
     if dest_exe.exists():
         dest_exe.unlink()
@@ -425,11 +487,13 @@ def install_tool(
     spec: ExternalToolSpec,
     cfg: AcusConfig,
     *,
-    on_progress: Callable[[str], None] | None = None,
+    on_progress: ToolProgressCallback | None = None,
+    cancel: threading.Event | None = None,
 ) -> Path:
     if not spec.download_url:
         raise RuntimeError(f"{spec.name} 暂无自动下载源，请手动安装后浏览选择路径。")
 
+    _check_cancel(cancel)
     dest = default_tool_path(spec)
     cache_dir = app_cache_dir() / "tool_downloads"
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -437,22 +501,43 @@ def install_tool(
 
     if spec.archive_kind == "exe":
         exe_cache = cache_dir / f"{safe_name}.exe"
-        _http_download(spec.download_url, exe_cache, on_progress=on_progress)
+        _http_download(
+            spec.download_url,
+            exe_cache,
+            on_progress=on_progress,
+            label=f"正在下载 {spec.name}",
+            cancel=cancel,
+        )
         _install_direct_exe(spec, exe_cache, dest_exe=dest, on_progress=on_progress)
         if spec.companion_download_url:
             assets_zip = cache_dir / f"{safe_name}_assets.zip"
-            _http_download(spec.companion_download_url, assets_zip, on_progress=on_progress)
-            _extract_zip_into_dir(assets_zip, dest.parent, on_progress=on_progress)
+            _http_download(
+                spec.companion_download_url,
+                assets_zip,
+                on_progress=on_progress,
+                label=f"正在下载 {spec.name} 资源包",
+                cancel=cancel,
+            )
+            _extract_zip_into_dir(
+                assets_zip, dest.parent, on_progress=on_progress, cancel=cancel
+            )
     else:
         zip_path = cache_dir / f"{safe_name}.zip"
-        _http_download(spec.download_url, zip_path, on_progress=on_progress)
-        _install_exe_from_zip(spec, zip_path, dest_exe=dest, on_progress=on_progress)
+        _http_download(
+            spec.download_url,
+            zip_path,
+            on_progress=on_progress,
+            label=f"正在下载 {spec.name}",
+            cancel=cancel,
+        )
+        _install_exe_from_zip(
+            spec, zip_path, dest_exe=dest, on_progress=on_progress, cancel=cancel
+        )
 
     set_config_path(cfg, spec, dest)
     cfg.save()
     _log.info("tool_installed id=%s path=%s", spec.id, dest)
-    if on_progress:
-        on_progress("安装完成")
+    _report_progress(on_progress, f"{spec.name} 安装完成", 100)
     return dest
 
 

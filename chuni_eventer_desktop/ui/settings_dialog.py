@@ -68,8 +68,8 @@ class SettingsExperimentalPanel(QWidget):
         pjsk_layout.setSpacing(12)
         pjsk_layout.addWidget(BodyLabel("烤谱（Project SEKAI · 实验）", self))
         pjsk_hint = BodyLabel(
-            "本功能仅供图一乐：SUS 经 PenguinTools 转 c2s 后会自动执行 c2s-sanitize 清理，"
-            "但仍可能出现装饰长条转码问题或音频对不上的问题，未经精修几乎无法正常游玩。\n"
+            "本功能仅供图一乐：谱面与音频均走 PenguinTools（音频先裁片头约 9 秒，再按 SUS 对齐空白小节），"
+            "c2s 另经 c2s-sanitize 清理；仍可能出现装饰长条或音画细微偏差。\n"
             "需要可玩的自制谱，请在歌曲页点击「新增」→ 选择 SwanSite，下载已精修谱面并导入。"
         )
         pjsk_hint.setWordWrap(True)
@@ -101,7 +101,7 @@ class SettingsExperimentalPanel(QWidget):
         layout.addWidget(exp_hint)
         layout.addWidget(pjsk_card)
         layout.addWidget(pgko_card)
-        layout.addStretch(1)
+        layout.setContentsMargins(0, 0, 0, 16)
 
     def _open_pjsk_hub(self) -> None:
         hub = PjskHubDialog(

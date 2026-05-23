@@ -5,6 +5,7 @@ from __future__ import annotations
 from PyQt6.QtCore import QThread, QTimer
 
 DEFAULT_QTHREAD_JOIN_MS = 300_000
+EXIT_QTHREAD_JOIN_MS = 2_500
 
 
 def qthread_running_safe(th: QThread | None) -> bool:
@@ -20,6 +21,21 @@ def await_qthreads(*threads: QThread | None, timeout_ms: int = DEFAULT_QTHREAD_J
     for th in threads:
         if qthread_running_safe(th):
             th.wait(timeout_ms)
+
+
+def shutdown_qthreads_for_exit(
+    *threads: QThread | None,
+    timeout_ms: int = EXIT_QTHREAD_JOIN_MS,
+) -> None:
+    """应用退出：短时等待后台线程结束，避免 closeEvent 阻塞数分钟。"""
+    for th in threads:
+        if not qthread_running_safe(th):
+            continue
+        th.quit()
+        if th.wait(timeout_ms):
+            continue
+        th.terminate()
+        th.wait(1000)
 
 
 def finalize_qthread(th: QThread | None, *, timeout_ms: int = DEFAULT_QTHREAD_JOIN_MS) -> None:

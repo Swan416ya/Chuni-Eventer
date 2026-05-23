@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import pjsk_audio_chuni as pjsk_ac
+from .acus_workspace import AcusConfig
 from .dds_convert import DdsToolError, convert_to_bc3_dds
 from .c2s_sanitize import C2sSanitizeError, sanitize_c2s_file
 from .penguin_tools_cli import convert_chart_with_penguin_tools_cli
@@ -164,9 +165,11 @@ def _slot_has_chart_source(root: Path, s: dict) -> bool:
     return bool(rel_sus and (root / str(rel_sus)).is_file())
 
 
-def _ensure_c2s_sanitized(path: Path, log: Callable[[str], None]) -> Path:
+def _ensure_c2s_sanitized(
+    path: Path, log: Callable[[str], None], *, cfg: AcusConfig | None = None
+) -> Path:
     try:
-        out, stats = sanitize_c2s_file(path, in_place=True)
+        out, stats = sanitize_c2s_file(path, in_place=True, cfg=cfg)
     except C2sSanitizeError as e:
         raise RuntimeError(str(e)) from e
     if stats:
@@ -177,14 +180,19 @@ def _ensure_c2s_sanitized(path: Path, log: Callable[[str], None]) -> Path:
 
 
 def _materialize_c2s_for_slot(
-    bundle: PjskLocalBundle, slot: str, s: dict, log: Callable[[str], None]
+    bundle: PjskLocalBundle,
+    slot: str,
+    s: dict,
+    log: Callable[[str], None],
+    *,
+    cfg: AcusConfig | None = None,
 ) -> Path:
     root = bundle.root
     rel_c2s = s.get("c2sFile")
     if rel_c2s:
         p = (root / str(rel_c2s)).resolve()
         if p.is_file():
-            return _ensure_c2s_sanitized(p, log)
+            return _ensure_c2s_sanitized(p, log, cfg=cfg)
     rel_sus = s.get("susFile")
     if not rel_sus:
         raise ValueError(f"manifest 槽位 {slot} 缺少 susFile / c2sFile。")
@@ -196,11 +204,14 @@ def _materialize_c2s_for_slot(
     out = chuni_dir / f"{slot}.c2s"
     convert_chart_with_penguin_tools_cli(input_path=p_sus, output_path=out)
     log(f"已通过 PenguinTools.CLI 生成 {out.relative_to(root)}")
-    return _ensure_c2s_sanitized(out, log)
+    return _ensure_c2s_sanitized(out, log, cfg=cfg)
 
 
 def _build_slot_map(
-    bundle: PjskLocalBundle, log: Callable[[str], None]
+    bundle: PjskLocalBundle,
+    log: Callable[[str], None],
+    *,
+    cfg: AcusConfig | None = None,
 ) -> dict[str, Path]:
     root = bundle.root
     slots = bundle.manifest.get("slots")
@@ -213,7 +224,7 @@ def _build_slot_map(
         slot = str(s.get("chuniSlot") or "").strip().upper()
         if not slot or not _slot_has_chart_source(root, s):
             continue
-        out[slot] = _materialize_c2s_for_slot(bundle, slot, s, log)
+        out[slot] = _materialize_c2s_for_slot(bundle, slot, s, log, cfg=cfg)
     return out
 
 
@@ -263,9 +274,7 @@ def _resolve_wav_for_acb(bundle: PjskLocalBundle, log: Callable[[str], None]) ->
         if wpath.is_file() and meta_trim_ok:
             return wpath
         if wpath.is_file() and not meta_trim_ok:
-            log(
-                "缓存的 48k WAV 与当前片头裁剪策略不一致（将尽量从原文件重编码）。"
-            )
+            log("缓存的 48k WAV 与当前策略不一致（将尽量从原文件重编码）。")
     if isinstance(audio, dict):
         rel = audio.get("file")
         if isinstance(rel, str) and rel.strip():
@@ -278,7 +287,7 @@ def _resolve_wav_for_acb(bundle: PjskLocalBundle, log: Callable[[str], None]) ->
                     trim_leading_sec=desired_trim,
                     on_stderr_line=lambda line: None,
                 )
-                log("已用 ffmpeg 从原始音频生成 48k WAV（片头裁剪按当前策略）。")
+                log("已用 ffmpeg 从原始音频生成 48 kHz WAV。")
                 return dst.resolve()
     if chuni_wav_rel:
         wpath = (root / chuni_wav_rel).resolve()
@@ -524,7 +533,8 @@ def install_pjsk_bundle_to_acus(
     if mdir.exists():
         raise FileExistsError(f"已存在乐曲目录：{mdir}")
 
-    slot_map = _build_slot_map(bundle, log)
+    cfg = AcusConfig.load()
+    slot_map = _build_slot_map(bundle, log, cfg=cfg)
     if not slot_map:
         raise ValueError(
             "manifest 中没有任何可用谱面（请确认 sus/ 下已有 SUS，或 chuni/ 下已有 c2s）。"
@@ -588,18 +598,29 @@ def install_pjsk_bundle_to_acus(
     log(f"已写入 {music_xml.relative_to(acus_root)}")
     bump("已写入 Music.xml…")
 
-    bump("准备音频（WAV）…")
-    wav = _resolve_wav_for_acb(bundle, log)
-    cue_parent = acus_root / "cueFile" / f"cueFile{mid:06d}"
-    cue_parent.mkdir(parents=True, exist_ok=True)
-    bump("正在编码 ACB / AWB（可能较慢）…")
-    pjsk_ac.build_chuni_music_acb_awb(
-        wav_48k_stereo_s16_path=wav,
-        music_id=mid,
-        out_dir=cue_parent,
-        preview_start_sec=opts.preview_start_sec,
-        preview_stop_sec=opts.preview_stop_sec,
-    )
+    bump("正在生成音频（裁 9 秒 → PenguinTools + SUS）…")
+    try:
+        cue_parent = pjsk_ac.build_pjsk_audio_cue_via_penguin_tools(
+            bundle_root=bundle.root,
+            manifest=bundle.manifest,
+            music_id=mid,
+            acus_root=acus_root,
+            log=log,
+            preview_start_sec=opts.preview_start_sec,
+            preview_stop_sec=opts.preview_stop_sec,
+        )
+    except Exception as e:
+        log(f"PenguinTools 音频失败，回退 ffmpeg 裁 9 秒 + 本地编码：{e}")
+        wav = _resolve_wav_for_acb(bundle, log)
+        cue_parent = acus_root / "cueFile" / f"cueFile{mid:06d}"
+        cue_parent.mkdir(parents=True, exist_ok=True)
+        pjsk_ac.build_chuni_music_acb_awb(
+            wav_48k_stereo_s16_path=wav,
+            music_id=mid,
+            out_dir=cue_parent,
+            preview_start_sec=opts.preview_start_sec,
+            preview_stop_sec=opts.preview_stop_sec,
+        )
     log(f"已写入音频：{cue_parent.relative_to(acus_root)}")
     bump("音频 ACB/AWB 已完成…")
 
