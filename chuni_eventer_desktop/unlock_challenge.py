@@ -410,6 +410,9 @@ def write_perfect_challenge_course_xml(
 
 
 from .course_sort import append_course_sort
+
+
+def find_courses_for_music(acus_root: Path, music_id: int) -> list[tuple[int, str]]:
     """扫描已有课题是否引用该曲（供只读展示或迁移用）。"""
     found: dict[int, str] = {}
     root = acus_root / "course"

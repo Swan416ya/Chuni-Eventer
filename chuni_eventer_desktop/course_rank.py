@@ -17,6 +17,7 @@ from .course_rule import (
 )
 from .acus_scan import IdStr, _get_idstr, iter_xml_files
 from .course_sort import append_course_sort
+from .unlock_challenge import read_music_net_open, read_music_release_tag
 
 RANK_COURSE_SLOT_COUNT = 3
 CUSTOM_RANK_COURSE_ID_MIN = 490_000

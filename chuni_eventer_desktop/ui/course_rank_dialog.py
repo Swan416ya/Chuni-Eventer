@@ -241,7 +241,8 @@ class CourseRankEditDialog(FluentCaptionDialog):
         cly.addWidget(
             BodyLabel(
                 "保存时会写入 ACUS/course/…/Course.xml，并自动生成/更新 ACUS/courseRule/…/CourseRule.xml "
-                "（规则 ID 从 7001 起分配）。通关奖励使用默认值，无需填写。"
+                "（规则 ID 从 7001 起分配）。通关奖励使用默认值。"
+                "CourseSort 会先从【设置】中的游戏数据目录复制官方列表，再把自制课题追加到末尾。"
             )
         )
 
