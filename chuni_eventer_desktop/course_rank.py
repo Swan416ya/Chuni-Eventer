@@ -414,6 +414,13 @@ def write_rank_course_xml(
     out = cdir / "Course.xml"
     out.write_text(xml, encoding="utf-8", newline="\n")
     append_course_sort(acus_root, [int(draft.course_id)], game_root=game_root)
+    from .course_event import sync_rank_course_unlock_event
+
+    sync_rank_course_unlock_event(
+        acus_root,
+        net_open_id=int(draft.net_open_id),
+        net_open_str=draft.net_open_str,
+    )
     return out
 
 

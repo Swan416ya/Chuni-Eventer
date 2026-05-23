@@ -778,36 +778,6 @@ def write_unlock_challenge_event_xml(
     return out
 
 
-def _append_event_sort(acus_root: Path, event_id: int) -> None:
-    sort_path = acus_root / "event" / "EventSort.xml"
-    if not sort_path.exists():
-        sort_path.write_text(
-            """<?xml version="1.0" encoding="utf-8"?>
-<SerializeSortData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <dataName>event</dataName>
-  <SortList>
-  </SortList>
-</SerializeSortData>
-""",
-            encoding="utf-8",
-        )
-    root = ET.parse(sort_path).getroot()
-    sl = root.find("SortList")
-    if sl is None:
-        return
-    for n in sl.findall("StringID/id"):
-        if _safe_int(n.text) == event_id:
-            ET.indent(root, space="  ")
-            ET.ElementTree(root).write(sort_path, encoding="utf-8", xml_declaration=True)
-            return
-    s = ET.SubElement(sl, "StringID")
-    ET.SubElement(s, "id").text = str(event_id)
-    ET.SubElement(s, "str")
-    ET.SubElement(s, "data")
-    ET.indent(root, space="  ")
-    ET.ElementTree(root).write(sort_path, encoding="utf-8", xml_declaration=True)
-
-
 def create_unlock_challenge_bundle(
     *,
     acus_root: Path,
@@ -886,7 +856,6 @@ def create_unlock_challenge_bundle(
         net_open_id=no_id,
         net_open_str=no_s,
     )
-    _append_event_sort(acus_root, eid)
     c8 = f"{ch_id:08d}"
     return (
         acus_root / "unlockChallenge" / f"unlockChallenge{c8}" / "UnlockChallenge.xml",

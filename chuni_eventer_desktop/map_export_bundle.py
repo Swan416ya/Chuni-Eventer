@@ -3,7 +3,7 @@
 包内路径相对于 ACUS 根（如 map/map02006570/、mapArea/、reward/、event/…），与数据包层级一致。
 
 含：地图解锁类 Event（``substances/map/mapName/id`` 与 Map.xml ``name/id`` 一致时，整包 ``event/event…/`` 目录）。
-不含 ``event/EventSort.xml``（全局排序表）；合并到其他 ACUS 时需自行把对应事件条目并入目标 EventSort。
+不含 ``event/`` 目录下的全局排序表；合并到其他 ACUS 时只需拷贝 ``event/event*/Event.xml``。
 
 在首轮收集后，会对包内已纳入的 **XML** 做 **引用闭包**：解析 ``path`` 相对路径及常见 ``*Name/id``，
 反复加入 chara/ddsImage、ddsMap、Music/cueFile/stage、MapBonus、Event 等关联目录，直至不再增长（有轮数上限）。

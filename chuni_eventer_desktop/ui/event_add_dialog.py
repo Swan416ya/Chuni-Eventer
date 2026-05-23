@@ -66,50 +66,10 @@ def next_custom_event_id(acus_root: Path, *, start: int = 70000) -> int:
             suffix = p.name[5:]
             if suffix.isdigit():
                 used.add(int(suffix))
-        sort_path = event_root / "EventSort.xml"
-        if sort_path.exists():
-            try:
-                root = ET.parse(sort_path).getroot()
-                for n in root.findall("./SortList/StringID/id"):
-                    v = _safe_int((n.text or "").strip())
-                    if v is not None:
-                        used.add(v)
-            except Exception:
-                pass
     cur = max(0, start)
     while cur in used:
         cur += 1
     return cur
-
-
-def append_event_sort(acus_root: Path, event_id: int) -> None:
-    sort_path = acus_root / "event" / "EventSort.xml"
-    if not sort_path.exists():
-        sort_path.write_text(
-            """<?xml version="1.0" encoding="utf-8"?>
-<SerializeSortData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <dataName>event</dataName>
-  <SortList>
-  </SortList>
-</SerializeSortData>
-""",
-            encoding="utf-8",
-        )
-    root = ET.parse(sort_path).getroot()
-    sl = root.find("SortList")
-    if sl is None:
-        return
-    for n in sl.findall("StringID/id"):
-        if _safe_int((n.text or "").strip()) == event_id:
-            ET.indent(root)  # type: ignore[attr-defined]
-            ET.ElementTree(root).write(sort_path, encoding="utf-8", xml_declaration=True)
-            return
-    s = ET.SubElement(sl, "StringID")
-    ET.SubElement(s, "id").text = str(event_id)
-    ET.SubElement(s, "str")
-    ET.SubElement(s, "data")
-    ET.indent(root)  # type: ignore[attr-defined]
-    ET.ElementTree(root).write(sort_path, encoding="utf-8", xml_declaration=True)
 
 
 class EventAddDialog(FluentCaptionDialog):
@@ -396,7 +356,6 @@ class EventAddDialog(FluentCaptionDialog):
 </EventData>
 """
             (edir / "Event.xml").write_text(xml, encoding="utf-8", newline="\n")
-            append_event_sort(self._acus_root, eid)
             fly_message(self, "完成", f"已生成 event{eid:08d}")
             self.accept()
         except DdsToolError as e:

@@ -28,7 +28,7 @@ from qfluentwidgets import (
 from ..acus_scan import CharaItem
 from ..game_data_index import GameDataIndex, merged_chara_items
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
-from .event_add_dialog import append_event_sort, next_custom_event_id
+from .event_add_dialog import next_custom_event_id
 from .fluent_dialogs import fly_critical
 from .map_add_dialog import RewardRef, load_chara_refs, load_nameplate_refs, load_trophy_refs
 from .name_glyph_preview import wrap_name_input_with_preview
@@ -635,4 +635,3 @@ class QuestAddDialog(FluentCaptionDialog):
 </EventData>
 """
         (edir / "Event.xml").write_text(xml, encoding="utf-8", newline="\n")
-        append_event_sort(self._acus_root, eid)

@@ -17,7 +17,6 @@ from .penguin_tools_cli import (
     relocate_cue_bundle_for_music_id,
 )
 from .pjsk_acus_install import (
-    append_event_sort,
     append_music_sort,
     build_music_xml,
     next_chuni_music_id,
@@ -1670,7 +1669,6 @@ def install_pgko_pick_to_acus(
                 music_id=mid,
                 music_title=title,
             )
-        append_event_sort(acus_root, created_event_id)
 
     return {
         "musicId": mid,

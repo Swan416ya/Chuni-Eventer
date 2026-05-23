@@ -2158,7 +2158,7 @@ class MapAddDialog(FluentCaptionDialog):
         self.map_name = LineEdit(self)
         self.map_name.setPlaceholderText("可不填，默认 Map{id}")
 
-        self.create_unlock_event = CheckBox("同时生成地图解锁事件（event/ + EventSort.xml）")
+        self.create_unlock_event = CheckBox("同时生成地图解锁事件（event/）")
         self.create_unlock_event.setChecked(True)
         if self._edit_mode:
             self.create_unlock_event.setVisible(False)
@@ -4015,10 +4015,9 @@ class MapAddDialog(FluentCaptionDialog):
                 return
             try:
                 self._write_map_unlock_event(map_id=map_id, map_name=map_name, event_id=event_id)
-                self._append_event_sort(event_id)
                 msg += f"\n已生成地图解锁事件：event{event_id:08d}"
             except Exception as e:
-                fly_warning(self, "事件未完整写入", f"地图已生成，但 Event/EventSort 写入失败：\n{e}")
+                fly_warning(self, "事件未完整写入", f"地图已生成，但 Event 写入失败：\n{e}")
 
         fly_message(self, "完成", msg)
         self.accept()
@@ -4338,39 +4337,6 @@ class MapAddDialog(FluentCaptionDialog):
 """
         (ev_dir / "Event.xml").write_text(xml, encoding="utf-8", newline="\n")
 
-    def _append_event_sort(self, event_id: int) -> None:
-        sort_path = self._acus_root / "event" / "EventSort.xml"
-        if not sort_path.exists():
-            sort_path.write_text(
-                """<?xml version="1.0" encoding="utf-8"?>
-<SerializeSortData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <dataName>event</dataName>
-  <SortList>
-  </SortList>
-</SerializeSortData>
-""",
-                encoding="utf-8",
-            )
-
-        root = ET.parse(sort_path).getroot()
-        sl = root.find("SortList")
-        if sl is None:
-            return
-        for n in sl.findall("StringID/id"):
-            try:
-                if int((n.text or "").strip()) == event_id:
-                    ET.indent(root)  # type: ignore[attr-defined]
-                    ET.ElementTree(root).write(sort_path, encoding="utf-8", xml_declaration=True)
-                    return
-            except Exception:
-                continue
-        s = ET.SubElement(sl, "StringID")
-        ET.SubElement(s, "id").text = str(event_id)
-        ET.SubElement(s, "str")
-        ET.SubElement(s, "data")
-        ET.indent(root)  # type: ignore[attr-defined]
-        ET.ElementTree(root).write(sort_path, encoding="utf-8", xml_declaration=True)
-
     def _next_available_unlock_event_id(self, *, start: int = 70000) -> int:
         """返回从 start 开始的首个未被占用 Event ID。"""
         used: set[int] = set()
@@ -4385,16 +4351,6 @@ class MapAddDialog(FluentCaptionDialog):
                 suffix = name[5:]
                 if suffix.isdigit():
                     used.add(int(suffix))
-            sort_path = event_root / "EventSort.xml"
-            if sort_path.exists():
-                try:
-                    root = ET.parse(sort_path).getroot()
-                    for n in root.findall("./SortList/StringID/id"):
-                        v = _safe_int((n.text or "").strip())
-                        if v is not None:
-                            used.add(v)
-                except Exception:
-                    pass
         cur = max(0, start)
         while cur in used:
             cur += 1

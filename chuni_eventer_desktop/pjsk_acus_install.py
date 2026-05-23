@@ -149,49 +149,10 @@ def next_custom_event_id(acus_root: Path, *, start: int = 70000) -> int:
             suffix = p.name[5:]
             if suffix.isdigit():
                 used.add(int(suffix))
-        sort_path = event_root / "EventSort.xml"
-        if sort_path.exists():
-            try:
-                er = ET.parse(sort_path).getroot()
-                for n in er.findall("./SortList/StringID/id"):
-                    v = _safe_int((n.text or "").strip())
-                    if v is not None:
-                        used.add(v)
-            except ET.ParseError:
-                pass
     cur = max(0, int(start))
     while cur in used:
         cur += 1
     return cur
-
-
-def append_event_sort(acus_root: Path, event_id: int) -> None:
-    sort_path = acus_root / "event" / "EventSort.xml"
-    if not sort_path.exists():
-        sort_path.parent.mkdir(parents=True, exist_ok=True)
-        sort_path.write_text(
-            """<?xml version="1.0" encoding="utf-8"?>
-<SerializeSortData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <dataName>event</dataName>
-  <SortList>
-  </SortList>
-</SerializeSortData>
-""",
-            encoding="utf-8",
-        )
-    root = ET.parse(sort_path).getroot()
-    sl = root.find("SortList")
-    if sl is None:
-        return
-    for n in sl.findall("StringID/id"):
-        if _safe_int((n.text or "").strip()) == int(event_id):
-            return
-    s = ET.SubElement(sl, "StringID")
-    ET.SubElement(s, "id").text = str(int(event_id))
-    ET.SubElement(s, "str")
-    ET.SubElement(s, "data")
-    ET.indent(root)  # type: ignore[attr-defined]
-    ET.ElementTree(root).write(sort_path, encoding="utf-8", xml_declaration=True)
 
 
 def _slot_has_chart_source(root: Path, s: dict) -> bool:
@@ -432,7 +393,6 @@ def write_ultima_unlock_event(
 
     ET.indent(root)  # type: ignore[attr-defined]
     ET.ElementTree(root).write(ev_path, encoding="utf-8", xml_declaration=True)
-    append_event_sort(acus_root, int(event_id))
     return ev_path
 
 
