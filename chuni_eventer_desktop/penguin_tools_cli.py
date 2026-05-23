@@ -143,11 +143,16 @@ def _run_penguin_tools_cli(args: list[str], *, cfg: object | None = None) -> dic
     return payload
 
 
-def convert_chart_with_penguin_tools_cli(*, input_path: Path, output_path: Path) -> Path:
+def convert_chart_with_penguin_tools_cli(
+    *, input_path: Path, output_path: Path, cfg: object | None = None
+) -> Path:
     input_path = Path(input_path).resolve()
     output_path = Path(output_path).resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = _run_penguin_tools_cli(["chart", "convert", str(input_path), str(output_path)])
+    payload = _run_penguin_tools_cli(
+        ["chart", "convert", str(input_path), str(output_path)],
+        cfg=cfg,
+    )
     data = payload.get("data") or {}
     resolved_output = Path(str(data.get("outputPath") or output_path)).resolve()
     if not resolved_output.is_file():
@@ -159,14 +164,20 @@ def convert_chart_with_penguin_tools_cli(*, input_path: Path, output_path: Path)
     return resolved_output
 
 
-def convert_chart_text_with_penguin_tools_cli(*, text: str, suffix: str) -> str:
+def convert_chart_text_with_penguin_tools_cli(
+    *, text: str, suffix: str, cfg: object | None = None
+) -> str:
     suffix = suffix if suffix.startswith(".") else f".{suffix}"
     with tempfile.TemporaryDirectory(prefix="chuni-eventer-penguin-cli-") as tmp_dir:
         temp_root = Path(tmp_dir)
         input_path = temp_root / f"input{suffix}"
         output_path = temp_root / "output.c2s"
         input_path.write_text(text, encoding="utf-8")
-        converted = convert_chart_with_penguin_tools_cli(input_path=input_path, output_path=output_path)
+        converted = convert_chart_with_penguin_tools_cli(
+            input_path=input_path,
+            output_path=output_path,
+            cfg=cfg,
+        )
         return converted.read_text(encoding="utf-8")
 
 

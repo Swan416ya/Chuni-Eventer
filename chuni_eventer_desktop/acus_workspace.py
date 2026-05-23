@@ -258,6 +258,7 @@ class AcusConfig:
     ffmpeg_path: str = ""
     penguin_tools_cli_path: str = ""
     mua_path: str = ""
+    c2s_sanitize_path: str = ""
     """游戏安装/数据根目录（用于索引全量 music、stage、ddsImage、ddsMap，供下拉选择）。"""
     game_root: str = ""
     enable_pgko_ugc_experimental: bool = False
@@ -279,6 +280,7 @@ class AcusConfig:
             ffmpeg_path=str(data.get("ffmpeg_path", "")),
             penguin_tools_cli_path=str(data.get("penguin_tools_cli_path", "")),
             mua_path=str(data.get("mua_path", "")),
+            c2s_sanitize_path=str(data.get("c2s_sanitize_path", "")),
             game_root=str(data.get("game_root", "")),
             enable_pgko_ugc_experimental=bool(data.get("enable_pgko_ugc_experimental", False)),
             external_tools_prompted=bool(data.get("external_tools_prompted", False)),
@@ -299,6 +301,7 @@ class AcusConfig:
             "ffmpeg_path": self.ffmpeg_path,
             "penguin_tools_cli_path": self.penguin_tools_cli_path,
             "mua_path": self.mua_path,
+            "c2s_sanitize_path": self.c2s_sanitize_path,
             "game_root": self.game_root,
             "enable_pgko_ugc_experimental": bool(self.enable_pgko_ugc_experimental),
             "external_tools_prompted": bool(self.external_tools_prompted),

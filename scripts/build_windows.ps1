@@ -226,6 +226,21 @@ function Copy-PenguinToolsBundle([string]$toolsParent) {
     Copy-Item -Path (Join-Path $src "*") -Destination $dest -Recurse -Force
 }
 
+$C2sSanitizeUrl = "https://github.com/Swan416ya/Chuni-Eventer/releases/download/v0.7.1/c2s-sanitize.exe"
+
+function Ensure-C2sSanitize([string]$projectRoot) {
+    $destDir = Join-Path $projectRoot "tools\PenguinTools"
+    $dest = Join-Path $destDir "c2s-sanitize.exe"
+    if (Test-Path $dest) { return }
+    New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+    Write-Host "  Downloading c2s-sanitize.exe for lazy bundle ..."
+    Invoke-WebRequest -Uri $C2sSanitizeUrl -OutFile $dest -UseBasicParsing
+    if (-not (Test-Path $dest)) {
+        throw "c2s-sanitize.exe download failed: $dest"
+    }
+}
+
+Ensure-C2sSanitize -projectRoot $Root
 Copy-PenguinToolsBundle $OutTools
 Copy-PenguinToolsBundle $DistToolsRoot
 
@@ -242,9 +257,9 @@ if (Test-Path $ReleaseNote) {
 }
 
 $readmeTools = if ($BundleCompressonator) {
-    "FFmpeg、Compressonator CLI、PenguinToolsCLI、mua"
+    "FFmpeg、Compressonator CLI、PenguinToolsCLI、mua、c2s-sanitize"
 } else {
-    "FFmpeg、PenguinToolsCLI、mua"
+    "FFmpeg、PenguinToolsCLI、mua、c2s-sanitize"
 }
 $ReadmeBundle = @"
 Chuni Eventer v$Version（离线懒人包）

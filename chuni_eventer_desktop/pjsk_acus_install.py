@@ -18,6 +18,7 @@ from typing import Any, Callable
 
 from . import pjsk_audio_chuni as pjsk_ac
 from .dds_convert import DdsToolError, convert_to_bc3_dds
+from .c2s_sanitize import C2sSanitizeError, sanitize_c2s_file
 from .penguin_tools_cli import convert_chart_with_penguin_tools_cli
 
 XSI = "http://www.w3.org/2001/XMLSchema-instance"
@@ -163,6 +164,18 @@ def _slot_has_chart_source(root: Path, s: dict) -> bool:
     return bool(rel_sus and (root / str(rel_sus)).is_file())
 
 
+def _ensure_c2s_sanitized(path: Path, log: Callable[[str], None]) -> Path:
+    try:
+        out, stats = sanitize_c2s_file(path, in_place=True)
+    except C2sSanitizeError as e:
+        raise RuntimeError(str(e)) from e
+    if stats:
+        removed = int(stats.get("removedEdgeLane") or 0) + int(stats.get("removedSlideConflict") or 0)
+        if removed:
+            log(f"c2s-sanitize：{path.name} 已清理 {removed} 处问题音符")
+    return out
+
+
 def _materialize_c2s_for_slot(
     bundle: PjskLocalBundle, slot: str, s: dict, log: Callable[[str], None]
 ) -> Path:
@@ -171,7 +184,7 @@ def _materialize_c2s_for_slot(
     if rel_c2s:
         p = (root / str(rel_c2s)).resolve()
         if p.is_file():
-            return p
+            return _ensure_c2s_sanitized(p, log)
     rel_sus = s.get("susFile")
     if not rel_sus:
         raise ValueError(f"manifest 槽位 {slot} 缺少 susFile / c2sFile。")
@@ -183,7 +196,7 @@ def _materialize_c2s_for_slot(
     out = chuni_dir / f"{slot}.c2s"
     convert_chart_with_penguin_tools_cli(input_path=p_sus, output_path=out)
     log(f"已通过 PenguinTools.CLI 生成 {out.relative_to(root)}")
-    return out
+    return _ensure_c2s_sanitized(out, log)
 
 
 def _build_slot_map(

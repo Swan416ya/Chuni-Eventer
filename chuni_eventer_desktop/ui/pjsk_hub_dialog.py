@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -328,11 +328,12 @@ class PjskHubDialog(FluentCaptionDialog):
 
         card = CardWidget(self)
         c2s_unusable = BodyLabel(
-            "SUS→c2s 现改为调用 PenguinTools.CLI。"
-            "若本机未正确放置 PenguinTools.CLI 或其 assets 目录，「转写到 ACUS」时会直接报错而不是回退到旧的本地转换器。"
+            "SUS→c2s 使用 PenguinTools.CLI，生成后会自动经 c2s-sanitize 清理谱面。"
+            "若未正确配置 PenguinTools.CLI 或 c2s-sanitize.exe，「转写到 ACUS」会报错。"
+            "即使转换成功，仍可能出现装饰长条转码问题或音频对不上的问题，属实验功能。"
         )
         c2s_unusable.setWordWrap(True)
-        c2s_unusable.setStyleSheet("color: #0f766e; font-weight: 600;")
+        c2s_unusable.setStyleSheet("color: #b45309; font-size: 13px;")
 
         top = BodyLabel(
             f"下列为已下载到本地的 PJSK 资源（{self._cache_root.as_posix()}）。"

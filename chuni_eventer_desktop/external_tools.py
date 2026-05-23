@@ -109,11 +109,30 @@ TOOL_MUA = ExternalToolSpec(
     help_url=MUA_HELP_URL,
 )
 
+C2S_SANITIZE_DOWNLOAD_URL = (
+    f"https://github.com/Swan416ya/Chuni-Eventer/releases/download/{MUA_RELEASE_TAG}/c2s-sanitize.exe"
+)
+
+TOOL_C2S_SANITIZE = ExternalToolSpec(
+    id="c2s_sanitize",
+    name="c2s-sanitize",
+    description="PenguinTools 转出 c2s 后的谱面清理（边轨、滑条冲突等）。",
+    used_for="烤谱（PJSK）SUS→c2s 后处理",
+    optional=True,
+    config_field="c2s_sanitize_path",
+    default_rel="PenguinTools/c2s-sanitize.exe",
+    exe_name="c2s-sanitize.exe",
+    download_url=C2S_SANITIZE_DOWNLOAD_URL,
+    archive_kind="exe",
+    help_url=MUA_HELP_URL,
+)
+
 ALL_TOOLS: tuple[ExternalToolSpec, ...] = (
     TOOL_FFMPEG,
     TOOL_COMPRESSONATOR,
     TOOL_PENGUINTOOLS_CLI,
     TOOL_MUA,
+    TOOL_C2S_SANITIZE,
 )
 
 _BUILTIN_PYTHON = (
@@ -201,6 +220,26 @@ def resolve_tool_path(spec: ExternalToolSpec, cfg: AcusConfig | None) -> Path | 
                 return p
         return None
 
+    if spec.id == "c2s_sanitize":
+        env = os.environ.get("CHUNI_C2S_SANITIZE_PATH", "").strip()
+        if env:
+            p = Path(env).expanduser()
+            if p.is_file():
+                return p
+        for rel in (
+            "PenguinTools/c2s-sanitize.exe",
+            "c2s_sanitize/c2s-sanitize.exe",
+        ):
+            p = tools_root_dir() / rel
+            if p.is_file():
+                return p
+        root = app_root_dir()
+        for rel in ("tools/PenguinTools/c2s-sanitize.exe",):
+            p = root / rel
+            if p.is_file():
+                return p
+        return None
+
     return None
 
 
@@ -281,6 +320,7 @@ def tools_inventory_markdown() -> str:
     lines.append("")
     lines.append("- `CHUNI_PENGUINTOOLS_CLI` → PenguinTools.CLI.exe / .dll / .csproj")
     lines.append("- `CHUNI_MUA_PATH` → mua.exe")
+    lines.append("- `CHUNI_C2S_SANITIZE_PATH` → c2s-sanitize.exe")
     return "\n".join(lines)
 
 

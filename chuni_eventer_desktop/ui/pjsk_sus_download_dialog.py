@@ -122,12 +122,12 @@ class PjskSusDownloadDialog(FluentCaptionDialog):
         card = CardWidget(self)
 
         warn = BodyLabel(
-            "SUS→c2s 现改为调用 PenguinTools.CLI。"
-            "本窗口仍只缓存 SUS/封面/音频；真正生成 chuni/*.c2s 会在后续转写到 ACUS 时执行。"
-            "若未正确配置 PenguinTools.CLI，该步骤会失败并提示检查外部工具路径。"
+            "SUS→c2s 使用 PenguinTools.CLI，转写 ACUS 时会自动执行 c2s-sanitize。"
+            "本窗口只缓存 SUS/封面/音频；生成 chuni/*.c2s 在「转写到 ACUS」时进行。"
+            "转换后仍可能出现装饰长条转码问题或音频对不上的问题。"
         )
         warn.setWordWrap(True)
-        warn.setStyleSheet("color: #0f766e;")
+        warn.setStyleSheet("color: #b45309; font-size: 13px;")
 
         _cache_root = pjsk_cache_root(self._acus_root)
         hint = BodyLabel(

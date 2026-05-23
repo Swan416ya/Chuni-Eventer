@@ -68,7 +68,8 @@ class SettingsExperimentalPanel(QWidget):
         pjsk_layout.setSpacing(12)
         pjsk_layout.addWidget(BodyLabel("烤谱（Project SEKAI · 实验）", self))
         pjsk_hint = BodyLabel(
-            "本功能仅供图一乐：从游戏导出的 SUS 与自动转换结果不经精修几乎无法正常游玩。\n"
+            "本功能仅供图一乐：SUS 经 PenguinTools 转 c2s 后会自动执行 c2s-sanitize 清理，"
+            "但仍可能出现装饰长条转码问题或音频对不上的问题，未经精修几乎无法正常游玩。\n"
             "需要可玩的自制谱，请在歌曲页点击「新增」→ 选择 SwanSite，下载已精修谱面并导入。"
         )
         pjsk_hint.setWordWrap(True)
