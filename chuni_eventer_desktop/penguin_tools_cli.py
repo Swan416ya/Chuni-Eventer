@@ -12,6 +12,53 @@ from typing import Any
 from .acus_workspace import app_root_dir
 
 
+def _format_penguin_tools_cli_failure(
+    *,
+    cmd: list[str],
+    payload: dict[str, Any],
+    stdout: str,
+    stderr: str,
+) -> str:
+    lines = ["PenguinTools.CLI 调用失败：", f"cmd: {' '.join(cmd)}"]
+    message = str(payload.get("message") or "").strip()
+    if message:
+        lines.append(f"message: {message}")
+
+    diagnostics = payload.get("diagnostics") or []
+    errors: list[str] = []
+    warnings: list[str] = []
+    if isinstance(diagnostics, list):
+        for item in diagnostics:
+            if not isinstance(item, dict):
+                continue
+            sev = str(item.get("severity") or "").strip().lower()
+            text = str(item.get("message") or "").strip()
+            if not text:
+                continue
+            if sev == "error":
+                errors.append(text)
+            elif sev == "warning":
+                warnings.append(text)
+
+    if errors:
+        lines.append("错误：")
+        lines.extend(f"- {msg}" for msg in errors[:20])
+    if warnings:
+        shown = warnings[:5]
+        extra = len(warnings) - len(shown)
+        suffix = f"（另有 {extra} 条未显示）" if extra > 0 else ""
+        lines.append(f"警告{suffix}：")
+        lines.extend(f"- {msg}" for msg in shown)
+
+    lines.append("详情：")
+    lines.append(json.dumps(payload, ensure_ascii=False, indent=2))
+    if stderr.strip():
+        lines.append(f"stderr:\n{stderr.strip()}")
+    elif not stdout.strip():
+        lines.append("stdout: (empty)")
+    return "\n".join(lines)
+
+
 def _candidate_cli_paths() -> list[Path]:
     env = os.environ.get("CHUNI_PENGUINTOOLS_CLI", "").strip()
     out: list[Path] = []
@@ -131,13 +178,13 @@ def _run_penguin_tools_cli(args: list[str], *, cfg: object | None = None) -> dic
         )
 
     if process.returncode != 0 or not payload.get("success", False):
-        message = str(payload.get("message") or "").strip()
         raise RuntimeError(
-            "PenguinTools.CLI 调用失败：\n"
-            f"cmd: {' '.join(cmd)}\n"
-            f"message: {message or '(empty)'}\n"
-            f"stdout:\n{stdout or '(empty)'}\n"
-            f"stderr:\n{stderr or '(empty)'}"
+            _format_penguin_tools_cli_failure(
+                cmd=cmd,
+                payload=payload,
+                stdout=stdout,
+                stderr=stderr,
+            )
         )
 
     return payload

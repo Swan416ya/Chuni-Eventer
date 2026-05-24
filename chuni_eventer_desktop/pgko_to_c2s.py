@@ -4,7 +4,7 @@ import struct
 import shutil
 import zlib
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import BinaryIO
 
@@ -266,6 +266,104 @@ def _parse_mgxc_meta(path: Path) -> _MgxcMeta:
             else:
                 _read_exact(f, size)
     return meta
+
+
+def _meta_encode_string(name: str, value: str) -> bytes:
+    key = name.encode("ascii")
+    if len(key) != 4:
+        raise ValueError(f"invalid mgxc meta key: {name!r}")
+    raw = value.encode("utf-8")
+    return key + struct.pack("<hh", 4, len(raw)) + raw
+
+
+def _meta_encode_i32(name: str, value: int) -> bytes:
+    key = name.encode("ascii")
+    if len(key) != 4:
+        raise ValueError(f"invalid mgxc meta key: {name!r}")
+    return key + struct.pack("<hh", 2, 4) + struct.pack("<i", int(value))
+
+
+def _meta_encode_f64(name: str, value: float) -> bytes:
+    key = name.encode("ascii")
+    if len(key) != 4:
+        raise ValueError(f"invalid mgxc meta key: {name!r}")
+    return key + struct.pack("<hh", 3, 8) + struct.pack("<d", float(value))
+
+
+def _build_mgxc_meta_block(meta: _MgxcMeta) -> bytes:
+    parts: list[bytes] = []
+    if meta.designer:
+        parts.append(_meta_encode_string("dsgn", meta.designer))
+    if meta.artist:
+        parts.append(_meta_encode_string("arts", meta.artist))
+    if meta.title:
+        parts.append(_meta_encode_string("titl", meta.title))
+    if meta.song_id:
+        parts.append(_meta_encode_string("sgid", meta.song_id))
+    if meta.bgm_file:
+        parts.append(_meta_encode_string("wvfn", meta.bgm_file))
+    if meta.has_preview_start:
+        parts.append(_meta_encode_f64("wvp0", meta.preview_start_sec))
+    if meta.has_preview_stop:
+        parts.append(_meta_encode_f64("wvp1", meta.preview_stop_sec))
+    parts.append(_meta_encode_i32("diff", int(meta.difficulty)))
+    if meta.level_const is not None:
+        parts.append(_meta_encode_f64("cnst", float(meta.level_const)))
+    return b"".join(parts)
+
+
+def _rewrite_mgxc_with_meta(source_path: Path, output_path: Path, meta: _MgxcMeta) -> None:
+    new_meta = _build_mgxc_meta_block(meta)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with source_path.open("rb") as src, output_path.open("wb") as out:
+        header = _read_exact(src, 12)
+        if header[:4] != b"MGXC":
+            raise ValueError("invalid mgxc header")
+        out.write(header)
+        while True:
+            hdr = src.read(4)
+            if not hdr:
+                break
+            if len(hdr) != 4:
+                raise ValueError("broken mgxc block header")
+            size = _i32(_read_exact(src, 4))
+            block = _read_exact(src, size)
+            if hdr == b"meta":
+                out.write(b"meta")
+                out.write(struct.pack("<i", len(new_meta)))
+                out.write(new_meta)
+            else:
+                out.write(hdr)
+                out.write(struct.pack("<i", size))
+                out.write(block)
+
+
+def _mgxc_sgid_digits(meta: _MgxcMeta) -> str:
+    return "".join(ch for ch in (meta.song_id or "") if ch.isdigit())
+
+
+def _need_mgxc_song_id_patch(meta: _MgxcMeta, music_id: int) -> bool:
+    digits = _mgxc_sgid_digits(meta)
+    if not digits:
+        return True
+    try:
+        return int(digits) % 10000 != int(music_id) % 10000
+    except ValueError:
+        return True
+
+
+def _prepare_mgxc_for_penguin_media(source_path: Path, meta: _MgxcMeta, music_id: int) -> Path:
+    """
+    PenguinTools ``media audio`` 要求 mgxc 内 ``sgid`` 已设置；导入时用户填写的 musicId 可能尚未写回谱面。
+    """
+    if not _need_mgxc_song_id_patch(meta, music_id):
+        return source_path
+    patched_meta = replace(meta, song_id=str(int(music_id)))
+    patch_dir = source_path.parent / ".penguin_mgxc_patch"
+    patch_dir.mkdir(parents=True, exist_ok=True)
+    out = patch_dir / f"{source_path.stem}_id{int(music_id):04d}.mgxc"
+    _rewrite_mgxc_with_meta(source_path, out, patched_meta)
+    return out
 
 
 def _parse_mgxc(path: Path) -> tuple[_MgxcMeta, list[_MgxcEvent], list[_MgxcNote]]:
@@ -1417,7 +1515,8 @@ def convert_pgko_audio_to_chuni_from_pick(
         shutil.rmtree(export_root, ignore_errors=True)
     export_root.mkdir(parents=True, exist_ok=True)
 
-    payload = convert_audio_with_penguin_tools_cli(input_path=source_path, output_dir=export_root)
+    cli_input = _prepare_mgxc_for_penguin_media(source_path, meta, music_id)
+    payload = convert_audio_with_penguin_tools_cli(input_path=cli_input, output_dir=export_root)
     cue_dir = cue_bundle_dir_from_audio_payload(payload)
     cli_sid = cli_song_id_from_payload(payload)
     if cli_sid is None or cli_sid != music_id or cue_dir.name != f"cueFile{music_id:06d}":
