@@ -45,6 +45,7 @@
 | 文档 | 说明 |
 |------|------|
 | [资源与打包/CHUNITHM_Stage_AFB格式与高级场景实现说明.md](资源与打包/CHUNITHM_Stage_AFB格式与高级场景实现说明.md) | Stage `afb` 内 DDS 分块、`mua` 提取/替换逻辑与高级场景实现路径（**总览**） |
+| [资源与打包/多动态组件Stage生成_技术分析.md](资源与打包/多动态组件Stage生成_技术分析.md) | 对比 A001 官方多槽 `st_*.afb` 与现单图管线；muautils 边界与分阶段实现建议（**设计前置**） |
 | [资源与打包/PenguinTools图片转StageAFB实现解析.md](资源与打包/PenguinTools图片转StageAFB实现解析.md) | PenguinTools → `mua convert_stage` 调用链 |
 | [资源与打包/PenguinTools图片转DDS实现解析.md](资源与打包/PenguinTools图片转DDS实现解析.md) | 封面等图片转 DDS 与 `mua` 关系 |
 | [资源与打包/A001更新包文件结构说明.md](资源与打包/A001更新包文件结构说明.md) | A001 包结构 |
