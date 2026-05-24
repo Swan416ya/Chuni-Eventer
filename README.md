@@ -1,51 +1,132 @@
-# Chuni Eventer Desktop
+<table>
+<tr>
+<td width="96" valign="middle">
+  <img src="https://raw.githubusercontent.com/Swan416ya/Chuni-Eventer/main/chuni_eventer_desktop/static/logo/ChuniEventer.png" width="80" alt="Chuni Eventer Logo" />
+</td>
+<td valign="middle">
 
-![Chuni Eventer Logo](https://raw.githubusercontent.com/Swan416ya/Chuni-Eventer/main/chuni_eventer_desktop/static/logo/ChuniEventer.png)
+<h1>Chuni Eventer Desktop</h1>
 
-面向 CHUNITHM 自制内容维护的桌面工具。  
-提供 ACUS 资源生成、编辑、管理与预览的一体化工作流。
+<p><strong>面向 CHUNITHM 自制内容维护的桌面工具</strong></p>
 
----
+</td>
+</tr>
+</table>
+
+<p align="center">
+  <a href="https://github.com/Swan416ya/Chuni-Eventer/releases">
+    <img src="https://img.shields.io/github/v/release/Swan416ya/Chuni-Eventer?style=for-the-badge&logo=github&logoColor=white&label=Release" alt="Release" />
+  </a>
+  <img src="https://img.shields.io/badge/Platform-Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows" />
+  <img src="https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
+  <a href="https://github.com/Swan416ya/Chuni-Eventer/issues">
+    <img src="https://img.shields.io/github/issues/Swan416ya/Chuni-Eventer?style=for-the-badge&logo=github&logoColor=white&label=Issues" alt="Issues" />
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/Swan416ya/Chuni-Eventer/releases">
+    <img src="https://img.shields.io/badge/⬇️_下载懒人包-Releases-2ea44f?style=flat-square" alt="下载懒人包" />
+  </a>
+  &nbsp;
+  <a href="https://www.bilibili.com/video/BV1audYBDEa4">
+    <img src="https://img.shields.io/badge/▶️_视频教程-Bilibili-FB7299?style=flat-square&logo=bilibili&logoColor=white" alt="视频教程" />
+  </a>
+  &nbsp;
+  <a href="docs/README.md">
+    <img src="https://img.shields.io/badge/📖_文档索引-docs-0969da?style=flat-square" alt="文档索引" />
+  </a>
+</p>
+
+<br/>
 
 ## 这是什么
 
-`Chuni-Eventer` 是一个本地桌面工具，主要用于维护 CHUNITHM 相关的 ACUS 资源目录。  
-你可以在一个界面里完成内容创建、字段编辑、DDS 处理、预览检查和数据管理。
+`Chuni-Eventer` 是一个本地桌面工具，用于维护 CHUNITHM 相关的 **ACUS 资源目录**。
 
 ## 主要功能
 
-- **资源管理**：统一浏览与管理 `Event / Map / Music / Chara / Trophy / Reward / DDSImage` 等内容
-- **内容创建与编辑**：支持角色、地图、称号、奖励等常见资源的新增和修改
-- **DDS 处理链路**：支持 DDS 生成、预览解码、缓存管理与回退策略
-- **管理页检索**：按类型和关键字快速定位数据，查看字段与关联资源
-- **谱面相关流程**：提供 SUS / mgxc / c2s 相关导入与转换能力（持续迭代中）
+<table>
+<tr>
+<td width="50%" valign="top">
 
-## 怎么用（建议流程）
+**自制资源生成**  
+角色、地图、活动、称号、奖励等 ACUS 内容的一键创建与编辑
 
-1. 启动后先确认 `ACUS` 工作区目录
-2. 在左侧导航选择要处理的模块（角色、地图、活动、歌曲等）
-3. 按页面表单创建或编辑资源并保存
-4. 在管理页按分类检索，核对字段与预览图
-5. 对导入类流程（如谱面）优先使用工具内引导完成检查
+</td>
+<td width="50%" valign="top">
+
+**自制资源管理**  
+统一浏览、检索与维护 `Event / Map / Music / Chara / Trophy / Reward / DDSImage` 等目录
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+**自制谱快捷导入**  
+SUS / mgxc 等谱面文件的导入与 c2s 转换，快速写入 ACUS
+
+</td>
+<td width="50%" valign="top">
+
+**游戏内数据阅览**  
+浏览 CHUNITHM 游戏数据索引，辅助对照与查阅
+
+</td>
+</tr>
+</table>
 
 ## 使用教程
 
+<table>
+<tr>
+<td width="32" align="center"><strong>1</strong></td>
+<td><strong>打开</strong> — 启动 Chuni Eventer，确认 ACUS 工作区目录</td>
+</tr>
+<tr>
+<td align="center"><strong>2</strong></td>
+<td><strong>编辑</strong> — 在工具内创建或修改自制资源、导入谱面</td>
+</tr>
+<tr>
+<td align="center"><strong>3</strong></td>
+<td><strong>使用</strong> — 将编辑好的 <code>ACUS</code> 作为一个 opt 丢进 CHUNITHM 即可</td>
+</tr>
+</table>
+
 - 视频教程（Bilibili）：[Chuni Eventer 使用教程](https://www.bilibili.com/video/BV1audYBDEa4)
+- 详细配置说明：[`docs/使用与配置指南.md`](docs/使用与配置指南.md)
 
 ## 文档导航
 
-- 全库文档索引：[`docs/README.md`](docs/README.md)
-- 配置与详细说明：[`docs/使用与配置指南.md`](docs/使用与配置指南.md)
-- 主题文档目录：
-  - `docs/资源与打包`
-  - `docs/谱面转换与格式`
-  - `docs/UGC与桥接`
-  - `docs/界面与工作区`
-  - `docs/活动与玩法机制`
-  - `docs/角色与元数据`
-  - `docs/接口与依赖`
+<details open>
+<summary><strong>展开 / 收起文档目录</strong></summary>
+<br/>
 
-## 反馈
+| 文档 | 说明 |
+| --- | --- |
+| [`docs/README.md`](docs/README.md) | 全库文档索引 |
+| [`docs/使用与配置指南.md`](docs/使用与配置指南.md) | 环境配置、功能说明与常见问题 |
+| [`docs/资源与打包`](docs/资源与打包) | 资源生成、DDS、Stage 与打包相关 |
+| [`docs/谱面转换与格式`](docs/谱面转换与格式) | SUS / c2s / mgxc 等谱面流程 |
+| [`docs/UGC与桥接`](docs/UGC与桥接) | UGC 与外部桥接工具 |
+| [`docs/界面与工作区`](docs/界面与工作区) | PyQt6 / Fluent 界面与工作区 |
+| [`docs/活动与玩法机制`](docs/活动与玩法机制) | Event 类型与玩法机制 |
+| [`docs/角色与元数据`](docs/角色与元数据) | 角色与元数据字段 |
+| [`docs/接口与依赖`](docs/接口与依赖) | 外部 CLI 与依赖说明 |
 
-- 问题反馈：[`Issues`](https://github.com/Swan416ya/Chuni-Eventer/issues)
-- 版本更新：[`Releases`](https://github.com/Swan416ya/Chuni-Eventer/releases)
+</details>
+
+---
+
+<p align="center">
+  <a href="https://github.com/Swan416ya/Chuni-Eventer/issues">问题反馈</a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/Swan416ya/Chuni-Eventer/releases">版本更新</a>
+  &nbsp;·&nbsp;
+  <a href="https://www.bilibili.com/video/BV1audYBDEa4">使用教程</a>
+</p>
+
+<p align="center">
+  <sub>Made for CHUNITHM ACUS content creators</sub>
+</p>
