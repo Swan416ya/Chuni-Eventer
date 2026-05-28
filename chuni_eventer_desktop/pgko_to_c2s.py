@@ -18,7 +18,6 @@ from .penguin_tools_cli import (
     relocate_cue_bundle_for_music_id,
 )
 from .pjsk_acus_install import (
-    append_music_sort,
     build_music_xml,
     next_chuni_music_id,
     next_custom_event_id,
@@ -1728,8 +1727,6 @@ def install_pgko_pick_to_acus(
         ET.ElementTree(root).write(music_xml, encoding="utf-8", xml_declaration=True)
     except Exception:
         pass
-    append_music_sort(acus_root, mid)
-
     cue_dst = acus_root / "cueFile" / f"cueFile{mid:06d}"
     if cue_dst.exists():
         shutil.rmtree(cue_dst, ignore_errors=True)
