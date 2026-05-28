@@ -352,16 +352,51 @@ def _need_mgxc_song_id_patch(meta: _MgxcMeta, music_id: int) -> bool:
         return True
 
 
-def _prepare_mgxc_for_penguin_media(source_path: Path, meta: _MgxcMeta, music_id: int) -> Path:
+_MGXC_AUDIO_SUFFIXES = (".ogg", ".wav", ".flac", ".mp3", ".opus", ".m4a", ".aac")
+
+
+def _mgxc_bgm_relpath_for_cli(audio: Path, mgxc_cli_path: Path) -> str:
+    """``wvfn`` 相对路径：以即将交给 CLI 的 mgxc 所在目录为基准。"""
+    import os
+
+    audio = audio.resolve()
+    base = mgxc_cli_path.parent.resolve()
+    try:
+        return audio.relative_to(base).as_posix()
+    except ValueError:
+        return Path(os.path.relpath(audio, base)).as_posix()
+
+
+def _prepare_mgxc_for_penguin_media(
+    source_path: Path,
+    meta: _MgxcMeta,
+    music_id: int,
+    *,
+    resolved_audio: Path | None = None,
+) -> Path:
     """
-    PenguinTools ``media audio`` 要求 mgxc 内 ``sgid`` 已设置；导入时用户填写的 musicId 可能尚未写回谱面。
+    为 PenguinTools 准备 mgxc：
+    - ``sgid`` 对齐用户填写的 musicId；
+    - ``wvfn`` 对齐实际音频（尤其 patch 到 ``.penguin_mgxc_patch/`` 时需 ``../`` 指回包根目录）。
     """
-    if not _need_mgxc_song_id_patch(meta, music_id):
-        return source_path
-    patched_meta = replace(meta, song_id=str(int(music_id)))
     patch_dir = source_path.parent / ".penguin_mgxc_patch"
-    patch_dir.mkdir(parents=True, exist_ok=True)
     out = patch_dir / f"{source_path.stem}_id{int(music_id):04d}.mgxc"
+
+    patched_meta = meta
+    must_write = _need_mgxc_song_id_patch(meta, music_id)
+    if must_write:
+        patched_meta = replace(patched_meta, song_id=str(int(music_id)))
+
+    if resolved_audio is not None and resolved_audio.is_file():
+        rel = _mgxc_bgm_relpath_for_cli(resolved_audio, out)
+        if patched_meta.bgm_file != rel:
+            patched_meta = replace(patched_meta, bgm_file=rel)
+            must_write = True
+
+    if not must_write:
+        return source_path
+
+    patch_dir.mkdir(parents=True, exist_ok=True)
     _rewrite_mgxc_with_meta(source_path, out, patched_meta)
     return out
 
@@ -925,11 +960,9 @@ def _try_read_ugc_designer_near(mgxc_path: Path) -> str:
     return ""
 
 
-def _try_read_ugc_jacket_filename_near(mgxc_path: Path) -> str:
-    """
-    UGC 文本中的封面文件名，例如：@JACKET<TAB>arghena.jpg（@JACKET 与文件名之间为空白即可）。
-    """
-    tag = "@jacket"
+def _try_read_ugc_tag_filename_near(mgxc_path: Path, tag_name: str) -> str:
+    """UGC 头部 ``@TAG<TAB>filename``（大小写不敏感）。"""
+    tag = f"@{tag_name.lstrip('@').lower()}"
     for p in _iter_ugc_paths_near_mgxc(mgxc_path):
         try:
             text = _read_ugc_text(p)
@@ -948,23 +981,26 @@ def _try_read_ugc_jacket_filename_near(mgxc_path: Path) -> str:
     return ""
 
 
+def _try_read_ugc_jacket_filename_near(mgxc_path: Path) -> str:
+    """例如：@JACKET<TAB>arghena.jpg"""
+    return _try_read_ugc_tag_filename_near(mgxc_path, "jacket")
+
+
+def _try_read_ugc_bgm_filename_near(mgxc_path: Path) -> str:
+    """例如：@BGM / @WAVE 后的音频文件名。"""
+    for tag in ("bgm", "wave"):
+        fn = _try_read_ugc_tag_filename_near(mgxc_path, tag)
+        if fn:
+            return fn
+    return ""
+
+
 def _resolve_jacket_path_from_ugc_near(mgxc_path: Path) -> Path | None:
-    """按 ugc 中 @JACKET 指向的文件名，在 mgxc 同目录查找封面图。"""
+    """按 ugc 中 @JACKET 指向路径查找封面图（同目录/上级目录相对路径均可）。"""
     fn = _try_read_ugc_jacket_filename_near(mgxc_path)
     if not fn:
         return None
-    safe = Path(fn.replace("\\", "/")).name
-    if not safe or safe in (".", ".."):
-        return None
-    base = mgxc_path.parent.resolve()
-    p = (mgxc_path.parent / safe).resolve()
-    if not p.is_file():
-        return None
-    try:
-        p.relative_to(base)
-    except ValueError:
-        return None
-    return p
+    return _resolve_audio_path_in_dir(mgxc_path.parent.resolve(), fn)
 
 
 def _derive_music_id(meta: _MgxcMeta, mgxc_path: Path) -> int:
@@ -978,20 +1014,62 @@ def _derive_music_id(meta: _MgxcMeta, mgxc_path: Path) -> int:
     return (zlib.crc32(mgxc_path.as_posix().encode("utf-8")) % 9999) + 1
 
 
+def _resolve_audio_path_in_dir(base: Path, filename: str) -> Path | None:
+    safe = Path(filename.replace("\\", "/")).name
+    if not safe or safe in (".", ".."):
+        return None
+    base = base.resolve()
+    for candidate in (
+        base / filename,
+        base / safe,
+        base.parent / filename,
+        base.parent / safe,
+    ):
+        try:
+            p = candidate.resolve()
+        except OSError:
+            continue
+        if p.is_file():
+            try:
+                p.relative_to(base)
+            except ValueError:
+                try:
+                    p.relative_to(base.parent)
+                except ValueError:
+                    continue
+            return p
+    return None
+
+
 def _resolve_mgxc_audio_file(meta: _MgxcMeta, mgxc_path: Path) -> Path | None:
-    base = mgxc_path.parent
+    base = mgxc_path.parent.resolve()
     if meta.bgm_file:
-        p = (base / meta.bgm_file).resolve()
-        if p.exists() and p.is_file():
+        p = _resolve_audio_path_in_dir(base, meta.bgm_file)
+        if p is not None:
             return p
-    for ext in (".ogg", ".wav", ".flac", ".mp3"):
+    ugc_bgm = _try_read_ugc_bgm_filename_near(mgxc_path)
+    if ugc_bgm:
+        p = _resolve_audio_path_in_dir(base, ugc_bgm)
+        if p is not None:
+            return p
+    for ext in _MGXC_AUDIO_SUFFIXES:
         p = mgxc_path.with_suffix(ext)
-        if p.exists() and p.is_file():
-            return p
-    cands = sorted(
-        p for p in base.glob("*") if p.is_file() and p.suffix.lower() in (".ogg", ".wav", ".flac", ".mp3")
-    )
-    return cands[0] if cands else None
+        if p.is_file():
+            return p.resolve()
+    for search_dir in (base, base.parent):
+        if not search_dir.is_dir():
+            continue
+        flat = sorted(
+            p
+            for p in search_dir.iterdir()
+            if p.is_file() and p.suffix.lower() in _MGXC_AUDIO_SUFFIXES
+        )
+        if flat:
+            return flat[0].resolve()
+        for p in sorted(search_dir.glob("*/*")):
+            if p.is_file() and p.suffix.lower() in _MGXC_AUDIO_SUFFIXES:
+                return p.resolve()
+    return None
 
 
 def _emit_c2s_from_semantic(
@@ -1554,8 +1632,12 @@ def convert_pgko_audio_to_chuni_from_pick(
         shutil.rmtree(export_root, ignore_errors=True)
     export_root.mkdir(parents=True, exist_ok=True)
 
-    cli_input = _prepare_mgxc_for_penguin_media(source_path, meta, music_id)
-    payload = convert_audio_with_penguin_tools_cli(input_path=cli_input, output_dir=export_root)
+    cli_input = _prepare_mgxc_for_penguin_media(
+        source_path, meta, music_id, resolved_audio=src_audio
+    )
+    payload = convert_audio_with_penguin_tools_cli(
+        input_path=cli_input, output_dir=export_root, working_audio=src_audio
+    )
     cue_dir = cue_bundle_dir_from_audio_payload(payload)
     cli_sid = cli_song_id_from_payload(payload)
     if cli_sid is None or cli_sid != music_id or cue_dir.name != f"cueFile{music_id:06d}":
@@ -1692,10 +1774,38 @@ def install_pgko_pick_to_acus(
     mdir = acus_root / "music" / f"music{mid:04d}"
     if mdir.exists():
         raise FileExistsError(f"乐曲 ID 已存在：{mid}")
-    mdir.mkdir(parents=True, exist_ok=True)
+
+    src_audio = _resolve_mgxc_audio_file(base_meta, source_path)
+    if src_audio is None:
+        listed = sorted(
+            {
+                p.name
+                for search_dir in (source_path.parent, source_path.parent.parent)
+                if search_dir.is_dir()
+                for p in search_dir.glob("*/*")
+                if p.is_file() and p.suffix.lower() in _MGXC_AUDIO_SUFFIXES
+            }
+            | {
+                p.name
+                for search_dir in (source_path.parent, source_path.parent.parent)
+                if search_dir.is_dir()
+                for p in search_dir.iterdir()
+                if p.is_file() and p.suffix.lower() in _MGXC_AUDIO_SUFFIXES
+            }
+        )
+        hint = ", ".join(listed) if listed else "（同目录未见 .ogg/.wav/.mp3 等）"
+        raise FileNotFoundError(
+            "未找到可用音频文件。\n"
+            f"谱面包目录: {source_path.parent}\n"
+            f"mgxc wvfn: {base_meta.bgm_file or '(空)'}\n"
+            f"可见音频: {hint}\n"
+            "请确认包内含有音频，且 ugc 的 @BGM 或 mgxc 的 wvfn 指向正确文件名。"
+        )
 
     # 全量交给 PenguinTools ``music export``（谱面/封面/音频同链路）。
-    cli_input = _prepare_mgxc_for_penguin_media(source_path, base_meta, mid)
+    cli_input = _prepare_mgxc_for_penguin_media(
+        source_path, base_meta, mid, resolved_audio=src_audio
+    )
     export_root = source_path.parent / "chuni_music_export" / f"_penguin_export_{mid:04d}"
     if export_root.exists():
         shutil.rmtree(export_root, ignore_errors=True)
@@ -1709,11 +1819,13 @@ def install_pgko_pick_to_acus(
             input_path=cli_input,
             output_dir=export_root,
             jacket_input=jacket_raw,
+            working_audio=src_audio,
         )
     except Exception as e:
         raise RuntimeError(
             "PenguinTools music export 失败（PGKO 全链路已改为 tools-only）。\n"
             f"mgxc: {source_path}\n"
+            f"audio: {src_audio}\n"
             f"detail: {e}"
         ) from e
 
