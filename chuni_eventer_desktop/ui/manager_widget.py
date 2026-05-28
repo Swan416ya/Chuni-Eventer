@@ -1741,10 +1741,22 @@ class ManagerWidget(QWidget):
                 if dlg.exec() == QDialog.DialogCode.Accepted:
                     self.reload()
                 return
+            if payload.category == 7:
+                from .avatar_back_compose_dialog import AvatarBackComposeDialog
+
+                dlg = AvatarBackComposeDialog(
+                    acus_root=self._acus_root,
+                    tool_path=self._get_tool_path(),
+                    edit_xml_path=payload.xml_path,
+                    parent=self.window(),
+                )
+                if dlg.exec() == QDialog.DialogCode.Accepted:
+                    self.reload()
+                return
             fly_message(
                 self.window(),
                 "提示",
-                "当前仅支持双击编辑 category=1（衣服）、2（帽子）、3（面具）与 5（手部）。其它槽位后续版本开放。",
+                "当前仅支持双击编辑 category=1（衣服）、2（帽子）、3（面具）、5（手部）与 7（披风）。其它槽位后续版本开放。",
             )
             return
 
