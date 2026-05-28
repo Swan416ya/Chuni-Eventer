@@ -375,3 +375,32 @@ def convert_audio_with_penguin_tools_cli(
         if wa.is_file():
             args.extend(["--working-audio", str(wa)])
     return _run_penguin_tools_cli(args, cfg=cfg)
+
+
+def export_music_with_penguin_tools_cli(
+    *,
+    input_path: Path,
+    output_dir: Path,
+    jacket_input: Path | None = None,
+    stage_id: int | None = None,
+    working_audio: Path | None = None,
+    cfg: object | None = None,
+) -> dict[str, Any]:
+    """
+    ``music export``：一次性导出 music/cueFile（以及可选 stage/event）。
+    """
+    input_path = Path(input_path).resolve()
+    output_dir = Path(output_dir).resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    args = ["music", "export", str(input_path), str(output_dir)]
+    if jacket_input is not None:
+        ji = Path(jacket_input).resolve()
+        if ji.is_file():
+            args.extend(["--jacket-input", str(ji)])
+    if stage_id is not None:
+        args.extend(["--stage-id", str(int(stage_id))])
+    if working_audio is not None:
+        wa = Path(working_audio).resolve()
+        if wa.is_file():
+            args.extend(["--working-audio", str(wa)])
+    return _run_penguin_tools_cli(args, cfg=cfg)

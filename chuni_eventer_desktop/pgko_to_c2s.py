@@ -14,6 +14,7 @@ from .penguin_tools_cli import (
     convert_chart_with_penguin_tools_cli,
     convert_jacket_with_penguin_tools_cli,
     cue_bundle_dir_from_audio_payload,
+    export_music_with_penguin_tools_cli,
     relocate_cue_bundle_for_music_id,
 )
 from .pjsk_acus_install import (
@@ -1655,95 +1656,81 @@ def install_pgko_pick_to_acus(
         raise FileExistsError(f"乐曲 ID 已存在：{mid}")
     mdir.mkdir(parents=True, exist_ok=True)
 
-    # Multi-difficulty import: consume all mgxc files in the same bundle root.
-    mgxc_files = _collect_bundle_mgxc_files(source_path)
-    chosen_by_slot: dict[str, tuple[Path, _MgxcMeta]] = {}
-    for mg in mgxc_files:
-        try:
-            mm = _parse_mgxc_meta(mg)
-        except Exception:
-            continue
-        slot = _slot_from_difficulty(int(mm.difficulty))
-        prev = chosen_by_slot.get(slot)
-        if prev is None:
-            chosen_by_slot[slot] = (mg, mm)
-            continue
-        prev_const = prev[1].level_const if prev[1].level_const is not None else -1.0
-        cur_const = mm.level_const if mm.level_const is not None else -1.0
-        if cur_const > prev_const:
-            chosen_by_slot[slot] = (mg, mm)
+    # 全量交给 PenguinTools ``music export``（谱面/封面/音频同链路）。
+    cli_input = _prepare_mgxc_for_penguin_media(source_path, base_meta, mid)
+    export_root = source_path.parent / "chuni_music_export" / f"_penguin_export_{mid:04d}"
+    if export_root.exists():
+        shutil.rmtree(export_root, ignore_errors=True)
+    export_root.mkdir(parents=True, exist_ok=True)
 
-    if not chosen_by_slot:
-        raise RuntimeError("未找到可用 mgxc 难度文件。")
-
-    slot_map: dict[str, Path] = {}
-    levels_by_type: dict[str, tuple[int, int]] = {}
-    for slot, (mg, mm) in chosen_by_slot.items():
-        c2s_out = convert_pgko_chart_pick_to_c2s(PgkoChartPick(path=mg, ext="mgxc"))
-        slot_idx = _slot_file_index(slot)
-        c2s_dst = mdir / f"{mid:04d}_{slot_idx:02d}.c2s"
-        c2s_dst.write_bytes(c2s_out.read_bytes())
-        slot_map[slot] = c2s_dst
-        levels_by_type[slot] = _const_to_level_pair(mm.level_const)
-
-    # 封面：PenguinTools.CLI media jacket（--jacket-input 指向 ugc @JACKET 文件）
+    # 兼容旧包：若能读到 ugc@JACKET 则显式传入；否则让 CLI 自行解析。
     jacket_raw = _resolve_jacket_path_from_ugc_near(source_path)
-    if jacket_raw is None:
-        declared = _try_read_ugc_jacket_filename_near(source_path)
-        if not declared:
-            raise FileNotFoundError(
-                "导入 pgko：请在邻近 ugc 中声明 @JACKET <封面文件名>，"
-                "并把该图片放在与 mgxc 同一目录。"
-            )
-        raise FileNotFoundError(
-            f"ugc 中 @JACKET 指向 {declared!r}，但在 mgxc 同目录下未找到该文件。"
+    try:
+        payload = export_music_with_penguin_tools_cli(
+            input_path=cli_input,
+            output_dir=export_root,
+            jacket_input=jacket_raw,
+            stage_id=int(opts.stage_id),
         )
-    jacket_name = f"CHU_UI_Jacket_{mid:04d}.dds"
-    jacket_dds = mdir / jacket_name
-    convert_jacket_with_penguin_tools_cli(
-        input_path=source_path,
-        output_path=jacket_dds,
-        jacket_input=jacket_raw,
-    )
+    except Exception as e:
+        raise RuntimeError(
+            "PenguinTools music export 失败（PGKO 全链路已改为 tools-only）。\n"
+            f"mgxc: {source_path}\n"
+            f"detail: {e}"
+        ) from e
 
     title = (base_meta.title or source_path.stem or str(mid)).strip()
-    artist = ((base_meta.artist or "").strip() or "pgko")
-    sort_name = title
-    tree = build_music_xml(
-        chuni_id=mid,
-        title=title,
-        artist=artist,
-        sort_name=sort_name,
-        stage_id=int(opts.stage_id),
-        stage_str=opts.stage_str.strip() or "Invalid",
-        genre_id=-1,
-        genre_str="Invalid",
-        jacket_rel=jacket_name,
-        slot_map=slot_map,
-        levels_by_type=levels_by_type,
-    )
-    import xml.etree.ElementTree as ET
-    rtag = tree.getroot().find("./releaseTagName")
-    if rtag is not None:
-        rid = rtag.find("id")
-        rstr = rtag.find("str")
-        if rid is not None:
-            rid.text = str(PGKO_RELEASE_TAG_ID)
-        if rstr is not None:
-            rstr.text = PGKO_RELEASE_TAG_STR
 
-    ET.indent(tree.getroot(), space="  ")  # type: ignore[attr-defined]
-    tree.write(mdir / "Music.xml", encoding="utf-8", xml_declaration=True)
+    # 导出目录内定位 music/cueFile。
+    music_src = next(
+        (
+            p
+            for p in sorted(export_root.glob("music*"))
+            if p.is_dir() and (p / "Music.xml").is_file()
+        ),
+        None,
+    )
+    cue_src = next(
+        (
+            p
+            for p in sorted(export_root.glob("cueFile*"))
+            if p.is_dir() and (p / "CueFile.xml").is_file()
+        ),
+        None,
+    )
+    if music_src is None or cue_src is None:
+        data = payload.get("data") if isinstance(payload, dict) else None
+        raise RuntimeError(
+            "PenguinTools music export 返回成功，但未找到导出的 music/cueFile 目录。\n"
+            f"output: {export_root}\n"
+            f"payload.data: {data}"
+        )
+
+    if mdir.exists():
+        shutil.rmtree(mdir, ignore_errors=True)
+    shutil.copytree(music_src, mdir, dirs_exist_ok=True)
+
+    # 回写 PGKO 固定 releaseTag（沿用现有约定），并确保进入 MusicSort。
+    import xml.etree.ElementTree as ET
+
+    music_xml = mdir / "Music.xml"
+    try:
+        root = ET.parse(music_xml).getroot()
+        rtag = root.find("./releaseTagName")
+        if rtag is not None:
+            rid = rtag.find("id")
+            rstr = rtag.find("str")
+            if rid is not None:
+                rid.text = str(PGKO_RELEASE_TAG_ID)
+            if rstr is not None:
+                rstr.text = PGKO_RELEASE_TAG_STR
+        ET.indent(root, space="  ")  # type: ignore[attr-defined]
+        ET.ElementTree(root).write(music_xml, encoding="utf-8", xml_declaration=True)
+    except Exception:
+        pass
     append_music_sort(acus_root, mid)
 
-    audio_ret = convert_pgko_audio_to_chuni_from_pick(
-        PgkoChartPick(path=source_path, ext="mgxc"),
-        music_id_override=mid,
-    )
-    cue_src = source_path.parent / str(audio_ret.get("cueDirectory", ""))
     cue_dst = acus_root / "cueFile" / f"cueFile{mid:06d}"
-    import shutil
-
     if cue_dst.exists():
         shutil.rmtree(cue_dst, ignore_errors=True)
     cue_dst.parent.mkdir(parents=True, exist_ok=True)
