@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import tempfile
+import shutil
 from pathlib import Path
 
 from .dds_convert import ingest_to_bc3_dds
@@ -35,8 +36,7 @@ def _prepare_stage_preview_png(source: Path) -> Path:
     except OSError as e:
         raise ValueError(f"无法读取图片文件：{source}\n{e}") from e
 
-    if src.size != (1920, 1080):
-        raise ValueError(f"背景图尺寸必须是 1920x1080，当前为 {src.size[0]}x{src.size[1]}。")
+    src = _normalize_stage_background_size(src)
 
     half = src.resize((960, 540), Image.Resampling.LANCZOS)
     # 保留下方 450 像素（裁掉上方 90 像素）
@@ -56,6 +56,32 @@ def _prepare_stage_preview_png(source: Path) -> Path:
     with tempfile.NamedTemporaryFile(prefix="stage_preview_", suffix=".png", delete=False) as tf:
         out = Path(tf.name)
     composed.save(out, "PNG")
+    return out
+
+
+def _normalize_stage_background_size(image: Image.Image) -> Image.Image:
+    """
+    将任意输入图规整为 1920x1080：
+    1) 强制按宽度缩放到 1920（保持纵横比）
+    2) 从顶部裁切保留前 1080 像素
+    3) 若缩放后高度不足 1080，则在底部复制最后一行像素补齐
+    """
+    image = image.convert("RGBA")
+    w, h = image.size
+    if w <= 0 or h <= 0:
+        raise ValueError("背景图尺寸无效。")
+    if w != 1920:
+        new_h = max(1, int(round(h * (1920.0 / float(w)))))
+        image = image.resize((1920, new_h), Image.Resampling.LANCZOS)
+    w2, h2 = image.size
+    if h2 >= 1080:
+        return image.crop((0, 0, 1920, 1080))
+    # 高度不足时做底部补齐，避免外部 convert_stage 失败。
+    out = Image.new("RGBA", (1920, 1080))
+    out.paste(image, (0, 0))
+    if h2 > 0:
+        last_row = image.crop((0, h2 - 1, 1920, h2)).resize((1920, 1080 - h2), Image.Resampling.NEAREST)
+        out.paste(last_row, (0, h2))
     return out
 
 
@@ -107,37 +133,40 @@ def create_stage_from_image(
     if sdir.exists():
         raise FileExistsError(f"Stage 目录已存在：{sdir}")
     sdir.mkdir(parents=True, exist_ok=False)
-
     image_name = ""
     tmp_preview_png: Path | None = None
-    if opts.image_source is not None:
-        src = opts.image_source.expanduser().resolve()
-        if not src.is_file():
-            raise FileNotFoundError(f"图片文件不存在：{src}")
-        # 外部 convert_stage 与预览贴图都统一要求输入是 1920x1080
-        tmp_preview_png = _prepare_stage_preview_png(src)
-        image_name = opts.default_image_name()
-        try:
+    normalized_stage_bg: Path | None = None
+    try:
+        if opts.image_source is not None:
+            src = opts.image_source.expanduser().resolve()
+            if not src.is_file():
+                raise FileNotFoundError(f"图片文件不存在：{src}")
+            # 外部 convert_stage 与预览贴图都要求 1920x1080；统一先规整尺寸。
+            with Image.open(src) as im0:
+                normalized = _normalize_stage_background_size(im0)
+            with tempfile.NamedTemporaryFile(prefix="stage_bg_norm_", suffix=".png", delete=False) as tf:
+                normalized_stage_bg = Path(tf.name)
+            normalized.save(normalized_stage_bg, "PNG")
+            tmp_preview_png = _prepare_stage_preview_png(normalized_stage_bg)
+            image_name = opts.default_image_name()
             ingest_to_bc3_dds(
                 tool_path=tool_path,
                 input_path=tmp_preview_png,
                 output_dds=sdir / image_name,
             )
-        finally:
-            tmp_preview_png.unlink(missing_ok=True)
 
-    if use_external_afb and opts.image_source is not None:
-        build_stage_afb_from_image(
-            stage_dir=sdir,
-            stage_id=opts.stage_id,
-            background_image=opts.image_source.expanduser().resolve(),
-            game_root=game_root,
-        )
-    object_file = (opts.object_file or "").strip()
-    stage_name = (opts.stage_name or "").strip() or f"Stage{opts.stage_id}"
-    sort_name = (opts.sort_name or "").strip()
+        if use_external_afb and opts.image_source is not None:
+            build_stage_afb_from_image(
+                stage_dir=sdir,
+                stage_id=opts.stage_id,
+                background_image=(normalized_stage_bg or opts.image_source.expanduser().resolve()),
+                game_root=game_root,
+            )
+        object_file = (opts.object_file or "").strip()
+        stage_name = (opts.stage_name or "").strip() or f"Stage{opts.stage_id}"
+        sort_name = (opts.sort_name or "").strip()
 
-    xml = f"""<?xml version="1.0" encoding="utf-8"?>
+        xml = f"""<?xml version="1.0" encoding="utf-8"?>
 <StageData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <dataName>{opts.stage_dir_name()}</dataName>
   <netOpenName>
@@ -173,8 +202,16 @@ def create_stage_from_image(
   <priority>{int(opts.priority)}</priority>
 </StageData>
 """
-    sxml.write_text(xml, encoding="utf-8")
-    return sxml
+        sxml.write_text(xml, encoding="utf-8")
+        return sxml
+    except Exception:
+        shutil.rmtree(sdir, ignore_errors=True)
+        raise
+    finally:
+        if tmp_preview_png is not None:
+            tmp_preview_png.unlink(missing_ok=True)
+        if normalized_stage_bg is not None:
+            normalized_stage_bg.unlink(missing_ok=True)
 
 
 __all__ = ["StageCreateOptions", "create_stage_from_image", "StageAfbToolError"]

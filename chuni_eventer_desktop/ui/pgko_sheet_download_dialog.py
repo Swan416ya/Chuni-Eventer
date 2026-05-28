@@ -5,8 +5,10 @@ from pathlib import Path
 import logging
 import os
 import zipfile
+import xml.etree.ElementTree as ET
+import shutil
 
-from PyQt6.QtCore import QThread, QUrl, pyqtSignal, Qt, QModelIndex
+from PyQt6.QtCore import QThread, QUrl, pyqtSignal, Qt, QModelIndex, QTimer
 from PyQt6.QtGui import QBrush, QColor, QCloseEvent, QDesktopServices, QEnterEvent, QPixmap, QShowEvent, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QApplication,
@@ -46,6 +48,7 @@ from ..pgko_sheet_client import (
 from ..pgko_to_c2s import (
     convert_pgko_audio_to_chuni_from_pick,
     convert_pgko_chart_pick_to_c2s_with_backend,
+    detect_pgko_stage_background_for_pick,
     install_pgko_pick_to_acus,
     PgkoChartPick,
     pick_pgko_chart_for_convert,
@@ -54,8 +57,10 @@ from ..pgko_to_c2s import (
     PgkoInstallOptions,
 )
 from ..penguin_tools_cli import explain_penguin_tools_cli_lookup, resolve_penguin_tools_cli
+from ..stage_from_image import StageAfbToolError, StageCreateOptions, create_stage_from_image
+from ..dds_convert import DdsToolError
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
-from .fluent_dialogs import fly_message_async, fly_question_async, fly_warning
+from .fluent_dialogs import fly_message_async, fly_question_async, fly_warning, fly_critical
 from .fluent_table import (
     apply_fluent_sheet_table,
     apply_fluent_tableview_header_style,
@@ -74,6 +79,23 @@ def _readonly_std_item(text: str) -> QStandardItem:
     it = QStandardItem(text)
     it.setEditable(False)
     return it
+
+
+def _next_custom_stage_id_from_70000(acus_root: Path) -> int:
+    used: set[int] = set()
+    sroot = acus_root / "stage"
+    if sroot.is_dir():
+        for xp in sroot.glob("stage*/Stage.xml"):
+            try:
+                rid = int((ET.parse(xp).getroot().findtext("name/id") or "").strip())
+                if rid > 0:
+                    used.add(rid)
+            except Exception:
+                continue
+    cand = 70000
+    while cand in used:
+        cand += 1
+    return cand
 
 
 def _pgko_debug_enabled() -> bool:
@@ -1095,6 +1117,8 @@ class _PgkoInstallConfigDialog(FluentCaptionDialog):
         self._tool_path = tool_path
         self._thread: _InstallPgkoThread | None = None
         self._pending_accept_result: dict[str, object] | None = None
+        self._custom_stage_prompted = False
+        self._custom_stage_background = detect_pgko_stage_background_for_pick(pick)
 
         suggest_id = suggest_next_pgko_music_id(acus_root, start=6000)
         self._id_edit = LineEdit(self)
@@ -1149,6 +1173,112 @@ class _PgkoInstallConfigDialog(FluentCaptionDialog):
         root.addWidget(self._status)
         root.addStretch(1)
         root.addLayout(row)
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        if self._custom_stage_prompted:
+            return
+        self._custom_stage_prompted = True
+        if self._custom_stage_background is None:
+            return
+        QTimer.singleShot(0, self._maybe_prompt_create_custom_stage)
+
+    def _current_target_music_id(self) -> int:
+        txt = self._id_edit.text().strip()
+        if txt:
+            try:
+                return int(txt)
+            except ValueError:
+                pass
+        return suggest_next_pgko_music_id(self._acus_root, start=6000)
+
+    def _find_stage_index_by_id(self, stage_id: int) -> int:
+        for i in range(self._stage.count()):
+            data = self._stage.itemData(i)
+            if isinstance(data, tuple) and len(data) >= 1:
+                try:
+                    if int(data[0]) == int(stage_id):
+                        return i
+                except Exception:
+                    continue
+        return -1
+
+    def _select_or_append_stage(self, *, stage_id: int, stage_name: str) -> None:
+        idx = self._find_stage_index_by_id(stage_id)
+        if idx < 0:
+            self._stage.addItem(f"{stage_id} | {stage_name}", None, (int(stage_id), str(stage_name)))
+            idx = self._stage.count() - 1
+        self._stage.setCurrentIndex(idx)
+
+    def _maybe_prompt_create_custom_stage(self) -> None:
+        bg = self._custom_stage_background
+        if bg is None:
+            return
+
+        def _on_result(yes: bool) -> None:
+            if not yes:
+                return
+            self._create_custom_stage_from_background(bg)
+
+        fly_question_async(
+            self,
+            "检测到自定义背景",
+            "这个乐曲包包含自定义背景图。\n"
+            "是否现在转换为游戏 Stage 并自动加入 Stage 列表？\n\n"
+            "不转换的话，Stage 下拉里无法直接选到这个自定义背景。",
+            on_result=_on_result,
+            yes_text="立即转换",
+            no_text="跳过",
+            window_modal=True,
+        )
+
+    def _create_custom_stage_from_background(self, bg: Path) -> None:
+        mid = self._current_target_music_id()
+        stage_id = _next_custom_stage_id_from_70000(self._acus_root)
+        stage_name = str(self._meta.get("title") or self._pick.path.stem or f"music{mid}").strip()
+        if not stage_name:
+            stage_name = f"music{mid}"
+        existing_idx = self._find_stage_index_by_id(stage_id)
+        if existing_idx >= 0:
+            self._stage.setCurrentIndex(existing_idx)
+            self._status.setText(f"检测到现有自定义 Stage（{stage_id}），已自动选中。")
+            self._status.show()
+            return
+
+        self._status.setText("正在转换自定义背景为 Stage，请稍候…")
+        self._status.show()
+        try:
+            opts = StageCreateOptions(
+                stage_id=stage_id,
+                stage_name=stage_name,
+                image_source=bg,
+            )
+            stage_dir = self._acus_root / "stage" / f"stage{int(stage_id):06d}"
+            # 处理历史失败留下的空壳目录：存在目录但缺 Stage.xml 时先清理。
+            if stage_dir.exists() and not (stage_dir / "Stage.xml").is_file():
+                shutil.rmtree(stage_dir, ignore_errors=True)
+            create_stage_from_image(
+                acus_root=self._acus_root,
+                tool_path=self._tool_path,
+                opts=opts,
+                game_root=AcusConfig.load().game_root,
+                use_external_afb=True,
+            )
+            self._select_or_append_stage(stage_id=stage_id, stage_name=stage_name)
+            self._status.setText(
+                f"已生成并选中自定义 Stage：{stage_id} | {stage_name}\n背景图：{bg}"
+            )
+            self._status.show()
+        except FileExistsError:
+            self._select_or_append_stage(stage_id=stage_id, stage_name=stage_name)
+            self._status.setText(f"自定义 Stage 已存在：{stage_id}，已自动选中。")
+            self._status.show()
+        except DdsToolError as e:
+            fly_critical(self, "Stage 预览转换失败", str(e))
+        except StageAfbToolError as e:
+            fly_critical(self, "Stage AFB 生成失败", str(e))
+        except Exception as e:
+            fly_critical(self, "创建自定义 Stage 失败", str(e))
 
     def _run_install(self) -> None:
         _pgko_dlog("_run_install:start", pick=str(self._pick.path), ext=self._pick.ext)

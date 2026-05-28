@@ -57,6 +57,17 @@ class PgkoChartPick:
     ext: str  # mgxc | ugc
 
 
+def _is_generated_pgko_artifact_path(p: Path) -> bool:
+    parts = {x.lower() for x in p.parts}
+    if ".penguin_mgxc_patch" in parts:
+        return True
+    if "chuni_music_export" in parts:
+        return True
+    if "chuni_cue" in parts:
+        return True
+    return False
+
+
 def pick_pgko_chart_for_convert(download_output: Path) -> PgkoChartPick | None:
     """
     从下载产物中挑选用于转码的谱面文件：
@@ -64,10 +75,11 @@ def pick_pgko_chart_for_convert(download_output: Path) -> PgkoChartPick | None:
     """
     files: list[Path] = []
     if download_output.is_file():
-        files.append(download_output)
+        if not _is_generated_pgko_artifact_path(download_output):
+            files.append(download_output)
     elif download_output.is_dir():
         for p in download_output.glob("**/*"):
-            if p.is_file():
+            if p.is_file() and not _is_generated_pgko_artifact_path(p):
                 files.append(p)
     if not files:
         return None
@@ -508,17 +520,23 @@ def _find_fallback_mgxc(source: Path) -> Path | None:
     3) 上一级目录递归同 stem *.mgxc
     """
     direct = source.with_suffix(".mgxc")
-    if direct.exists() and direct.is_file():
+    if direct.exists() and direct.is_file() and not _is_generated_pgko_artifact_path(direct):
         return direct
 
     parent = source.parent
-    siblings = sorted(p for p in parent.glob("*.mgxc") if p.is_file())
+    siblings = sorted(
+        p for p in parent.glob("*.mgxc") if p.is_file() and not _is_generated_pgko_artifact_path(p)
+    )
     if siblings:
         return siblings[0]
 
     root = parent.parent if parent.parent != parent else parent
     same_stem = sorted(
-        p for p in root.glob("**/*.mgxc") if p.is_file() and p.stem == source.stem
+        p
+        for p in root.glob("**/*.mgxc")
+        if p.is_file()
+        and p.stem == source.stem
+        and not _is_generated_pgko_artifact_path(p)
     )
     if same_stem:
         return same_stem[0]
@@ -972,6 +990,9 @@ def _try_read_ugc_tag_filename_near(mgxc_path: Path, tag_name: str) -> str:
             ln = raw.strip()
             if len(ln) <= len(tag) or not ln.lower().startswith(tag):
                 continue
+            # 必须匹配完整 tag，避免 @bg 误匹配 @bgm。
+            if not ln[len(tag)].isspace():
+                continue
             rest = ln[len(tag) :].lstrip()
             if not rest:
                 continue
@@ -1070,6 +1091,147 @@ def _resolve_mgxc_audio_file(meta: _MgxcMeta, mgxc_path: Path) -> Path | None:
             if p.is_file() and p.suffix.lower() in _MGXC_AUDIO_SUFFIXES:
                 return p.resolve()
     return None
+
+
+def _iter_mgxc_evnt_blocks(path: Path):
+    with path.open("rb") as f:
+        if _read_exact(f, 4) != b"MGXC":
+            return
+        _read_exact(f, 8)
+        while True:
+            hdr = f.read(4)
+            if not hdr or len(hdr) != 4:
+                break
+            size = _i32(_read_exact(f, 4))
+            block = _read_exact(f, size)
+            if hdr == b"evnt":
+                yield block
+
+
+def _read_rimg_refs_from_mgxc(path: Path) -> list[str]:
+    import io
+
+    out: list[str] = []
+    for block in _iter_mgxc_evnt_blocks(path):
+        br = io.BytesIO(block)
+        while br.tell() < len(block):
+            if br.tell() + 4 > len(block):
+                break
+            name = _read_exact(br, 4).decode("utf-8", errors="ignore")
+            try:
+                if name == "bpm ":
+                    _read_field(br)
+                    _read_field(br)
+                elif name == "beat":
+                    _read_field(br)
+                    _read_field(br)
+                    _read_field(br)
+                elif name == "til ":
+                    _read_field(br)
+                    _read_field(br)
+                    _read_field(br)
+                elif name == "smod":
+                    _read_field(br)
+                    _read_field(br)
+                elif name == "mbkm":
+                    _read_field(br)
+                elif name == "bmrk":
+                    _read_wide_field(br)
+                    _read_field(br)
+                    _read_wide_field(br)
+                    _read_wide_field(br)
+                elif name == "rimg":
+                    _read_field(br)
+                    _read_field(br)
+                    ref = str(_read_wide_field(br) or "").strip()
+                    _read_exact(br, 4)
+                    if ref:
+                        out.append(ref)
+                    continue
+                else:
+                    break
+                _read_exact(br, 4)
+            except Exception:
+                break
+    return out
+
+
+def _is_missing_stage_ref(s: str) -> bool:
+    t = str(s or "").strip().strip('"').strip("'")
+    if not t:
+        return True
+    return t.lower() in {"0", "none", "null", "invalid", "false"}
+
+
+def _resolve_image_path_in_dir(base: Path, filename: str) -> Path | None:
+    safe = Path(filename.replace("\\", "/")).name
+    if not safe or safe in (".", ".."):
+        return None
+    base = base.resolve()
+    for candidate in (
+        base / filename,
+        base / safe,
+        base.parent / filename,
+        base.parent / safe,
+    ):
+        try:
+            p = candidate.resolve()
+        except OSError:
+            continue
+        if p.is_file():
+            try:
+                p.relative_to(base)
+            except ValueError:
+                try:
+                    p.relative_to(base.parent)
+                except ValueError:
+                    continue
+            return p
+    return None
+
+
+def _try_read_ugc_background_filename_near(mgxc_path: Path) -> str:
+    for tag in ("background", "bg", "stage", "rimg", "bgimg", "bgimage", "fldimg", "scene"):
+        fn = _try_read_ugc_tag_filename_near(mgxc_path, tag)
+        if fn and not _is_missing_stage_ref(fn):
+            return fn
+    return ""
+
+
+def _resolve_pgko_stage_background_path(mgxc_path: Path) -> Path | None:
+    for ref in _read_rimg_refs_from_mgxc(mgxc_path):
+        if _is_missing_stage_ref(ref):
+            continue
+        p = _resolve_image_path_in_dir(mgxc_path.parent.resolve(), ref)
+        if p is not None:
+            return p
+    ugc_ref = _try_read_ugc_background_filename_near(mgxc_path)
+    if ugc_ref:
+        return _resolve_image_path_in_dir(mgxc_path.parent.resolve(), ugc_ref)
+    return None
+
+
+def detect_pgko_stage_background_for_pick(pick: PgkoChartPick) -> Path | None:
+    source_path = pick.path
+    if pick.ext.lower().strip(".") != "mgxc":
+        fb = _find_fallback_mgxc(source_path)
+        if fb is None:
+            return None
+        source_path = fb
+    return _resolve_pgko_stage_background_path(source_path)
+
+
+def _working_audio_for_penguin_cli(audio_path: Path | None) -> Path | None:
+    """
+    PenguinTools ``--working-audio`` 当前按 WAV 读取（需存在 RIFF data chunk）。
+    非 WAV（如 mp3/flac）不要透传，避免触发 "File must have a valid data chunk"。
+    """
+    if audio_path is None:
+        return None
+    p = Path(audio_path).resolve()
+    if not p.is_file():
+        return None
+    return p if p.suffix.lower() == ".wav" else None
 
 
 def _emit_c2s_from_semantic(
@@ -1635,8 +1797,9 @@ def convert_pgko_audio_to_chuni_from_pick(
     cli_input = _prepare_mgxc_for_penguin_media(
         source_path, meta, music_id, resolved_audio=src_audio
     )
+    working_audio = _working_audio_for_penguin_cli(src_audio)
     payload = convert_audio_with_penguin_tools_cli(
-        input_path=cli_input, output_dir=export_root, working_audio=src_audio
+        input_path=cli_input, output_dir=export_root, working_audio=working_audio
     )
     cue_dir = cue_bundle_dir_from_audio_payload(payload)
     cli_sid = cli_song_id_from_payload(payload)
@@ -1727,7 +1890,11 @@ def _const_to_level_pair(v: float | None) -> tuple[int, int]:
 
 def _collect_bundle_mgxc_files(primary_mgxc: Path) -> list[Path]:
     root = primary_mgxc.parent
-    files = sorted(p.resolve() for p in root.glob("**/*.mgxc") if p.is_file())
+    files = sorted(
+        p.resolve()
+        for p in root.glob("**/*.mgxc")
+        if p.is_file() and not _is_generated_pgko_artifact_path(p)
+    )
     if not files:
         return [primary_mgxc.resolve()]
     return files
@@ -1814,12 +1981,13 @@ def install_pgko_pick_to_acus(
     # 兼容旧包：若能读到 ugc@JACKET 则显式传入；否则让 CLI 自行解析。
     # Stage 由 UI 选择，在 PenguinTools 导出完成后回写 Music.xml，不参与 music export。
     jacket_raw = _resolve_jacket_path_from_ugc_near(source_path)
+    working_audio = _working_audio_for_penguin_cli(src_audio)
     try:
         payload = export_music_with_penguin_tools_cli(
             input_path=cli_input,
             output_dir=export_root,
             jacket_input=jacket_raw,
-            working_audio=src_audio,
+            working_audio=working_audio,
         )
     except Exception as e:
         raise RuntimeError(
