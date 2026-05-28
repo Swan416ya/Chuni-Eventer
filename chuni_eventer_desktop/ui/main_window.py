@@ -28,26 +28,10 @@ from ..acus_workspace import (
     resolve_compressonatorcli_path,
 )
 from ..external_tools import apply_resolved_paths_to_config, has_bundled_ffmpeg
-from .external_tools_bootstrap import run_external_tools_bootstrap
 from ..version import APP_VERSION
 from ..game_data_index import GameDataIndex, load_cached_game_index, rebuild_and_save_game_index
-from ..sheet_install import install_zip_to_acus, peek_root_readme_from_archive
 from ..dds_quicktex import quicktex_available
 from .manager_widget import ManagerWidget
-from .chara_add_dialog import CharaAddDialog
-from .map_add_dialog import MapAddDialog, RewardCreateDialog, ensure_reward_xml, reward_dialog_bundle
-from .map_icon_dialog import MapIconAddEditDialog
-from .nameplate_add_dialog import NamePlateAddDialog
-from .trophy_add_dialog import TrophyAddDialog
-from .music_add_actions_dialog import MusicSheetChannelsDialog
-from .pgko_sheet_download_dialog import PgkoSheetDownloadDialog
-from .swan_sheet_download_dialog import SwanSheetDownloadDialog
-from .event_add_dialog import EventAddDialog
-from .quest_add_dialog import QuestAddDialog
-from .mapbonus_dialogs import MapBonusEditDialog
-from .stage_add_dialog import StageAddDialog
-from .course_rank_dialog import CourseRankEditDialog
-from .system_voice_pack_dialog import SystemVoicePackDialog
 from .fluent_dialogs import (
     fly_critical,
     fly_message,
@@ -56,7 +40,7 @@ from .fluent_dialogs import (
     show_archive_readme_dialog,
     safe_dismiss_modal_progress_dialog,
 )
-from .external_tools_bootstrap import abort_tool_install_on_parent
+from .external_tools_bootstrap import abort_tool_install_on_parent, run_external_tools_bootstrap
 from .qthread_lifecycle import shutdown_qthreads_for_exit
 from .nav_icons import (
     SVG_AVATAR,
@@ -68,6 +52,7 @@ from .nav_icons import (
     SVG_TROPHY,
     nav_qicon,
 )
+
 _scan_log_logger: logging.Logger | None = None
 
 # 启动窗口高度：在原先 720 基础上为左侧导航多预留约 2 个 Tab 项的垂直空间（Fluent 侧栏单项约 48～56px）。
@@ -178,7 +163,6 @@ class MainWindow(MSFluentWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        # Mica 首次 show 在部分机器上极慢；保留默认 DWM 阴影/圆角，仅关闭 Mica。
         self.setMicaEffectEnabled(False)
         self.navigationInterface.hide()
 
@@ -899,6 +883,8 @@ class MainWindow(MSFluentWindow):
             return
 
         if kind == "Reward":
+            from .map_add_dialog import RewardCreateDialog, ensure_reward_xml, reward_dialog_bundle
+
             gi = self._resolve_game_index()
             (
                 music_r,
@@ -927,6 +913,11 @@ class MainWindow(MSFluentWindow):
             return
 
         if kind == "Music":
+            from ..sheet_install import install_zip_to_acus, peek_root_readme_from_archive
+            from .music_add_actions_dialog import MusicSheetChannelsDialog
+            from .pgko_sheet_download_dialog import PgkoSheetDownloadDialog
+            from .swan_sheet_download_dialog import SwanSheetDownloadDialog
+
             pick = MusicSheetChannelsDialog(parent=self)
             if pick.exec() != pick.DialogCode.Accepted:
                 return
@@ -963,6 +954,8 @@ class MainWindow(MSFluentWindow):
             return
 
         if kind == "Quest":
+            from .quest_add_dialog import QuestAddDialog
+
             dlg = QuestAddDialog(
                 acus_root=self._acus_root,
                 game_index=self._resolve_game_index(),
@@ -973,6 +966,8 @@ class MainWindow(MSFluentWindow):
             return
 
         if kind == "Event":
+            from .event_add_dialog import EventAddDialog
+
             dlg = EventAddDialog(
                 acus_root=self._acus_root,
                 tool_path=self._get_tool_path_or_none(),
@@ -983,12 +978,16 @@ class MainWindow(MSFluentWindow):
             return
 
         if kind == "MapBonus":
+            from .mapbonus_dialogs import MapBonusEditDialog
+
             dlg = MapBonusEditDialog(acus_root=self._acus_root, game_index=self._resolve_game_index(), parent=self)
             if dlg.exec() == dlg.DialogCode.Accepted:
                 self._on_refresh()
             return
 
         if kind == "MapIcon":
+            from .map_icon_dialog import MapIconAddEditDialog
+
             dlg = MapIconAddEditDialog(
                 acus_root=self._acus_root,
                 tool_path=self._get_tool_path_or_none(),
@@ -1000,6 +999,8 @@ class MainWindow(MSFluentWindow):
             return
 
         if kind == "SystemVoice":
+            from .system_voice_pack_dialog import SystemVoicePackDialog
+
             dlg = SystemVoicePackDialog(
                 acus_root=self._acus_root,
                 get_tool_path=self._get_tool_path_or_none,
@@ -1011,6 +1012,8 @@ class MainWindow(MSFluentWindow):
             return
 
         if kind == "RankCourse":
+            from .course_rank_dialog import CourseRankEditDialog
+
             dlg = CourseRankEditDialog(
                 acus_root=self._acus_root,
                 game_root=self._cfg.game_root or "",
@@ -1022,6 +1025,8 @@ class MainWindow(MSFluentWindow):
             return
 
         if kind == "Stage":
+            from .stage_add_dialog import StageAddDialog
+
             dlg = StageAddDialog(
                 acus_root=self._acus_root,
                 tool_path=self._get_tool_path_or_none(),
@@ -1044,6 +1049,8 @@ class MainWindow(MSFluentWindow):
             return
 
         if kind == "Chara":
+            from .chara_add_dialog import CharaAddDialog
+
             dlg = CharaAddDialog(
                 acus_root=self._acus_root,
                 tool_path=tool,
@@ -1054,6 +1061,8 @@ class MainWindow(MSFluentWindow):
             if dlg.exec() == dlg.DialogCode.Accepted:
                 self._on_refresh()
         elif kind == "Map":
+            from .map_add_dialog import MapAddDialog
+
             dlg = MapAddDialog(
                 acus_root=self._acus_root,
                 tool_path=tool,
@@ -1063,10 +1072,14 @@ class MainWindow(MSFluentWindow):
             if dlg.exec() == dlg.DialogCode.Accepted:
                 self._on_refresh()
         elif kind == "Trophy":
+            from .trophy_add_dialog import TrophyAddDialog
+
             dlg = TrophyAddDialog(acus_root=self._acus_root, tool_path=tool, parent=self)
             if dlg.exec() == dlg.DialogCode.Accepted:
                 self._on_refresh()
         elif kind == "NamePlate":
+            from .nameplate_add_dialog import NamePlateAddDialog
+
             dlg = NamePlateAddDialog(acus_root=self._acus_root, tool_path=tool, parent=self)
             if dlg.exec() == dlg.DialogCode.Accepted:
                 self._on_refresh()

@@ -17,6 +17,7 @@ from .frozen_runtime import ensure_pyinstaller_dll_search_path
 from qfluentwidgets import Theme, setTheme
 
 from .acus_workspace import app_cache_dir
+from .startup_profile import startup_mark, startup_span, startup_summary
 
 
 def _app_icon_path() -> Path:
@@ -136,9 +137,12 @@ def _setup_crash_logging() -> None:
 
 
 def main() -> int:
-    ensure_pyinstaller_dll_search_path()
+    startup_mark("app.main:enter")
+    with startup_span("ensure_pyinstaller_dll"):
+        ensure_pyinstaller_dll_search_path()
     _set_windows_appusermodel_id()
-    _setup_crash_logging()
+    with startup_span("setup_crash_logging"):
+        _setup_crash_logging()
     _setup_dialog_debug_logging()
     app = QApplication(sys.argv)
     app.setApplicationName("chuni eventer desktop")
@@ -146,15 +150,35 @@ def main() -> int:
     if icon_path.is_file():
         app.setWindowIcon(QIcon(str(icon_path)))
     setTheme(Theme.AUTO)
+
+    startup_mark("app.main:before_import_MainWindow")
     from .ui.main_window import MainWindow
 
+    startup_mark("app.main:before_MainWindow_ctor")
     w = MainWindow()
+    startup_mark("app.main:after_MainWindow_ctor")
     if icon_path.is_file():
         w.setWindowIcon(QIcon(str(icon_path)))
+
+    startup_mark("app.main:before_show")
     w.show()
+    startup_mark("app.main:after_show")
     w._apply_default_window_size("show")
-    if icon_path.suffix.lower() == ".ico":
-        _set_windows_hwnd_icons_from_ico(w, icon_path)
-    QTimer.singleShot(0, w.deferred_build_ui)
-    QTimer.singleShot(0, w.apply_deferred_window_chrome)
-    return app.exec()
+
+    def _finish_startup() -> None:
+        startup_mark("app.main:finish_startup:begin")
+        w.deferred_build_ui()
+        w.apply_deferred_window_chrome()
+        if icon_path.suffix.lower() == ".ico":
+            _set_windows_hwnd_icons_from_ico(w, icon_path)
+        startup_mark("app.main:finish_startup:end")
+
+    QTimer.singleShot(0, _finish_startup)
+
+    auto_quit_ms = os.getenv("CHUNI_AUTO_QUIT_MS", "").strip()
+    if auto_quit_ms.isdigit():
+        QTimer.singleShot(int(auto_quit_ms), lambda: (startup_summary(), app.quit()))
+
+    rc = app.exec()
+    startup_summary()
+    return rc
