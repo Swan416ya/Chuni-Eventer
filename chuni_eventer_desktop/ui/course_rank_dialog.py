@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QFormLayout, QGridLayout, QHBoxLayout, QVBoxLayout, QWidget
 from qfluentwidgets import BodyLabel, CardWidget, ComboBox as FluentComboBox, LineEdit, PrimaryPushButton, PushButton
 
@@ -43,9 +44,9 @@ class _RuleParamsRow(QWidget):
         self.jc_edit = LineEdit(self)
         self.jc_edit.setText(str(initial.damage_justice_c))
 
-        grid = QGridLayout(self)
+        grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(8)
+        grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(4)
         specs = (
             ("总血量", self.life_edit),
@@ -59,6 +60,8 @@ class _RuleParamsRow(QWidget):
             grid.addWidget(BodyLabel(label, self), 0, col)
             edit.setMaximumWidth(72)
             grid.addWidget(edit, 1, col)
+            grid.setColumnStretch(col, 0)
+        grid.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -224,7 +227,7 @@ class CourseRankEditDialog(FluentCaptionDialog):
         is_edit = edit_xml is not None and edit_xml.is_file()
         self.setWindowTitle("编辑段位组曲" if is_edit else "新增段位组曲")
         self.setModal(True)
-        self.resize(760, 620)
+        self.resize(640, 620)
 
         draft: RankCourseDraft | None = None
         if is_edit and edit_xml is not None:
@@ -238,14 +241,6 @@ class CourseRankEditDialog(FluentCaptionDialog):
         cly = QVBoxLayout(card)
         cly.setContentsMargins(16, 14, 16, 14)
         cly.setSpacing(10)
-        cly.addWidget(
-            BodyLabel(
-                "保存时会写入 ACUS/course/…/Course.xml，并自动生成/更新 ACUS/courseRule/…/CourseRule.xml "
-                "（规则 ID 从 7001 起分配）。通关奖励使用默认值。"
-                "CourseSort 会先从【设置】中的游戏数据目录复制官方列表，再把自制课题追加到末尾。"
-            )
-        )
-
         form = QFormLayout()
         self.id_edit = LineEdit(self)
         self.id_edit.setText(str(draft.course_id))
