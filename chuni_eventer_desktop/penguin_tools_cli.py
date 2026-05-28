@@ -383,6 +383,7 @@ def export_music_with_penguin_tools_cli(
     output_dir: Path,
     jacket_input: Path | None = None,
     stage_id: int | None = None,
+    background: Path | None = None,
     working_audio: Path | None = None,
     cfg: object | None = None,
 ) -> dict[str, Any]:
@@ -397,8 +398,12 @@ def export_music_with_penguin_tools_cli(
         ji = Path(jacket_input).resolve()
         if ji.is_file():
             args.extend(["--jacket-input", str(ji)])
-    if stage_id is not None:
-        args.extend(["--stage-id", str(int(stage_id))])
+    if background is not None:
+        bg = Path(background).resolve()
+        if bg.is_file():
+            args.extend(["--background", str(bg)])
+            if stage_id is not None:
+                args.extend(["--stage-id", str(int(stage_id))])
     if working_audio is not None:
         wa = Path(working_audio).resolve()
         if wa.is_file():

@@ -1116,14 +1116,15 @@ class _PgkoInstallConfigDialog(FluentCaptionDialog):
 
         form = QFormLayout()
         form.addRow("乐曲ID", self._id_edit)
-        form.addRow("Stage", self._stage)
+        form.addRow("Stage（写入 Music.xml）", self._stage)
         form.addRow("", self._ev)
 
         hint = BodyLabel(
             f"曲名: {meta.get('title') or ''}\n"
             f"作者: {meta.get('artist') or meta.get('designer') or ''}\n"
             f"难度标识: {diff}（0=BAS, 1=ADV, 2=EXP, 3=MAS, 4=ULT, 5=WE）\n"
-            "定数将按包内各 mgxc 的 cnst 自动写入，不允许手填。"
+            "定数将按包内各 mgxc 的 cnst 自动写入，不允许手填。\n"
+            "Stage 在 PenguinTools 导出完成后写入 Music.xml，引用 ACUS 内已有舞台。"
         )
         hint.setWordWrap(True)
 

@@ -490,6 +490,45 @@ def _find_fallback_mgxc(source: Path) -> Path | None:
     return None
 
 
+def _patch_music_xml_stage_name(root, *, stage_id: int, stage_str: str) -> None:
+    import xml.etree.ElementTree as ET
+
+    st = root.find("stageName")
+    if st is None:
+        st = ET.SubElement(root, "stageName")
+    id_el = st.find("id")
+    if id_el is None:
+        id_el = ET.SubElement(st, "id")
+    id_el.text = str(int(stage_id))
+    str_el = st.find("str")
+    if str_el is None:
+        str_el = ET.SubElement(st, "str")
+    str_el.text = str(stage_str or f"Stage{int(stage_id)}")
+    data_el = st.find("data")
+    if data_el is None:
+        data_el = ET.SubElement(st, "data")
+    if data_el.text is None:
+        data_el.text = ""
+
+
+def _enabled_fumen_types_from_music_xml(music_xml: Path) -> set[str]:
+    import xml.etree.ElementTree as ET
+
+    root = ET.parse(music_xml).getroot()
+    enabled: set[str] = set()
+    fumens = root.find("fumens")
+    if fumens is None:
+        return enabled
+    for fd in fumens.findall("MusicFumenData"):
+        enable_el = fd.find("enable")
+        if enable_el is None or enable_el.text != "true":
+            continue
+        type_el = fd.find("type/str")
+        if type_el is not None and (type_el.text or "").strip():
+            enabled.add(type_el.text.strip())
+    return enabled
+
+
 def _iter_ugc_paths_near_mgxc(mgxc_path: Path) -> list[Path]:
     """与 mgxc 同目录的 ugc：优先同名，再按名排序的其余 *.ugc。"""
     candidates: list[Path] = []
@@ -1663,13 +1702,13 @@ def install_pgko_pick_to_acus(
     export_root.mkdir(parents=True, exist_ok=True)
 
     # 兼容旧包：若能读到 ugc@JACKET 则显式传入；否则让 CLI 自行解析。
+    # Stage 由 UI 选择，在 PenguinTools 导出完成后回写 Music.xml，不参与 music export。
     jacket_raw = _resolve_jacket_path_from_ugc_near(source_path)
     try:
         payload = export_music_with_penguin_tools_cli(
             input_path=cli_input,
             output_dir=export_root,
             jacket_input=jacket_raw,
-            stage_id=int(opts.stage_id),
         )
     except Exception as e:
         raise RuntimeError(
@@ -1709,7 +1748,7 @@ def install_pgko_pick_to_acus(
         shutil.rmtree(mdir, ignore_errors=True)
     shutil.copytree(music_src, mdir, dirs_exist_ok=True)
 
-    # 回写 PGKO 固定 releaseTag（沿用现有约定），并确保进入 MusicSort。
+    # 回写 PGKO releaseTag 与 UI 所选 Stage（引用 ACUS 已有舞台，不由 CLI 构建）。
     import xml.etree.ElementTree as ET
 
     music_xml = mdir / "Music.xml"
@@ -1723,6 +1762,9 @@ def install_pgko_pick_to_acus(
                 rid.text = str(PGKO_RELEASE_TAG_ID)
             if rstr is not None:
                 rstr.text = PGKO_RELEASE_TAG_STR
+        _patch_music_xml_stage_name(
+            root, stage_id=int(opts.stage_id), stage_str=opts.stage_str
+        )
         ET.indent(root, space="  ")  # type: ignore[attr-defined]
         ET.ElementTree(root).write(music_xml, encoding="utf-8", xml_declaration=True)
     except Exception:
@@ -1733,9 +1775,10 @@ def install_pgko_pick_to_acus(
     cue_dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(cue_src, cue_dst, dirs_exist_ok=True)
 
+    enabled_slots = _enabled_fumen_types_from_music_xml(music_xml)
     created_event_id: int | None = None
-    has_ult = "ULTIMA" in slot_map
-    has_we = "WORLD'S END" in slot_map
+    has_ult = "ULTIMA" in enabled_slots
+    has_we = "WORLD'S END" in enabled_slots
     if opts.create_unlock_event and (has_ult or has_we):
         created_event_id = next_custom_event_id(acus_root, start=70000)
         if has_ult:
@@ -1755,7 +1798,7 @@ def install_pgko_pick_to_acus(
 
     return {
         "musicId": mid,
-        "slots": ",".join(sorted(slot_map.keys())),
+        "slots": ",".join(sorted(enabled_slots)),
         "musicXml": str(mdir / "Music.xml"),
         "c2sDir": str(mdir),
         "cueDir": str(cue_dst),
