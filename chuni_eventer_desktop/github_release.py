@@ -8,8 +8,29 @@ from dataclasses import dataclass
 from urllib.error import HTTPError, URLError
 
 _REPO = "Swan416ya/Chuni-Eventer"
-_LATEST_API = f"https://api.github.com/repos/{_REPO}/releases/latest"
 _USER_AGENT = "Chuni-Eventer/1.0"
+
+_PENGUIN_TOOLS_CLI_EXE_RE = re.compile(
+    r"^PenguinTools\.CLI\.v\d+(?:\.\d+)*\.exe$",
+    re.IGNORECASE,
+)
+_PENGUIN_TOOLS_CLI_ASSETS_RE = re.compile(
+    r"^PenguinTools\.CLI\.v\d+(?:\.\d+)*\.external-assets\.zip$",
+    re.IGNORECASE,
+)
+
+
+@dataclass(frozen=True)
+class GitHubReleaseAsset:
+    name: str
+    download_url: str
+
+
+@dataclass(frozen=True)
+class GitHubReleaseDetails:
+    tag_name: str
+    release_url: str
+    assets: tuple[GitHubReleaseAsset, ...]
 
 
 @dataclass(frozen=True)
@@ -40,9 +61,13 @@ def compare_version_tuple(a: tuple[int, ...], b: tuple[int, ...]) -> int:
     return 0
 
 
-def fetch_latest_release(*, timeout: float = 12.0) -> LatestReleaseInfo:
+def _github_latest_release_api(repo: str) -> str:
+    return f"https://api.github.com/repos/{repo}/releases/latest"
+
+
+def fetch_github_release_latest(repo: str, *, timeout: float = 12.0) -> GitHubReleaseDetails:
     req = urllib.request.Request(
-        _LATEST_API,
+        _github_latest_release_api(repo),
         headers={
             "User-Agent": _USER_AGENT,
             "Accept": "application/vnd.github+json",
@@ -74,10 +99,59 @@ def fetch_latest_release(*, timeout: float = 12.0) -> LatestReleaseInfo:
 
     release_url = str(data.get("html_url") or "").strip()
     if not release_url:
-        release_url = f"https://github.com/{_REPO}/releases/latest"
+        release_url = f"https://github.com/{repo}/releases/latest"
 
+    assets: list[GitHubReleaseAsset] = []
+    for item in data.get("assets") or []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        url = str(item.get("browser_download_url") or "").strip()
+        if name and url:
+            assets.append(GitHubReleaseAsset(name=name, download_url=url))
+
+    return GitHubReleaseDetails(tag_name=tag, release_url=release_url, assets=tuple(assets))
+
+
+def fetch_latest_release(*, timeout: float = 12.0) -> LatestReleaseInfo:
+    details = fetch_github_release_latest(_REPO, timeout=timeout)
     return LatestReleaseInfo(
-        tag_name=tag,
-        version_tuple=parse_version_tuple(tag),
-        release_url=release_url,
+        tag_name=details.tag_name,
+        version_tuple=parse_version_tuple(details.tag_name),
+        release_url=details.release_url,
     )
+
+
+def penguin_tools_cli_download_urls_from_tag(tag: str) -> tuple[str, str]:
+    """按 Foahh/PenguinTools Release 资源命名规则构造下载 URL。"""
+    tag = tag.strip()
+    if not tag:
+        raise ValueError("tag 为空")
+    if not tag.startswith("v"):
+        tag = f"v{tag}"
+    base = f"https://github.com/Foahh/PenguinTools/releases/download/{tag}"
+    return (
+        f"{base}/PenguinTools.CLI.{tag}.exe",
+        f"{base}/PenguinTools.CLI.{tag}.external-assets.zip",
+    )
+
+
+def resolve_penguin_tools_cli_download_urls(
+    release: GitHubReleaseDetails,
+) -> tuple[str, str | None]:
+    """从 latest release 解析 CLI exe 与 external-assets 包 URL。"""
+    exe_url: str | None = None
+    assets_url: str | None = None
+    for asset in release.assets:
+        if _PENGUIN_TOOLS_CLI_EXE_RE.match(asset.name):
+            exe_url = asset.download_url
+        elif _PENGUIN_TOOLS_CLI_ASSETS_RE.match(asset.name):
+            assets_url = asset.download_url
+
+    if exe_url is None:
+        exe_url, assets_url = penguin_tools_cli_download_urls_from_tag(release.tag_name)
+        return exe_url, assets_url
+
+    if assets_url is None:
+        _, assets_url = penguin_tools_cli_download_urls_from_tag(release.tag_name)
+    return exe_url, assets_url

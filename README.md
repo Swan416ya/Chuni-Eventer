@@ -1,9 +1,11 @@
-<table>
+<div align="center">
+
+<table border="0" cellspacing="0" cellpadding="0" align="center" style="border: none; border-collapse: collapse;">
 <tr>
-<td width="96" valign="middle">
+<td valign="middle" style="border: none; padding-right: 16px;">
   <img src="https://raw.githubusercontent.com/Swan416ya/Chuni-Eventer/main/chuni_eventer_desktop/static/logo/ChuniEventer.png" width="80" alt="Chuni Eventer Logo" />
 </td>
-<td valign="middle">
+<td valign="middle" style="border: none; text-align: left;">
 
 <h1>Chuni Eventer Desktop</h1>
 
@@ -12,6 +14,8 @@
 </td>
 </tr>
 </table>
+
+</div>
 
 <p align="center">
   <a href="https://github.com/Swan416ya/Chuni-Eventer/releases">
@@ -116,6 +120,20 @@ SUS / mgxc 等谱面文件的导入与 c2s 转换，快速写入 ACUS
 | [`docs/接口与依赖`](docs/接口与依赖) | 外部 CLI 与依赖说明 |
 
 </details>
+
+## Star 趋势
+
+<p align="center">
+  <a href="https://github.com/Swan416ya/Chuni-Eventer/stargazers">
+    <img src="https://img.shields.io/github/stars/Swan416ya/Chuni-Eventer?style=for-the-badge&logo=github&logoColor=white&label=Stars" alt="GitHub Stars" />
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://star-history.com/#Swan416ya/Chuni-Eventer&Date">
+    <img src="https://api.star-history.com/svg?repos=Swan416ya/Chuni-Eventer&type=Date" width="600" alt="Star History Chart" />
+  </a>
+</p>
 
 ---
 

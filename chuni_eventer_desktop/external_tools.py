@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Literal
 
 from .acus_workspace import AcusConfig, app_cache_dir, app_root_dir
+from .github_release import fetch_github_release_latest, resolve_penguin_tools_cli_download_urls
 
 _log = logging.getLogger("chuni.external_tools")
 
@@ -54,6 +55,8 @@ class ExternalToolSpec:
     download_url: str | None = None
     archive_kind: ArchiveKind = "zip"
     companion_download_url: str | None = None
+    # 若设置，安装前通过 GitHub API 解析该仓库 latest release 的下载地址。
+    latest_release_repo: str | None = None
     help_url: str | None = None
 
 
@@ -83,6 +86,9 @@ TOOL_COMPRESSONATOR = ExternalToolSpec(
     help_url="https://github.com/GPUOpen-Tools/compressonator",
 )
 
+# API 不可用时回退到该 tag 的 Release 资源（须与上游命名一致）。
+_PENGUIN_TOOLS_CLI_FALLBACK_TAG = "v1.12.1"
+
 TOOL_PENGUINTOOLS_CLI = ExternalToolSpec(
     id="penguin_tools_cli",
     name="PenguinTools.CLI",
@@ -92,12 +98,16 @@ TOOL_PENGUINTOOLS_CLI = ExternalToolSpec(
     config_field="penguin_tools_cli_path",
     default_rel="PenguinToolsCLI/PenguinTools.CLI.exe",
     exe_name="PenguinTools.CLI.exe",
-    download_url="https://github.com/Foahh/PenguinTools/releases/download/v1.8.4/PenguinTools.CLI.v1.8.4.exe",
+    download_url=(
+        f"https://github.com/Foahh/PenguinTools/releases/download/{_PENGUIN_TOOLS_CLI_FALLBACK_TAG}/"
+        f"PenguinTools.CLI.{_PENGUIN_TOOLS_CLI_FALLBACK_TAG}.exe"
+    ),
     archive_kind="exe",
     companion_download_url=(
-        "https://github.com/Foahh/PenguinTools/releases/download/v1.8.4/"
-        "PenguinTools.CLI.v1.8.4.external-assets.zip"
+        f"https://github.com/Foahh/PenguinTools/releases/download/{_PENGUIN_TOOLS_CLI_FALLBACK_TAG}/"
+        f"PenguinTools.CLI.{_PENGUIN_TOOLS_CLI_FALLBACK_TAG}.external-assets.zip"
     ),
+    latest_release_repo="Foahh/PenguinTools",
     help_url="https://github.com/Foahh/PenguinTools/releases",
 )
 
@@ -483,6 +493,51 @@ def _install_direct_exe(
     shutil.copy2(exe_cache, dest_exe)
 
 
+def _resolve_tool_download_urls(
+    spec: ExternalToolSpec,
+    *,
+    on_progress: ToolProgressCallback | None = None,
+) -> tuple[str, str | None]:
+    download_url = spec.download_url
+    companion_url = spec.companion_download_url
+    if not spec.latest_release_repo:
+        if not download_url:
+            raise RuntimeError(f"{spec.name} 暂无自动下载源，请手动安装后浏览选择路径。")
+        return download_url, companion_url
+
+    _report_progress(on_progress, f"正在查询 {spec.name} 最新版本…", None)
+    try:
+        release = fetch_github_release_latest(spec.latest_release_repo)
+        if spec.id == "penguin_tools_cli":
+            download_url, companion_url = resolve_penguin_tools_cli_download_urls(release)
+        else:
+            raise RuntimeError(f"未实现 {spec.latest_release_repo} 的 latest release 解析")
+        _log.info(
+            "tool_latest_release id=%s repo=%s tag=%s exe=%s",
+            spec.id,
+            spec.latest_release_repo,
+            release.tag_name,
+            download_url,
+        )
+        _report_progress(
+            on_progress,
+            f"将下载 {spec.name} {release.tag_name}",
+            None,
+        )
+        return download_url, companion_url
+    except Exception as exc:
+        if not download_url:
+            raise
+        _log.warning(
+            "tool_latest_release_fallback id=%s repo=%s err=%s",
+            spec.id,
+            spec.latest_release_repo,
+            exc,
+        )
+        _report_progress(on_progress, "无法查询最新版本，使用内置回退下载地址", None)
+        return download_url, companion_url
+
+
 def install_tool(
     spec: ExternalToolSpec,
     cfg: AcusConfig,
@@ -494,6 +549,7 @@ def install_tool(
         raise RuntimeError(f"{spec.name} 暂无自动下载源，请手动安装后浏览选择路径。")
 
     _check_cancel(cancel)
+    download_url, companion_url = _resolve_tool_download_urls(spec, on_progress=on_progress)
     dest = default_tool_path(spec)
     cache_dir = app_cache_dir() / "tool_downloads"
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -502,17 +558,17 @@ def install_tool(
     if spec.archive_kind == "exe":
         exe_cache = cache_dir / f"{safe_name}.exe"
         _http_download(
-            spec.download_url,
+            download_url,
             exe_cache,
             on_progress=on_progress,
             label=f"正在下载 {spec.name}",
             cancel=cancel,
         )
         _install_direct_exe(spec, exe_cache, dest_exe=dest, on_progress=on_progress)
-        if spec.companion_download_url:
+        if companion_url:
             assets_zip = cache_dir / f"{safe_name}_assets.zip"
             _http_download(
-                spec.companion_download_url,
+                companion_url,
                 assets_zip,
                 on_progress=on_progress,
                 label=f"正在下载 {spec.name} 资源包",
@@ -524,7 +580,7 @@ def install_tool(
     else:
         zip_path = cache_dir / f"{safe_name}.zip"
         _http_download(
-            spec.download_url,
+            download_url,
             zip_path,
             on_progress=on_progress,
             label=f"正在下载 {spec.name}",
