@@ -50,8 +50,11 @@ from ..pgko_to_c2s import (
     convert_pgko_chart_pick_to_c2s_with_backend,
     detect_pgko_stage_background_for_pick,
     install_pgko_pick_to_acus,
+    PGKO_INSTALL_PIPELINE_ID,
+    MgxcPenguinPreflightError,
     PgkoChartPick,
     pick_pgko_chart_for_convert,
+    preflight_pgko_pick_for_penguin,
     read_pgko_meta_for_pick,
     suggest_next_pgko_music_id,
     PgkoInstallOptions,
@@ -460,6 +463,8 @@ class _PgkoUgcGuideDialog(FluentCaptionDialog):
         step3.setText(
             "3. 使用快捷键 <b>Ctrl+Shift+S</b> 将谱面另存为 <b>mgxc</b>，"
             "保存到与原始 <b>ugc</b> 相同的文件夹（便于本工具与音频、封面等资源同目录识别）。"
+            "<br>导入前本工具会从同目录 <b>ugc</b> 自动补全 mgxc 中缺失的 BGM/标题/试听等字段，"
+            "并在临时目录生成 WAV，<b>不会改写</b>包内原始音频文件。"
         )
 
         hp.addWidget(title)
@@ -1300,9 +1305,22 @@ class _PgkoInstallConfigDialog(FluentCaptionDialog):
             stage_str=stage_str,
             create_unlock_event=self._ev.isChecked() if self._ev.isVisible() else False,
         )
+        try:
+            prep = preflight_pgko_pick_for_penguin(self._pick, music_id=mid)
+        except MgxcPenguinPreflightError as e:
+            fly_critical(self, "导入前检查未通过", str(e))
+            return
+        pre_status = (
+            f"导入管线：{PGKO_INSTALL_PIPELINE_ID}（分步：多难度 chart + 本地音频，无 music export）\n"
+            "正在导入（谱面/音频/事件），请稍候…"
+        )
+        if prep.filled_fields:
+            pre_status = (
+                f"已自动补全 mgxc 元数据：{', '.join(prep.filled_fields)}\n" + pre_status
+            )
         if self._thread is not None:
             return
-        self._status.setText("正在导入（谱面/音频/事件），请稍候…")
+        self._status.setText(pre_status)
         self._status.show()
         self._ok_btn.setEnabled(False)
         self._pending_accept_result = None
@@ -1334,7 +1352,14 @@ class _PgkoInstallConfigDialog(FluentCaptionDialog):
 
     def _on_install_fail(self, msg: str) -> None:
         _pgko_dlog("_on_install_fail", msg=msg[:220])
-        self._status.setText(f"导入失败：{msg}")
+        text = f"导入失败：{msg}"
+        if "music export" in msg and PGKO_INSTALL_PIPELINE_ID not in msg:
+            text += (
+                "\n\n【提示】当前报错来自旧版「music export」管线。"
+                f"请用本仓库最新源码启动（应显示管线 {PGKO_INSTALL_PIPELINE_ID}），"
+                "或重新打包 exe；勿直接运行未更新的 CHUNITOOL 目录下旧程序。"
+            )
+        self._status.setText(text)
         self._status.show()
 
     def _on_install_ok(self, ret: object) -> None:
@@ -1344,6 +1369,7 @@ class _PgkoInstallConfigDialog(FluentCaptionDialog):
             self._status.setText("导入失败：返回结果格式错误")
             self._status.show()
             return
+        filled = str(ret.get("metaFilled") or "").strip()
         summary = (
             "导入完成。\n"
             f"musicId: {ret.get('musicId')}\n"
@@ -1352,6 +1378,11 @@ class _PgkoInstallConfigDialog(FluentCaptionDialog):
             f"cue: {ret.get('cueDir')}\n"
             f"event: {ret.get('eventId')}"
         )
+        if filled:
+            summary += f"\n自动补全: {filled}"
+        ab = str(ret.get("audioBackend") or "").strip()
+        if ab:
+            summary += f"\n音频: {ab}"
         _pgko_dlog("_on_install_ok:pending_accept", summary=summary)
         self._status.setText(summary)
         self._status.show()
