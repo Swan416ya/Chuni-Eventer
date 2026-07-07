@@ -36,11 +36,11 @@ class SettingsPage(QWidget):
 
     _ROUTE_INDEX: dict[str, int] = {
         "about": 0,
-        "game_data": 1,
-        "tools": 2,
+        "resource_pack": 1,
+        "game_data": 2,
         "save_patch": 3,
-        "experimental": 4,
-        "resource_pack": 5,
+        "tools": 4,
+        "experimental": 5,
     }
 
     def __init__(
@@ -70,11 +70,11 @@ class SettingsPage(QWidget):
 
         self._seg = SegmentedWidget(self)
         self._seg.addItem("about", "关于")
-        self._seg.addItem("game_data", "游戏数据")
-        self._seg.addItem("tools", "外部工具")
-        self._seg.addItem("save_patch", "存档编辑器")
-        self._seg.addItem("experimental", "实验性功能")
         self._seg.addItem("resource_pack", "资源导入")
+        self._seg.addItem("game_data", "游戏数据")
+        self._seg.addItem("save_patch", "存档编辑器")
+        self._seg.addItem("tools", "外部工具")
+        self._seg.addItem("experimental", "实验性功能")
         root.addWidget(self._seg)
 
         self._stack = QStackedWidget(self)
