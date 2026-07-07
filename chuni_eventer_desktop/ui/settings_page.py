@@ -17,6 +17,7 @@ from .settings_about_panel import SettingsAboutPanel
 from .game_data_settings_panel import GameDataSettingsPanel
 from .settings_dialog import SettingsExperimentalPanel
 from .tools_settings_panel import ToolsSettingsPanel
+from .resource_pack_settings_panel import ResourcePackSettingsPanel
 
 
 def _scroll_wrap(inner: QWidget) -> ScrollArea:
@@ -39,6 +40,7 @@ class SettingsPage(QWidget):
         "tools": 2,
         "save_patch": 3,
         "experimental": 4,
+        "resource_pack": 5,
     }
 
     def __init__(
@@ -72,6 +74,7 @@ class SettingsPage(QWidget):
         self._seg.addItem("tools", "外部工具")
         self._seg.addItem("save_patch", "存档编辑器")
         self._seg.addItem("experimental", "实验性功能")
+        self._seg.addItem("resource_pack", "资源导入")
         root.addWidget(self._seg)
 
         self._stack = QStackedWidget(self)
@@ -98,11 +101,13 @@ class SettingsPage(QWidget):
             get_tool_path=get_tool_path,
             parent=self,
         )
+        self._resource_pack = ResourcePackSettingsPanel(acus_root=acus_root, parent=self)
         self._stack.addWidget(_scroll_wrap(self._about))
         self._stack.addWidget(_scroll_wrap(self._game_data))
         self._stack.addWidget(_scroll_wrap(self._tools))
         self._stack.addWidget(_scroll_wrap(self._save_patch))
         self._stack.addWidget(_scroll_wrap(self._experimental))
+        self._stack.addWidget(_scroll_wrap(self._resource_pack))
         root.addWidget(self._stack, stretch=1)
 
         self._on_settings_saved = on_settings_saved
