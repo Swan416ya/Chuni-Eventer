@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import socket
 import ssl
+import time
 import urllib.request
 from dataclasses import dataclass
 from urllib.error import HTTPError
 
 PGKO_BASE_URL = "https://pgko.dev"
+_HTTP_MAX_RETRIES = 2  # total 3 attempts
+_HTTP_RETRY_DELAYS = [1.0, 2.0]  # exponential backoff
 
 
 @dataclass(frozen=True)
@@ -25,50 +29,95 @@ class PgkoSheetPage:
 def _http_get_bytes(url: str, timeout: float = 120.0) -> bytes:
     req = urllib.request.Request(
         url,
-        headers={"User-Agent": "Chuni-Eventer/1.0"},
+        headers={"User-Agent": "Mozilla/5.0"},
         method="GET",
     )
     ctx = ssl.create_default_context()
-    try:
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
-            return resp.read()
-    except HTTPError as e:
-        body = ""
+    last_exc: Exception | None = None
+    for attempt in range(_HTTP_MAX_RETRIES + 1):
         try:
-            body = e.read().decode("utf-8", errors="replace")
-        except Exception:
+            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+                return resp.read()
+        except HTTPError as e:
             body = ""
-        snippet = body[:400].strip()
-        raise RuntimeError(
-            f"HTTP {e.code} while GET {url}\n"
-            f"reason: {e.reason}\n"
-            f"response: {snippet or '<empty>'}"
-        ) from e
+            try:
+                body = e.read().decode("utf-8", errors="replace")
+            except Exception:
+                body = ""
+            snippet = body[:400].strip()
+            raise RuntimeError(
+                f"HTTP {e.code} while GET {url}\n"
+                f"reason: {e.reason}\n"
+                f"response: {snippet or '<empty>'}"
+            ) from e
+        except (urllib.error.URLError, socket.timeout) as e:
+            last_exc = e
+            if attempt < _HTTP_MAX_RETRIES:
+                time.sleep(_HTTP_RETRY_DELAYS[attempt])
+                continue
+            raise RuntimeError(
+                f"网络错误 while GET {url}\n"
+                f"error_type: {type(e).__name__}\n"
+                f"reason: {e}\n"
+            ) from e
+    # unreachable, but keep the type checker happy
+    assert last_exc is not None
+    raise last_exc
 
 
 def _http_get_json(url: str, timeout: float = 60.0):
+    import json
     req = urllib.request.Request(
         url,
         headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
         method="GET",
     )
     ctx = ssl.create_default_context()
-    try:
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
-            raw = resp.read()
-    except HTTPError as e:
-        body = ""
+    last_exc: Exception | None = None
+    for attempt in range(_HTTP_MAX_RETRIES + 1):
         try:
-            body = e.read().decode("utf-8", errors="replace")
-        except Exception:
+            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+                raw = resp.read()
+        except HTTPError as e:
             body = ""
-        snippet = body[:400].strip()
-        raise RuntimeError(
-            f"HTTP {e.code} while GET {url}\n"
-            f"reason: {e.reason}\n"
-            f"response: {snippet or '<empty>'}"
-        ) from e
-    return __import__("json").loads(raw.decode("utf-8", errors="replace"))
+            try:
+                body = e.read().decode("utf-8", errors="replace")
+            except Exception:
+                body = ""
+            snippet = body[:400].strip()
+            raise RuntimeError(
+                f"HTTP {e.code} while GET {url}\n"
+                f"reason: {e.reason}\n"
+                f"response: {snippet or '<empty>'}"
+            ) from e
+        except (urllib.error.URLError, socket.timeout) as e:
+            last_exc = e
+            if attempt < _HTTP_MAX_RETRIES:
+                time.sleep(_HTTP_RETRY_DELAYS[attempt])
+                continue
+            raise RuntimeError(
+                f"网络错误 while GET {url}\n"
+                f"error_type: {type(e).__name__}\n"
+                f"reason: {e}\n"
+            ) from e
+        # HTTP 请求成功，尝试解析 JSON
+        try:
+            return json.loads(raw.decode("utf-8", errors="replace"))
+        except json.JSONDecodeError as e:
+            last_exc = e
+            if attempt < _HTTP_MAX_RETRIES:
+                time.sleep(_HTTP_RETRY_DELAYS[attempt])
+                continue
+            # 最后一次重试仍失败，把 raw 内容片段放进报错
+            snippet = raw.decode("utf-8", errors="replace")[:300].strip()
+            raise RuntimeError(
+                f"服务器返回了无效 JSON（重试 {_HTTP_MAX_RETRIES} 次仍失败，url={url}）\n"
+                f"JSON 错误: {e}\n"
+                f"已收到 {len(raw)} 字节响应\n"
+                f"响应内容前 300 字符: {snippet or '<空响应>'}"
+            ) from e
+    assert last_exc is not None
+    raise last_exc
 
 
 def _bundle_download_api_url(bundle_id: str) -> str:

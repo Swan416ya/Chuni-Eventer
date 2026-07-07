@@ -59,10 +59,9 @@ class ToolInstallProgressDialog(QDialog):
         self._label.setStyleSheet("color: #374151; font-size: 13px; background: transparent;")
 
         self._bar = QProgressBar(self)
-        self._bar.setRange(0, 100)
-        self._bar.setValue(0)
-        self._bar.setTextVisible(True)
-        self._bar.setFormat("0%")
+        # Start in indeterminate mode ("准备中…") until first real percent arrives.
+        self._bar.setRange(0, 0)
+        self._bar.setFormat("准备中…")
 
         layout.addWidget(self._label)
         layout.addWidget(self._bar)

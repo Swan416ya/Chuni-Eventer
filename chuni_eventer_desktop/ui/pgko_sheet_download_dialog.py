@@ -4,6 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 import logging
 import os
+import traceback
 import zipfile
 import xml.etree.ElementTree as ET
 import shutil
@@ -63,7 +64,7 @@ from ..penguin_tools_cli import explain_penguin_tools_cli_lookup, resolve_pengui
 from ..stage_from_image import StageAfbToolError, StageCreateOptions, create_stage_from_image
 from ..dds_convert import DdsToolError
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
-from .fluent_dialogs import fly_message_async, fly_question_async, fly_warning, fly_critical
+from .fluent_dialogs import fly_message_async, fly_question_async, fly_warning, fly_critical, _apply_fluent_style_to_native_message_box
 from .fluent_table import (
     apply_fluent_sheet_table,
     apply_fluent_tableview_header_style,
@@ -147,7 +148,12 @@ class _FetchPgkoThread(QThread):
         try:
             self.ok.emit(fetch_pgko_sheet_page(base_url=PGKO_BASE_URL, cursor=self._cursor))
         except Exception as e:
-            self.fail.emit(str(e))
+            detail = (
+                f"异常类型: {type(e).__name__}\n"
+                f"异常消息: {e}\n"
+                f"完整堆栈:\n{''.join(traceback.format_exception(e))}"
+            )
+            self.fail.emit(detail)
 
 
 class _DownloadPgkoThread(QThread):
@@ -187,7 +193,12 @@ class _DownloadPgkoThread(QThread):
                 raw_path.write_bytes(data)
                 self.ok.emit(str(raw_path), ext, False)
         except Exception as e:
-            self.fail.emit(str(e))
+            detail = (
+                f"异常类型: {type(e).__name__}\n"
+                f"异常消息: {e}\n"
+                f"完整堆栈:\n{''.join(traceback.format_exception(e))}"
+            )
+            self.fail.emit(detail)
 
 
 class _InstallPgkoThread(QThread):
@@ -219,7 +230,12 @@ class _InstallPgkoThread(QThread):
             )
             self.ok.emit(ret)
         except Exception as e:
-            self.fail.emit(f"{type(e).__name__}: {e}")
+            detail = (
+                f"异常类型: {type(e).__name__}\n"
+                f"异常消息: {e}\n"
+                f"完整堆栈:\n{''.join(traceback.format_exception(e))}"
+            )
+            self.fail.emit(detail)
 
 
 def _pgko_convert_worker(output: Path) -> dict[str, object]:
@@ -945,6 +961,25 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
             single_button=True,
             window_modal=False,
         )
+        # Also show a modal popup with copy button for debugging
+        parent = self.window()
+        if not parent or not parent.isWindow():
+            parent = self
+        box = QMessageBox(parent)
+        box.setWindowTitle("读取 pgko.dev 失败")
+        _apply_fluent_style_to_native_message_box(box)
+        box.setText(
+            "从 pgko.dev 加载列表失败。\n"
+            "请截图下方调试信息发给开发者。"
+        )
+        box.setDetailedText(msg)
+        box.setIcon(QMessageBox.Icon.Critical)
+        copy_btn = box.addButton("复制调试信息", QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Close)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked == copy_btn:
+            QApplication.clipboard().setText(msg)
 
     def _fetch_more(self) -> None:
         if not self._next_cursor:
@@ -1029,6 +1064,26 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
             "调试信息（复制给开发者）：\n"
             f"{msg}"
         )
+        # Show modal popup with copy button
+        parent = self.window()
+        if not parent or not parent.isWindow():
+            parent = self
+
+        box = QMessageBox(parent)
+        box.setWindowTitle("下载失败")
+        _apply_fluent_style_to_native_message_box(box)
+        box.setText(
+            "下载 pgko.dev 谱面失败。\n"
+            "请截图下方调试信息发给开发者，并用新版本重试。"
+        )
+        box.setDetailedText(msg)
+        box.setIcon(QMessageBox.Icon.Critical)
+        copy_btn = box.addButton("复制调试信息", QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Close)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked == copy_btn:
+            QApplication.clipboard().setText(msg)
 
     def _try_convert_pgko_to_c2s(self, output: Path) -> None:
         _pgko_dlog("_try_convert_pgko_to_c2s:start", output=str(output))

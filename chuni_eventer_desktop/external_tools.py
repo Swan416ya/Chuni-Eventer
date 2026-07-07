@@ -18,6 +18,7 @@ import threading
 import urllib.request
 import zipfile
 from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -381,24 +382,38 @@ def _http_download(
     ctx = ssl.create_default_context()
     last_pct = -1
     last_bytes_report = 0
-    with urllib.request.urlopen(req, timeout=600, context=ctx) as resp:
+    last_emit_time = 0.0  # time.monotonic() of last progress emit, 0 = never
+    MAX_TOTAL_S = 1800  # 30-minute total download cap
+    SOCKET_READ_S = 60  # single socket read idle timeout
+
+    with urllib.request.urlopen(req, timeout=SOCKET_READ_S, context=ctx) as resp:
+        import time as _time
+        start_time = _time.monotonic()
         total = int(resp.headers.get("Content-Length") or 0)
         read = 0
         chunk = 256 * 1024
         with dest.open("wb") as f:
             while True:
                 _check_cancel(cancel)
-                buf = resp.read(chunk)
+                try:
+                    buf = resp.read(chunk)
+                except OSError as e:
+                    raise RuntimeError(f"下载空闲超时（{SOCKET_READ_S}秒无数据），可能网络中断") from e
                 if not buf:
                     break
+                # Total download cap check
+                if _time.monotonic() - start_time > MAX_TOTAL_S:
+                    raise TimeoutError(f"下载总超时（超过{MAX_TOTAL_S}秒={MAX_TOTAL_S/60:.0f}分钟），已中止")
                 f.write(buf)
                 read += len(buf)
                 if not on_progress:
                     continue
+                now = _time.monotonic()
                 if total > 0:
                     pct = min(100, int(read * 100 / total))
-                    if pct != last_pct:
+                    if pct != last_pct or now - last_emit_time >= 2.0:
                         last_pct = pct
+                        last_emit_time = now
                         _report_progress(
                             on_progress,
                             f"{label} {_format_bytes(read)} / {_format_bytes(total)}（{pct}%）",
@@ -406,6 +421,7 @@ def _http_download(
                         )
                 elif read - last_bytes_report >= 512 * 1024:
                     last_bytes_report = read
+                    last_emit_time = now
                     _report_progress(
                         on_progress,
                         f"{label} 已接收 {_format_bytes(read)}（总大小未知）",
@@ -506,26 +522,58 @@ def _resolve_tool_download_urls(
         return download_url, companion_url
 
     _report_progress(on_progress, f"正在查询 {spec.name} 最新版本…", None)
-    try:
+
+    # Run GitHub API query in a background thread; wait up to 3s.
+    # If the query is too slow, fall back to the embedded URL so download can start.
+    def _do_github_query() -> tuple[str, str | None, str | None]:
+        """Block until GitHub API resolves, or raise. Returns (download_url, companion_url, tag_name)."""
         release = fetch_github_release_latest(spec.latest_release_repo)
         if spec.id == "penguin_tools_cli":
             download_url, companion_url = resolve_penguin_tools_cli_download_urls(release)
-        else:
-            raise RuntimeError(f"未实现 {spec.latest_release_repo} 的 latest release 解析")
-        _log.info(
-            "tool_latest_release id=%s repo=%s tag=%s exe=%s",
-            spec.id,
-            spec.latest_release_repo,
-            release.tag_name,
-            download_url,
-        )
-        _report_progress(
-            on_progress,
-            f"将下载 {spec.name} {release.tag_name}",
-            None,
-        )
-        return download_url, companion_url
+            return download_url, companion_url, release.tag_name
+        raise RuntimeError(f"未实现 {spec.latest_release_repo} 的 latest release 解析")
+
+    github_future: Future[tuple[str, str | None, str | None]] | None = None
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            github_future = executor.submit(_do_github_query)
+            try:
+                resolved_urls = github_future.result(timeout=3.0)
+                download_url, companion_url, tag_name = resolved_urls
+                if tag_name:
+                    _report_progress(
+                        on_progress,
+                        f"将下载 {spec.name} {tag_name}",
+                        None,
+                    )
+                _log.info(
+                    "tool_latest_release id=%s repo=%s tag=%s exe=%s",
+                    spec.id,
+                    spec.latest_release_repo,
+                    tag_name or "?",
+                    download_url,
+                )
+                return download_url, companion_url
+            except TimeoutError:
+                _log.warning(
+                    "tool_github_api_timeout id=%s repo=%s falling back to embedded URL",
+                    spec.id,
+                    spec.latest_release_repo,
+                )
+                _report_progress(on_progress, "GitHub API 响应慢，使用内置回退下载地址", None)
+                return download_url, companion_url
     except Exception as exc:
+        # ThreadPoolExecutor submit failed (unlikely), or query threw
+        if github_future is not None:
+            try:
+                github_future.result(timeout=0.1)
+            except Exception as query_exc:
+                _log.warning(
+                    "tool_latest_release_fallback id=%s repo=%s err=%s",
+                    spec.id,
+                    spec.latest_release_repo,
+                    query_exc,
+                )
         if not download_url:
             raise
         _log.warning(
