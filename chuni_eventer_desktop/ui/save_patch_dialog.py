@@ -274,6 +274,7 @@ class SavePatchPanel(QWidget):
         lay.addWidget(self._np_label)
         lay.addWidget(self.np_preview)
         lay.addLayout(btn_row)
+        lay.addStretch(1)
         return page
 
     def _open_np_picker(self) -> None:
@@ -360,6 +361,7 @@ class SavePatchPanel(QWidget):
         lay.addWidget(self.tr_limit_hint)
         lay.addLayout(form)
         lay.addWidget(self.tr_preview)
+        lay.addStretch(1)
         return page
 
     def _build_tr_slot_row(self, label: str, holder: _SelectionHolder) -> tuple[QWidget, QWidget]:
@@ -476,6 +478,7 @@ class SavePatchPanel(QWidget):
         lay.addLayout(info_lay)
 
         lay.addWidget(self.sv_preview)
+        lay.addStretch(1)
         return page
 
     def _open_sv_picker(self) -> None:
@@ -551,6 +554,7 @@ class SavePatchPanel(QWidget):
         lay.addLayout(info_lay)
 
         lay.addWidget(self.mi_preview)
+        lay.addStretch(1)
         return page
 
     def _open_mi_picker(self) -> None:
