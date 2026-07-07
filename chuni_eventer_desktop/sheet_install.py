@@ -357,6 +357,66 @@ def peek_root_readme_from_archive(archive_path: Path) -> str | None:
     return None
 
 
+# --- 非覆盖式安装 ---
+def install_zip_to_acus_non_overwriting(
+    zip_path: Path,
+    acus_root: Path,
+) -> tuple[list[str], list[str]]:
+    """
+    非覆盖式安装 zip 到 ACUS。
+
+    与 install_zip_to_acus 相同，但若目标文件已存在则跳过并记录到 skipped。
+
+    Args:
+        zip_path: 待安装的 zip 文件路径
+        acus_root: ACUS 根目录
+
+    Returns:
+        (written, skipped) 二元组：
+        - written: 成功写入的文件相对路径列表（相对 acus_root，正斜杠）
+        - skipped: 因目标已存在而跳过的文件相对路径列表
+
+    任何 skipped 都应视为异常情况（plan 阶段已保证无冲突），
+    调用方应检查 skipped 非空时中止导入。
+
+    异常：
+        - 如果 zip 内有非白名单顶层目录，抛 ValueError（与 install_zip_to_acus 一致）
+        - 如果 zip 损坏，抛 zipfile.BadZipFile
+    """
+    acus_root = acus_root.resolve()
+    written: list[str] = []
+    skipped: list[str] = []
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        map_path = _mapper_for_paths(zf.namelist())
+        for name in zf.namelist():
+            if _is_junk_member(name):
+                continue
+            try:
+                rel = map_path(name)
+            except ValueError as e:
+                raise ValueError(f"{e}\n（条目：{name!r}）") from e
+            if str(rel) in (".", ""):
+                continue
+            if name.endswith("/"):
+                dest_dir = (acus_root / rel).resolve()
+                if not str(dest_dir).startswith(str(acus_root)):
+                    raise ValueError(f"非法路径：{name!r}")
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                continue
+            dest = (acus_root / rel).resolve()
+            if not str(dest).startswith(str(acus_root)):
+                raise ValueError(f"非法路径（压缩包路径穿越）：{name!r}")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if dest.exists():
+                skipped.append(rel.as_posix())
+                continue
+            with zf.open(name, "r") as src:
+                dest.write_bytes(src.read())
+            written.append(rel.as_posix())
+
+    return (written, skipped)
+
+
 def install_zip_to_acus(archive_path: Path, acus_root: Path) -> list[str]:
     """
     将归档文件解压并写入 ACUS（不做谱面格式转换，仅按路径规则落位）。
