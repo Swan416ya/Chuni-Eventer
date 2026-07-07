@@ -39,7 +39,7 @@ from .acus_scan import (
     scan_trophies,
 )
 from .chuni_formats import ChuniCharaId
-from .map_export_bundle import _resource_dir_by_xml_glob, _safe_int
+from .map_export_bundle import _safe_int
 from .resource_id_allocator import ResourceIdAllocator, UnsupportedAllocationError
 from .resource_reference_graph import (
     PackageResource,
@@ -160,8 +160,11 @@ def scan_package_resources(staging_root: Path) -> list[PackageResource]:
             xml_rel = Path(item.xml_path).relative_to(staging)
             dir_rel = xml_rel.parent
             extra: dict = {}
-            if kind == "systemVoice" and hasattr(item, "cue_numeric_id") and item.cue_numeric_id is not None:
-                extra["cue_numeric_id"] = item.cue_numeric_id
+            if kind == "systemVoice":
+                cue_id = getattr(item, "cue_numeric_id", None)
+                if cue_id is None:
+                    cue_id = cue_numeric_id_for_voice(item.name.id)
+                extra["cue_numeric_id"] = cue_id
             resources.append(PackageResource(
                 kind=kind,
                 resource_id=item.name.id,
@@ -281,8 +284,11 @@ def detect_conflicts(
     allocator = ResourceIdAllocator(acus_root)
     # 构建 ACUS used_ids 缓存
     acus_used_ids: dict[str, set[int]] = {}
-    # 只扫描可能出现在包内的类型
-    kinds_needed = set(r.kind for r in resources)
+    # M1: 包含 edge 的 target kinds，确保跨类型冲突检测覆盖 ddsImage/cueFile 等
+    kinds_needed = set(r.kind for r in resources) | set(e.target_kind for e in graph.edges)
+    # C2: systemVoice 的 cue_numeric_id 需要对照 ACUS cueFile 集合
+    if any(r.kind == "systemVoice" for r in resources):
+        kinds_needed.add("cueFile")
     for kind in kinds_needed:
         acus_used_ids[kind] = allocator.used_ids(kind)
 
@@ -354,7 +360,7 @@ def detect_conflicts(
 
 
 # ---------------------------------------------------------------------------
-# 3. plan_remap
+# 3. plan_remap — H8 重构：先收集所有 remaps，再统一遍历边
 # ---------------------------------------------------------------------------
 
 def _plan_remap(
@@ -365,73 +371,45 @@ def _plan_remap(
     acus_root: Path,
 ) -> RemapPlan:
     """
-    按架构文档 §4.3 实现重映射规划。
+    按架构文档 §4.3 实现重映射规划（H8 重构版）。
 
-    步骤：
-    1. 为每个冲突项分配新 ID
-    2. 对每条引用边传播改写到 source_file
-    3. 对被重映射资源的自身 XML 加 name/id 改写
-    4. 计算目录/文件重命名
-    5. chara ddsImage 联动
-    6. cueFile 联动
-    7. 校验
+    步骤（H8 重构后顺序）：
+    1. 为每个冲突项分配新 ID → remaps
+    1.5 计算联动 remaps（ddsImage + cueFile），补入 remaps
+    2. 统一遍历 graph.edges → 对 target_key in remaps 的边产生 FieldEdit（自动覆盖 ddsImage/cueFile）
+    3. 计算目录/文件重命名
+    4. chara ddsImage 联动的 DDSImage.xml name/id 改写
+    5. cueFile 的 CueFile.xml name/id 改写
     """
     remaps: dict[tuple[str, int], int] = {}
+    all_errors: list[str] = []
 
-    # Step 1: 为每个冲突项分配新 ID
+    # ---------- Step 1: 为每个冲突项分配新 ID ----------
+    # H3: 收集所有失败而非首个失败即返回
     for entry in conflict_report.conflicts:
         old_key = (entry.kind, entry.old_id)
         try:
             new_id = allocator.allocate(entry.kind)
+            remaps[old_key] = new_id
         except UnsupportedAllocationError as e:
-            return RemapPlan(
-                remaps={},
-                file_edits={},
-                dir_renames=[],
-                file_renames=[],
-                warnings=conflict_report.package_warnings,
-                errors=(f"无法为 {entry.kind} 分配新 ID：{e}",),
-            )
-        remaps[old_key] = new_id
+            all_errors.append(f"无法为 {entry.kind}#{entry.old_id} 分配新 ID：{e}")
 
-    # Step 2: 对每条引用边传播改写到 source_file
-    file_edits: dict[Path, list[FieldEdit]] = {}
-    acus_used_ids = {
-        kind: allocator.used_ids(kind) for kind in set(e.target_kind for e in graph.edges) | set(e.source_kind for e in graph.edges)
-    }
-
-    for edge in graph.edges:
-        target_key = (edge.target_kind, edge.target_id)
-        if target_key not in remaps:
-            # target 不在 remaps 中
-            if not edge.in_package:
-                # 检查是否是悬空引用（target 不在包内也不在 ACUS）
-                acus_ids = acus_used_ids.get(edge.target_kind, set())
-                if edge.target_id not in acus_ids:
-                    # 悬空引用：warning，保留原值，不产生 edit
-                    continue
-                else:
-                    # 外部引用（在 ACUS 中）：不产生 edit
-                    continue
-            # target 在包内且不冲突：不产生 edit
-            continue
-
-        # target 在 remaps 中 → 产生 FieldEdit
-        new_id = remaps[target_key]
-        file_edits.setdefault(edge.source_file, []).append(
-            FieldEdit(xpath=edge.xpath, old_id=edge.target_id, new_id=new_id)
+    # H3: 如果分配阶段有失败，返回错误
+    if all_errors:
+        return RemapPlan(
+            remaps={},
+            file_edits={},
+            dir_renames=[],
+            file_renames=[],
+            warnings=conflict_report.package_warnings,
+            errors=tuple(all_errors),
         )
 
-    # Step 3: 对被重映射资源的自身 XML 加 name/id 改写
-    # （apply_remap_plan 内部会自动处理，但我们需要确保 remaps 包含所有
-    #  联动产生的 (kind, old) → new）
-
-    # Step 4: 计算目录/文件重命名
-    dir_renames = compute_dir_renames(staging_root, remaps)
-    file_renames = compute_file_renames(staging_root, remaps)
-
-    # Step 5: chara ddsImage 联动
+    # ---------- Step 1.5: 计算联动 remaps（ddsImage + cueFile） ----------
     _dds_warnings: list[str] = []
+    _cuefile_warnings: list[str] = []
+
+    # --- 1.5a: chara → ddsImage 联动 ---
     for (kind, old_id), new_id in list(remaps.items()):
         if kind != "chara":
             continue
@@ -441,49 +419,13 @@ def _plan_remap(
             raw6_old = cid_old.raw6
             raw6_new = cid_new.raw6
 
-            # 检查 ddsImage 是否已在这个 plan 中被其他 chara 使用
             dds_old_key = ("ddsImage", int(raw6_old))
             dds_new_key = ("ddsImage", int(raw6_new))
 
-            if dds_old_key not in remaps:
-                # 需要新增 ddsImage 重映射
-                # 先检查 ddsImage 新 ID 是否冲突
-                dds_used = allocator.used_ids("ddsImage")
-                raw6_new_int = int(raw6_new)
-                if raw6_new_int in dds_used:
-                    # 需要为这个 ddsImage 分配新 ID
-                    try:
-                        new_raw6 = allocator.allocate("ddsImage")
-                        remaps[dds_old_key] = new_raw6
-                    except UnsupportedAllocationError:
-                        # 分配失败，warning
-                        pass
-                    else:
-                        remaps[dds_old_key] = new_raw6
-                        new_dir = _dir_for_id("ddsImage", new_raw6, NAMING_RULES)
-                        if new_dir:
-                            dir_renames.append((
-                                staging_root / "ddsImage" / f"ddsImage{raw6_old}",
-                                staging_root / "ddsImage" / new_dir,
-                            ))
-                        else:
-                            remaps.pop(dds_old_key, None)
-                else:
-                    remaps[dds_old_key] = raw6_new_int
-                    # 加到 dir_renames
-                    old_dds_dir = staging_root / "ddsImage" / f"ddsImage{raw6_old}"
-                    new_dds_dir = staging_root / "ddsImage" / f"ddsImage{raw6_new}"
-                    if old_dds_dir.is_dir():
-                        dir_renames.append((old_dds_dir, new_dds_dir))
-
-                    # 同步重写 DDSImage.xml 的 name/id
-                    # （apply_remap_plan 内部会自动处理，但需要确保 remaps 有这项）
-            else:
-                # ddsImage 已被其他 chara 重映射
+            if dds_old_key in remaps:
+                # ddsImage 已被其他 chara 重映射 → 共享冲突
                 existing_new = remaps[dds_old_key]
                 if existing_new != int(raw6_new):
-                    # 被多个 chara 共享，产生 warning
-                    # 查找共享的 chara
                     sharing_charas = []
                     for (ck, cv), nv in remaps.items():
                         if ck == "chara" and cv != old_id:
@@ -493,72 +435,142 @@ def _plan_remap(
                                     sharing_charas.append(cv)
                             except Exception:
                                 pass
-                    warnings_msg = (
+                    _dds_warnings.append(
                         f"ddsImage{raw6_old} 被 chara {old_id}"
                         + (f" 和 chara {','.join(str(c) for c in sharing_charas)} 共享"
                            if sharing_charas else "")
                         + "，重映射后可能受影响"
                     )
-                    _dds_warnings.append(warnings_msg)
-        except Exception:
-            pass
+                # 已有 remap，跳过
+                continue
 
-    # Step 6: cueFile 联动
-    _cuefile_warnings: list[str] = []
+            # 需要新增 ddsImage 重映射
+            dds_used = allocator.used_ids("ddsImage")
+            raw6_new_int = int(raw6_new)
+            if raw6_new_int in dds_used:
+                # 新 ddsImage ID 冲突，需要分配
+                try:
+                    new_raw6 = allocator.allocate("ddsImage")
+                    remaps[dds_old_key] = new_raw6
+                except UnsupportedAllocationError as e:
+                    # H2: 记录警告而非静默跳过
+                    _dds_warnings.append(
+                        f"chara {old_id}→{new_id} 的联动 ddsImage 分配失败：{e}"
+                    )
+                    continue
+                else:
+                    # 用实际分配到的 ID 而不是 raw6_new
+                    raw6_new_int = new_raw6
+            else:
+                remaps[dds_old_key] = raw6_new_int
+
+            # 加入 dir_renames（后面统一计算，这里仅做守卫）
+            old_dds_dir = staging_root / "ddsImage" / f"ddsImage{raw6_old}"
+            # M7: 加 is_dir 守卫
+            if old_dds_dir.is_dir():
+                pass  # compute_dir_renames 会统一处理
+
+        except Exception as e:
+            # H1: 记录详细警告
+            _dds_warnings.append(f"chara {old_id}→{new_id} 的 ddsImage 联动失败：{e}")
+
+    # --- 1.5b: systemVoice → cueFile 联动 ---
     for (kind, old_id), new_id in list(remaps.items()):
         if kind != "systemVoice":
             continue
-        # voice V → V'，cue_id 从 10000+V 改为 10000+V'
         cue_old = 10000 + old_id
         cue_new = 10000 + new_id
         cue_old_key = ("cueFile", cue_old)
 
-        if cue_old_key not in remaps:
-            # 检查 cueFile 新 ID 是否冲突
-            cue_used = allocator.used_ids("cueFile")
-            if cue_new in cue_used:
-                # 需要分配新 cueFile ID
-                try:
-                    new_cue_id = allocator.allocate("cueFile")
-                    remaps[cue_old_key] = new_cue_id
-                except UnsupportedAllocationError:
-                    _cuefile_warnings.append(
-                        f"systemVoice {old_id}→{new_id} 的联动 cueFile "
-                        f"(10000+{old_id}→10000+{new_id}) 分配失败"
-                    )
-                else:
-                    remaps[cue_old_key] = new_cue_id
-                    new_cue_dir = cue_folder_name(new_cue_id)
-                    old_cue_dir = cue_folder_name(cue_old)
-                    old_dir_path = staging_root / "cueFile" / old_cue_dir
-                    new_dir_path = staging_root / "cueFile" / new_cue_dir
-                    if old_dir_path.is_dir():
-                        dir_renames.append((old_dir_path, new_dir_path))
-                    # 查找包内所有引用此 cueFile 的 XML 并加 FieldEdit
-                    # 注意：cueFile 的引用来自 Music.xml 的 cueFileName/id
-                    _propagate_cuefile_edits(
-                        staging_root, cue_old, new_cue_id, file_edits
-                    )
-            else:
-                remaps[cue_old_key] = cue_new
-                # 加到 dir_renames
-                old_cue_dir = cue_folder_name(cue_old)
-                new_cue_dir = cue_folder_name(cue_new)
-                old_dir_path = staging_root / "cueFile" / old_cue_dir
-                new_dir_path = staging_root / "cueFile" / new_cue_dir
-                if old_dir_path.is_dir():
-                    dir_renames.append((old_dir_path, new_dir_path))
-                # 查找包内所有引用此 cueFile 的 XML 并加 FieldEdit
-                _propagate_cuefile_edits(staging_root, cue_old, cue_new, file_edits)
+        if cue_old_key in remaps:
+            continue
 
-    # Step 7: 校验
+        cue_used = allocator.used_ids("cueFile")
+        if cue_new in cue_used:
+            # 需要分配新 cueFile ID
+            try:
+                new_cue_id = allocator.allocate("cueFile")
+                remaps[cue_old_key] = new_cue_id
+            except UnsupportedAllocationError as e:
+                _cuefile_warnings.append(
+                    f"systemVoice {old_id}→{new_id} 的联动 cueFile "
+                    f"(10000+{old_id}→10000+{new_id}) 分配失败：{e}"
+                )
+            else:
+                cue_new = new_cue_id
+                remaps[cue_old_key] = cue_new
+        else:
+            remaps[cue_old_key] = cue_new
+
+    # ---------- Step 2: 统一遍历 graph.edges 产生 FieldEdit ----------
+    # H8 重构核心：在 remaps 完整收集后统一遍历，自动覆盖 ddsImage/cueFile 引用边
+    # 依赖 C1 修复：REF_RULES 中补入了 addImages*/image/id → ddsImage 规则
+    file_edits: dict[Path, list[FieldEdit]] = {}
+
+    for edge in graph.edges:
+        target_key = (edge.target_kind, edge.target_id)
+        if target_key not in remaps:
+            # target 不在 remaps 中
+            if not edge.in_package:
+                # 外部引用（不在包内）：不产生 edit，也不报错（悬空引用已在 detect_conflicts 中检测）
+                continue
+            # target 在包内且不冲突：不产生 edit
+            continue
+
+        # target 在 remaps 中 → 产生 FieldEdit（一行代码搞定，自动覆盖 ddsImage 和 cueFile 引用）
+        new_id = remaps[target_key]
+        file_edits.setdefault(edge.source_file, []).append(
+            FieldEdit(xpath=edge.xpath, old_id=edge.target_id, new_id=new_id)
+        )
+
+    # ---------- Step 3: 计算目录/文件重命名 ----------
+    dir_renames = compute_dir_renames(staging_root, remaps)
+    file_renames = compute_file_renames(staging_root, remaps)
+
+    # ---------- Step 4: chara ddsImage 联动的 DDSImage.xml name/id 改写 ----------
+    # 需要为被重映射的 ddsImage 添加 file_edits
+    for (kind, old_id), new_id in list(remaps.items()):
+        if kind != "chara":
+            continue
+        try:
+            cid_old = ChuniCharaId(old_id)
+            cid_new = ChuniCharaId(new_id)
+            raw6_old = cid_old.raw6
+            raw6_new = cid_new.raw6
+
+            dds_key = ("ddsImage", int(raw6_old))
+            if dds_key in remaps:
+                dds_new_id = remaps[dds_key]
+                # 找到 DDSImage.xml 路径
+                dds_dir_old = staging_root / "ddsImage" / f"ddsImage{raw6_old}"
+                dds_xml = dds_dir_old / "DDSImage.xml"
+                if dds_xml.is_file():
+                    file_edits.setdefault(dds_xml, []).append(
+                        FieldEdit(xpath="name/id", old_id=int(raw6_old), new_id=dds_new_id)
+                    )
+        except Exception as e:
+            _dds_warnings.append(f"chara {old_id}→{new_id} 的 DDSImage.xml name/id 改写失败：{e}")
+
+    # ---------- Step 5: cueFile 的 CueFile.xml name/id 改写 ----------
+    for (kind, old_id), new_id in list(remaps.items()):
+        if kind != "systemVoice":
+            continue
+        cue_old = 10000 + old_id
+        cue_new_key = ("cueFile", cue_old)
+        if cue_new_key in remaps:
+            cue_new_id = remaps[cue_new_key]
+            cue_dir = staging_root / "cueFile" / cue_folder_name(cue_old)
+            cue_xml = cue_dir / "CueFile.xml"
+            if cue_xml.is_file():
+                file_edits.setdefault(cue_xml, []).append(
+                    FieldEdit(xpath="name/id", old_id=cue_old, new_id=cue_new_id)
+                )
+
+    # ---------- Step 6: 校验 ----------
     errors: list[str] = []
     warnings_list: list[str] = list(conflict_report.package_warnings)
 
-    # 7a. 所有 new_id 不与 ACUS 原有已有 ID 冲突
-    # （allocator.allocate 已保证，但二次校验防御）
-    # 注意：不能直接用 allocator.used_ids()，因为它包含本次分配的 ID
-    # 需要重新扫描 ACUS 原始状态
+    # 6a. 所有 new_id 不与 ACUS 原有已有 ID 冲突
     fresh_acus_ids: dict[str, set[int]] = {}
     for (k, _old), new in remaps.items():
         if k not in fresh_acus_ids:
@@ -568,7 +580,7 @@ def _plan_remap(
         if new in fresh_acus_ids.get(k, set()):
             errors.append(f"重映射新 ID 冲突：{k}#{new}（ACUS 已有）")
 
-    # 7b. 所有 new_id 不与包内其他保留原 ID 的资源冲突
+    # 6b. 所有 new_id 不与包内其他保留原 ID 的资源冲突
     clean_ids = {(r.kind, r.resource_id) for r in conflict_report.clean_resources}
     for (k, old), new in remaps.items():
         if (k, new) in clean_ids:
@@ -576,7 +588,7 @@ def _plan_remap(
                 f"重映射新 ID {new} 与包内保留资源 {k}#{new} 冲突"
             )
 
-    # 7c. 所有 new_id 在 plan 内同 kind 唯一
+    # 6c. 所有 new_id 在 plan 内同 kind 唯一
     new_ids_by_kind: dict[str, set[int]] = {}
     for (k, old), new in remaps.items():
         new_ids_by_kind.setdefault(k, set()).add(new)
@@ -597,34 +609,6 @@ def _plan_remap(
         warnings=tuple(warnings_list),
         errors=tuple(errors),
     )
-
-
-def _propagate_cuefile_edits(
-    staging_root: Path,
-    cue_old: int,
-    cue_new: int,
-    file_edits: dict[Path, list[FieldEdit]],
-) -> None:
-    """
-    对包内所有引用 cueFile{cue_old} 的 XML（主要是 Music.xml），
-    产生 FieldEdit(cueFileName/id, cue_old, cue_new)。
-    """
-    # 查找包内所有 Music.xml
-    music_dir = staging_root / "music"
-    if not music_dir.is_dir():
-        return
-    for music_xml in music_dir.rglob("Music.xml"):
-        try:
-            root = ET.parse(str(music_xml)).getroot()
-            cue_el = root.find("cueFileName/id")
-            if cue_el is not None:
-                val = (cue_el.text or "").strip()
-                if val.isdigit() and int(val) == cue_old:
-                    file_edits.setdefault(music_xml, []).append(
-                        FieldEdit(xpath="cueFileName/id", old_id=cue_old, new_id=cue_new)
-                    )
-        except Exception:
-            continue
 
 
 # ---------------------------------------------------------------------------
@@ -782,10 +766,10 @@ def apply_and_write(
     staging_file_count = sum(
         1 for _ in staging.rglob("*") if _.is_file()
     )
-    # 实际写入数应该 ≥ 暂存区文件数（可能有些文件未被映射）
-    if len(written_files) < staging_file_count * 0.5:
+    # M3: 精确匹配校验
+    if len(written_files) != staging_file_count:
         post_errors.append(
-            f"写入文件数 ({len(written_files)}) 远少于暂存区文件数 ({staging_file_count})"
+            f"写入文件数 {len(written_files)} 与暂存区文件数 {staging_file_count} 不一致"
         )
 
     # 4b. 对写入的 XML 做 ET.parse 抽查
@@ -797,22 +781,11 @@ def apply_and_write(
             except ET.ParseError as e:
                 post_errors.append(f"写入后 XML 解析失败：{rel} — {e}")
 
-    # 4c. 对每个被重映射的资源，确认新 ID 资源存在
+    # 4c. 对被重映射的资源，确认新 ID 资源目录存在
     for (kind, _old), new_id in plan.remaps.items():
         dir_name = _dir_for_id(kind, new_id, NAMING_RULES)
         if dir_name is None:
             continue
-        # 用 _resource_dir_by_xml_glob 确认
-        found_dir = _resource_dir_by_xml_glob(acus, f"{kind}/**/*.{kind[0].upper()}{kind[1:]}.xml", new_id)
-        if found_dir is None:
-            # 尝试更宽泛的 glob
-            found_dir = _resource_dir_by_xml_glob(acus, f"{kind}/**/Music.xml", new_id)
-            if found_dir is None:
-                found_dir = _resource_dir_by_xml_glob(acus, f"{kind}/**/Chara.xml", new_id)
-            if found_dir is None:
-                found_dir = _resource_dir_by_xml_glob(acus, f"{kind}/**/Map.xml", new_id)
-        # 如果仍然未找到，跳过（可能是其他类型的 XML）
-        # 检查目录是否存在
         expected_dir = acus / kind / dir_name
         if not expected_dir.is_dir():
             post_errors.append(
@@ -820,8 +793,10 @@ def apply_and_write(
             )
 
     if post_errors:
-        # Step 5: 失败回滚
-        _rollback(acus, written_files)
+        # Step 5: 失败回滚（H7: _rollback 返回残留文件列表）
+        residual = _rollback(acus, written_files)
+        if residual:
+            post_errors.append(f"回滚后残留文件需手动清理：{residual}")
         return ImportResult(
             success=False,
             written_count=len(written_files),
@@ -941,7 +916,7 @@ def import_resource_pack(
         if on_progress:
             on_progress("规划重映射...")
         allocator = ResourceIdAllocator(acus_root)
-        plan = _plan_remap(staging_root, graph, conflict_report, allocator, acus_root)
+        plan = _plan_remap(staging_root, graph, conflict_report, allocator,acus_root)
 
         if plan.errors:
             return ImportResult(
@@ -1010,29 +985,42 @@ def plan_import(
 
     staging_root = Path(tempfile.mkdtemp(prefix="chuni_pack_import_"))
 
-    with zipfile.ZipFile(zip_path, "r") as zf:
-        for member in zf.namelist():
-            if member.endswith("/"):
-                continue
-            candidate = staging_root / member
+    # H6: 异常时清理暂存区
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            for member in zf.namelist():
+                if member.endswith("/"):
+                    continue
+                candidate = staging_root / member
+                try:
+                    candidate.resolve().relative_to(staging_root.resolve())
+                except ValueError:
+                    shutil.rmtree(staging_root, ignore_errors=True)
+                    raise ValueError(f"压缩包包含路径穿越文件：{member}")
+            zf.extractall(staging_root)
+
+        resources = scan_package_resources(staging_root)
+        if not resources:
+            shutil.rmtree(staging_root, ignore_errors=True)
+            raise ValueError("包内未发现任何可识别资源 XML")
+
+        # XML 可解析性校验
+        for xml_path in staging_root.rglob("*.xml"):
             try:
-                candidate.resolve().relative_to(staging_root.resolve())
-            except ValueError:
+                ET.parse(str(xml_path))
+            except ET.ParseError as e:
                 shutil.rmtree(staging_root, ignore_errors=True)
-                raise ValueError(f"压缩包包含路径穿越文件：{member}")
-        zf.extractall(staging_root)
+                raise ValueError(f"XML 解析失败：{xml_path.relative_to(staging_root)} — {e}")
 
-    resources = scan_package_resources(staging_root)
-    if not resources:
+        graph = build_reference_graph(staging_root, resources)
+        conflict_report = detect_conflicts(resources, graph, acus_root)
+        allocator = ResourceIdAllocator(acus_root)
+        plan = _plan_remap(staging_root, graph, conflict_report, allocator, acus_root)
+
+        return (conflict_report, plan, graph, staging_root)
+    except Exception:
         shutil.rmtree(staging_root, ignore_errors=True)
-        raise ValueError("包内未发现任何可识别资源 XML")
-
-    graph = build_reference_graph(staging_root, resources)
-    conflict_report = detect_conflicts(resources, graph, acus_root)
-    allocator = ResourceIdAllocator(acus_root)
-    plan = _plan_remap(staging_root, graph, conflict_report, allocator, acus_root)
-
-    return (conflict_report, plan, graph, staging_root)
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -1048,15 +1036,18 @@ def cleanup_staging(staging_root: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 8. 回滚
+# 8. 回滚（H7: 返回残留文件列表）
 # ---------------------------------------------------------------------------
 
-def _rollback(acus_root: Path, written_files: list[str]) -> None:
+def _rollback(acus_root: Path, written_files: list[str]) -> list[str]:
     """
     按 written 清单反向删除已写入文件，删除空目录。
+
+    Returns
+        残留文件路径列表（删除失败的）。
     """
     acus = acus_root.resolve()
-    errors: list[str] = []
+    residual: list[str] = []
 
     for rel in reversed(written_files):
         dest = (acus / rel).resolve()
@@ -1064,7 +1055,7 @@ def _rollback(acus_root: Path, written_files: list[str]) -> None:
             if dest.exists():
                 dest.unlink()
         except OSError as e:
-            errors.append(f"回滚删除失败：{rel} — {e}")
+            residual.append(f"{rel} (删除失败: {e})")
 
     # 清理空目录（从最深往最浅）
     deleted_dirs: set[Path] = set()
@@ -1084,7 +1075,4 @@ def _rollback(acus_root: Path, written_files: list[str]) -> None:
             except OSError:
                 break
 
-    if errors:
-        # 回滚失败，报告残留
-        import sys
-        print(f"[WARN] 回滚部分失败：{errors}", file=sys.stderr)
+    return residual
