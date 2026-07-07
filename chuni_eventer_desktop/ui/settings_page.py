@@ -102,12 +102,12 @@ class SettingsPage(QWidget):
             parent=self,
         )
         self._resource_pack = ResourcePackSettingsPanel(acus_root=acus_root, parent=self)
-        self._stack.addWidget(_scroll_wrap(self._about))
-        self._stack.addWidget(_scroll_wrap(self._game_data))
-        self._stack.addWidget(_scroll_wrap(self._tools))
-        self._stack.addWidget(_scroll_wrap(self._save_patch))
-        self._stack.addWidget(_scroll_wrap(self._experimental))
-        self._stack.addWidget(_scroll_wrap(self._resource_pack))
+        self._stack.addWidget(_scroll_wrap(self._about))           # 0: about
+        self._stack.addWidget(_scroll_wrap(self._resource_pack))    # 1: resource_pack
+        self._stack.addWidget(_scroll_wrap(self._game_data))        # 2: game_data
+        self._stack.addWidget(_scroll_wrap(self._save_patch))       # 3: save_patch
+        self._stack.addWidget(_scroll_wrap(self._tools))            # 4: tools
+        self._stack.addWidget(_scroll_wrap(self._experimental))     # 5: experimental
         root.addWidget(self._stack, stretch=1)
 
         self._on_settings_saved = on_settings_saved

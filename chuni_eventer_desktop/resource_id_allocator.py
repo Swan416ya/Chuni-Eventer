@@ -108,7 +108,7 @@ def _scan_directory_numeric_names(acus_root: Path, kind: str, prefix: str = "") 
 # 各类型分配策略
 # ---------------------------------------------------------------------------
 
-def _alloc_course(acus_root: Path, count: int, _plan_allocated: dict[str, set[int]]) -> int | tuple[int, ...]:
+def _alloc_course(acus_root: Path, count: int, plan_allocated: dict[str, set[int]]) -> int | tuple[int, ...]:
     """
     course (rank) → next_custom_rank_course_id()
     course (unlockChallenge) → next_perfect_challenge_course_base_id() + 连续 5 个
@@ -120,22 +120,28 @@ def _alloc_course(acus_root: Path, count: int, _plan_allocated: dict[str, set[in
         raise UnsupportedAllocationError(
             f"course 类型不支持 count={count} 的分配，请使用 count=1 或单独处理 unlockChallenge 连续 5 个 ID。"
         )
+    if plan_allocated.get("course"):
+        return max(plan_allocated["course"]) + 1
     return next_custom_rank_course_id(acus_root)
 
 
-def _alloc_courerule(acus_root: Path, count: int, _plan_allocated: dict[str, set[int]]) -> int | tuple[int, ...]:
+def _alloc_courerule(acus_root: Path, count: int, plan_allocated: dict[str, set[int]]) -> int | tuple[int, ...]:
     """courseRule → next_custom_course_rule_id()，号段 7001-7999。"""
     if count != 1:
         raise UnsupportedAllocationError(f"courseRule 不支持 count={count} 的分配。")
+    if plan_allocated.get("courseRule"):
+        return max(plan_allocated["courseRule"]) + 1
     return next_custom_course_rule_id(acus_root)
 
 
-def _alloc_reward(acus_root: Path, count: int, _plan_allocated: dict[str, set[int]]) -> int | tuple[int, ...]:
+def _alloc_reward(acus_root: Path, count: int, plan_allocated: dict[str, set[int]]) -> int | tuple[int, ...]:
     """
     reward → next_custom_unlock_reward_id()，号段 200000000-299999999。
     """
     if count != 1:
         raise UnsupportedAllocationError(f"reward 不支持 count={count} 的分配。")
+    if plan_allocated.get("reward"):
+        return max(plan_allocated["reward"]) + 1
     return next_custom_unlock_reward_id(acus_root)
 
 
@@ -245,17 +251,21 @@ def _alloc_cuefile(acus_root: Path, count: int, plan_allocated: dict[str, set[in
     return tuple(ids)
 
 
-def _alloc_mapbonus(acus_root: Path, count: int, _plan_allocated: dict[str, set[int]]) -> int | tuple[int, ...]:
+def _alloc_mapbonus(acus_root: Path, count: int, plan_allocated: dict[str, set[int]]) -> int | tuple[int, ...]:
     """mapBonus → suggest_next_mapbonus_id()，号段从 10000000 起。"""
     if count != 1:
         raise UnsupportedAllocationError(f"mapBonus 不支持 count={count} 的分配。")
+    if plan_allocated.get("mapBonus"):
+        return max(plan_allocated["mapBonus"]) + 1
     return suggest_next_mapbonus_id(acus_root, start=10_000_000)
 
 
-def _alloc_mapicon(acus_root: Path, count: int, _plan_allocated: dict[str, set[int]]) -> int | tuple[int, ...]:
+def _alloc_mapicon(acus_root: Path, count: int, plan_allocated: dict[str, set[int]]) -> int | tuple[int, ...]:
     """mapIcon → suggest_next_map_icon_id()，扫 ACUS max+1。"""
     if count != 1:
         raise UnsupportedAllocationError(f"mapIcon 不支持 count={count} 的分配。")
+    if plan_allocated.get("mapIcon"):
+        return max(plan_allocated["mapIcon"]) + 1
     return suggest_next_map_icon_id(acus_root)
 
 
