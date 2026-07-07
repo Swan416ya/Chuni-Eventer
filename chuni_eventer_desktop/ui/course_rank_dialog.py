@@ -4,21 +4,25 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QFormLayout, QGridLayout, QHBoxLayout, QVBoxLayout, QWidget
-from qfluentwidgets import BodyLabel, CardWidget, ComboBox as FluentComboBox, LineEdit, PrimaryPushButton, PushButton
+from PyQt6.QtWidgets import QFormLayout, QGridLayout, QHBoxLayout, QStackedWidget, QVBoxLayout, QWidget
+from qfluentwidgets import BodyLabel, CaptionLabel, CardWidget, ComboBox as FluentComboBox, LineEdit, PrimaryPushButton, PushButton, SegmentedWidget
 
-from ..course_rule import CourseRuleParams, build_course_rule_explain
 from ..course_rank import (
     RANK_COURSE_SLOT_COUNT,
     RANK_DIFFICULTIES,
+    CourseMusicCandidate,
+    CourseMusicSlot,
+    RANDOM_LEVEL_CHOICES,
     RankCourseDraft,
     RankCourseItem,
+    _level_id_to_label,
     apply_music_meta_to_draft,
     default_rank_course_draft,
     load_rank_course_draft,
     music_diff_choices,
     write_rank_course_xml,
 )
+from ..course_rule import CourseRuleParams, build_course_rule_explain
 from ..game_data_index import GameDataIndex
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical
@@ -125,6 +129,12 @@ class _RuleParamsRow(QWidget):
 
 
 class _MusicSlotRow(QWidget):
+    """一个曲目槽位，支持三种选曲模式：固定/等级随机/候选池随机。"""
+
+    MODE_FIXED = 0       # type=0 固定选曲
+    MODE_LEVEL = 1       # type=1 按等级池随机
+    MODE_POOL = 2        # type=2 按候选池随机
+
     def __init__(
         self,
         *,
@@ -138,33 +148,150 @@ class _MusicSlotRow(QWidget):
         self._acus_root = acus_root
         self._game_root = game_root
         self._get_index = get_index
-        self._music_id = 0
+        self._index = index
+        self._music_id = -1
         self._music_title = ""
 
-        self._label = BodyLabel(f"曲目 {index + 1}", self)
-        self._music_display = LineEdit(self)
+        # === 模式切换 ===
+        self._mode_seg = SegmentedWidget(self)
+        self._mode_seg.addItem("fixed", "固定选曲")
+        self._mode_seg.addItem("level", "等级随机")
+        self._mode_seg.addItem("pool", "候选池随机")
+        self._mode_seg.setCurrentItem("fixed")
+        self._mode_seg.currentItemChanged.connect(self._on_mode_changed)
+
+        # === 固定选曲面板 ===
+        self._fixed_panel = QWidget(self)
+        self._music_display = LineEdit(self._fixed_panel)
         self._music_display.setReadOnly(True)
         self._music_display.setPlaceholderText("点击右侧按钮选择乐曲…")
-        self._pick_btn = PushButton("选择…", self)
+        self._pick_btn = PushButton("选择…", self._fixed_panel)
         self._pick_btn.clicked.connect(self._open_picker)
-        self.diff_combo = FluentComboBox(self)
+        self.diff_combo = FluentComboBox(self._fixed_panel)
         for did, dstr, _ddata in music_diff_choices():
             self.diff_combo.addItem(dstr, None, did)
         self.diff_combo.setCurrentIndex(3)
+        fixed_row = QHBoxLayout(self._fixed_panel)
+        fixed_row.setContentsMargins(0, 0, 0, 0)
+        fixed_row.setSpacing(8)
+        fixed_row.addWidget(self._music_display, stretch=1)
+        fixed_row.addWidget(self._pick_btn)
+        fixed_row.addWidget(self.diff_combo)
 
-        music_row = QHBoxLayout()
-        music_row.setContentsMargins(0, 0, 0, 0)
-        music_row.setSpacing(8)
-        music_row.addWidget(self._music_display, stretch=1)
-        music_row.addWidget(self._pick_btn)
+        # === 等级随机面板 ===
+        self._level_panel = QWidget(self)
+        self._level_combo = FluentComboBox(self._level_panel)
+        for lid, lstr in RANDOM_LEVEL_CHOICES:
+            self._level_combo.addItem(lstr, None, lid)
+        self._level_combo.setCurrentIndex(0)
+        level_hint = CaptionLabel("从全曲库中符合该等级的曲目随机选一首", self._level_panel)
+        level_lay = QVBoxLayout(self._level_panel)
+        level_lay.setContentsMargins(0, 0, 0, 0)
+        level_lay.setSpacing(6)
+        level_lay.addWidget(self._level_combo)
+        level_lay.addWidget(level_hint)
 
-        lay = QHBoxLayout(self)
+        # === 候选池随机面板 ===
+        self._pool_panel = QWidget(self)
+        self._pool_candidates: list[CourseMusicCandidate] = []
+        self._pool_list_label = CaptionLabel("候选池：0 首", self._pool_panel)
+        self._pool_diff_combo = FluentComboBox(self._pool_panel)
+        for did, dstr, _ddata in music_diff_choices():
+            self._pool_diff_combo.addItem(dstr, None, did)
+        self._pool_diff_combo.setCurrentIndex(3)
+        self._pool_add_btn = PushButton("添加候选…", self._pool_panel)
+        self._pool_add_btn.clicked.connect(self._add_pool_candidate)
+        self._pool_clear_btn = PushButton("清空", self._pool_panel)
+        self._pool_clear_btn.clicked.connect(self._clear_pool_candidates)
+        pool_row = QHBoxLayout(self._pool_panel)
+        pool_row.setContentsMargins(0, 0, 0, 0)
+        pool_row.setSpacing(8)
+        pool_row.addWidget(self._pool_list_label, stretch=1)
+        pool_row.addWidget(self._pool_diff_combo)
+        pool_row.addWidget(self._pool_add_btn)
+        pool_row.addWidget(self._pool_clear_btn)
+
+        # === StackedWidget 切换三种面板 ===
+        self._stack = QStackedWidget(self)
+        self._stack.addWidget(self._fixed_panel)
+        self._stack.addWidget(self._level_panel)
+        self._stack.addWidget(self._pool_panel)
+
+        # === 总布局 ===
+        lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(8)
-        lay.addWidget(self._label)
-        lay.addLayout(music_row, stretch=1)
-        lay.addWidget(self.diff_combo)
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.addWidget(BodyLabel(f"曲目 {index + 1}"))
+        title_row.addStretch(1)
+        title_row.addWidget(self._mode_seg)
+        lay.addLayout(title_row)
+        lay.addWidget(self._stack)
 
+    def _on_mode_changed(self, key: str) -> None:
+        if key == "fixed":
+            self._stack.setCurrentIndex(0)
+        elif key == "level":
+            self._stack.setCurrentIndex(1)
+        else:  # pool
+            self._stack.setCurrentIndex(2)
+
+    def _open_picker(self) -> None:
+        picked = pick_music(
+            parent=self.window(),
+            acus_root=self._acus_root,
+            game_root=self._game_root,
+            get_index=self._get_index,
+            preselect_id=self._music_id if self._music_id > 0 else None,
+        )
+        if picked is None:
+            return
+        mid, title = picked
+        self.set_music(mid, title)
+
+    def _add_pool_candidate(self) -> None:
+        picked = pick_music(
+            parent=self.window(),
+            acus_root=self._acus_root,
+            game_root=self._game_root,
+            get_index=self._get_index,
+        )
+        if picked is None:
+            return
+        mid, title = picked
+        did = self._pool_diff_combo.currentData() or 3
+        dstr = next((s for i, s, _ in music_diff_choices() if i == did), "Master")
+        ddata = next((d for i, _, d in music_diff_choices() if i == did), dstr.upper())
+        self._pool_candidates.append(CourseMusicCandidate(mid, title, did, dstr, ddata))
+        self._refresh_pool_label()
+
+    def _clear_pool_candidates(self) -> None:
+        self._pool_candidates.clear()
+        self._refresh_pool_label()
+
+    def _refresh_pool_label(self) -> None:
+        self._pool_list_label.setText(f"候选池：{len(self._pool_candidates)} 首")
+
+    # === 状态读写（供 _collect_draft 调用）===
+
+    def set_mode(self, slot_type: int) -> None:
+        if slot_type == 1:
+            self._mode_seg.setCurrentItem("level")
+        elif slot_type == 2:
+            self._mode_seg.setCurrentItem("pool")
+        else:
+            self._mode_seg.setCurrentItem("fixed")
+
+    def current_mode(self) -> int:
+        key = self._mode_seg.currentItem()
+        if key == "level":
+            return 1
+        if key == "pool":
+            return 2
+        return 0
+
+    # --- 固定面板状态 ---
     def set_music(self, music_id: int, title: str) -> None:
         self._music_id = int(music_id)
         self._music_title = (title or "").strip() or (f"Music{music_id}" if music_id > 0 else "")
@@ -188,18 +315,52 @@ class _MusicSlotRow(QWidget):
         v = self.diff_combo.currentData()
         return int(v) if v is not None else 3
 
-    def _open_picker(self) -> None:
-        picked = pick_music(
-            parent=self.window(),
-            acus_root=self._acus_root,
-            game_root=self._game_root,
-            get_index=self._get_index,
-            preselect_id=self._music_id if self._music_id > 0 else None,
+    # --- 等级随机面板状态 ---
+    def set_level_id(self, level_id: int) -> None:
+        idx = self._level_combo.findData(int(level_id))
+        if idx >= 0:
+            self._level_combo.setCurrentIndex(idx)
+
+    def level_id(self) -> int:
+        v = self._level_combo.currentData()
+        return int(v) if v is not None else 19
+
+    # --- 候选池随机面板状态 ---
+    def set_candidates(self, candidates: list[CourseMusicCandidate]) -> None:
+        self._pool_candidates = list(candidates)
+        self._refresh_pool_label()
+
+    def candidates(self) -> tuple[CourseMusicCandidate, ...]:
+        return tuple(self._pool_candidates)
+
+    # --- 通用构造 ---
+    def to_slot(self) -> CourseMusicSlot:
+        """从当前 UI 状态构造 CourseMusicSlot。"""
+        mode = self.current_mode()
+        if mode == 1:
+            return CourseMusicSlot(
+                slot_type=1,
+                level_id=self.level_id(),
+                music_str=_level_id_to_label(self.level_id()),
+            )
+        if mode == 2:
+            cands = self.candidates()
+            return CourseMusicSlot(
+                slot_type=2,
+                candidates=cands,
+                music_str=f"{len(cands)}首候选",
+            )
+        # mode == 0 固定
+        did = self.diff_id()
+        dstr = next((s for i, s, _ in music_diff_choices() if i == did), "Master")
+        ddata = next((d for i, _, d in music_diff_choices() if i == did), "MASTER")
+        return CourseMusicSlot(
+            self.music_id(),
+            self.music_title(),
+            did,
+            dstr,
+            ddata,
         )
-        if picked is None:
-            return
-        mid, title = picked
-        self.set_music(mid, title)
 
 
 class CourseRankEditDialog(FluentCaptionDialog):
@@ -281,9 +442,14 @@ class CourseRankEditDialog(FluentCaptionDialog):
             )
             if i < len(draft.music_slots):
                 slot = draft.music_slots[i]
-                if slot.music_id > 0:
+                row.set_mode(slot.slot_type)
+                if slot.is_fixed:
                     row.set_music(slot.music_id, slot.music_str)
-                row.set_diff_id(slot.diff_id)
+                    row.set_diff_id(slot.diff_id)
+                elif slot.is_level_random:
+                    row.set_level_id(slot.level_id)
+                elif slot.is_pool_random:
+                    row.set_candidates(list(slot.candidates))
             self._slot_rows.append(row)
             cly.addWidget(row)
 
@@ -318,19 +484,31 @@ class CourseRankEditDialog(FluentCaptionDialog):
         if rule_params is None:
             return None
 
-        from ..course_rank import CourseMusicSlot
-
         slots: list[CourseMusicSlot] = []
-        for row in self._slot_rows:
-            mid = row.music_id()
-            if mid <= 0:
-                fly_critical(self, "错误", "请为 3 首曲目都选择有效乐曲。")
-                return None
-            diff_id_m = row.diff_id()
-            title = row.music_title()
-            dstr = next((s for i, s, _ in music_diff_choices() if i == diff_id_m), "Master")
-            ddata = next((d for i, _, d in music_diff_choices() if i == diff_id_m), "MASTER")
-            slots.append(CourseMusicSlot(mid, title, diff_id_m, dstr, ddata))
+        for i, row in enumerate(self._slot_rows):
+            mode = row.current_mode()
+            if mode == 0:
+                # 固定选曲：校验 mid > 0
+                mid = row.music_id()
+                if mid <= 0:
+                    fly_critical(
+                        self, "曲目未选择",
+                        f"请为曲目 {i + 1} 选择有效乐曲，或切换为随机模式。",
+                    )
+                    return None
+                slots.append(row.to_slot())
+            elif mode == 1:
+                # 等级随机：无需校验（level_combo 总有值）
+                slots.append(row.to_slot())
+            elif mode == 2:
+                # 候选池随机：校验至少 1 个候选
+                if not row.candidates():
+                    fly_critical(
+                        self, "候选池为空",
+                        f"请为曲目 {i + 1} 添加至少 1 首候选乐曲。",
+                    )
+                    return None
+                slots.append(row.to_slot())
 
         draft = RankCourseDraft(
             course_id=cid,
@@ -346,7 +524,14 @@ class CourseRankEditDialog(FluentCaptionDialog):
             net_open_str=self._draft.net_open_str,
             music_slots=slots,
         )
-        apply_music_meta_to_draft(self._acus_root, draft, slots[0].music_id)
+        # 找第一个固定 slot 读取 release_tag / net_open；如果全是随机则跳过
+        first_fixed_id = -1
+        for s in slots:
+            if s.is_fixed and s.music_id > 0:
+                first_fixed_id = s.music_id
+                break
+        if first_fixed_id > 0:
+            apply_music_meta_to_draft(self._acus_root, draft, first_fixed_id)
         return draft
 
     def _save(self) -> None:
@@ -354,7 +539,12 @@ class CourseRankEditDialog(FluentCaptionDialog):
         if draft is None:
             return
         try:
-            write_rank_course_xml(acus_root=self._acus_root, draft=draft, is_edit=self._is_edit, game_root=self._game_root)
+            write_rank_course_xml(
+                acus_root=self._acus_root,
+                draft=draft,
+                is_edit=self._is_edit,
+                game_root=self._game_root,
+            )
         except Exception as e:
             fly_critical(self, "写入失败", str(e))
             return

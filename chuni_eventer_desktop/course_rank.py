@@ -58,6 +58,34 @@ def _xml_esc(s: str) -> str:
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+# type=1 按等级池随机的等级枚举（id 19-30 对应 Lv10-Lv15+）
+# 每项: (level_id, level_label) — level_label 用于 UI 显示，str 字段恒为 ID_{id}
+RANDOM_LEVEL_CHOICES: tuple[tuple[int, str], ...] = (
+    (19, "Lv10"), (20, "Lv10+"),
+    (21, "Lv11"), (22, "Lv11+"),
+    (23, "Lv12"), (24, "Lv12+"),
+    (25, "Lv13"), (26, "Lv13+"),
+    (27, "Lv14"), (28, "Lv14+"),
+    (29, "Lv15"), (30, "Lv15+"),
+)
+
+
+def _level_label_to_id(label: str) -> int:
+    """Lv10 → 19, Lv10+ → 20, ... 找不到返回 -1。"""
+    for lid, lstr in RANDOM_LEVEL_CHOICES:
+        if lstr == label:
+            return lid
+    return -1
+
+
+def _level_id_to_label(lid: int) -> str:
+    """19 → Lv10, 20 → Lv10+, ... 找不到返回空串。"""
+    for level_id, lstr in RANDOM_LEVEL_CHOICES:
+        if level_id == lid:
+            return lstr
+    return ""
+
+
 def is_rank_course_root(root: ET.Element) -> bool:
     diff_id = _safe_int(root.findtext("difficulty/id"))
     return diff_id in _RANK_DIFFICULTY_IDS
@@ -65,6 +93,37 @@ def is_rank_course_root(root: ET.Element) -> bool:
 
 @dataclass(frozen=True)
 class CourseMusicSlot:
+    """一个曲目槽位。
+
+    slot_type=0 固定选曲：用 music_id/diff_id/music_str/diff_str/diff_data
+    slot_type=1 按等级池随机：用 level_id（19-30），music_id=-1, diff_id=-1
+    slot_type=2 按候选池随机：用 candidates（list[CourseMusicCandidate]），music_id=-1, diff_id=-1
+    """
+    music_id: int = -1
+    music_str: str = ""
+    diff_id: int = -1
+    diff_str: str = ""
+    diff_data: str = ""
+    slot_type: int = 0          # 0=固定 1=按等级随机 2=按候选池随机
+    level_id: int = -1          # slot_type=1 时用（19-30）
+    candidates: tuple["CourseMusicCandidate", ...] = ()  # slot_type=2 时用
+
+    @property
+    def is_fixed(self) -> bool:
+        return self.slot_type == 0
+
+    @property
+    def is_level_random(self) -> bool:
+        return self.slot_type == 1
+
+    @property
+    def is_pool_random(self) -> bool:
+        return self.slot_type == 2
+
+
+@dataclass(frozen=True)
+class CourseMusicCandidate:
+    """type=2 候选池里的一首歌。"""
     music_id: int
     music_str: str
     diff_id: int
@@ -108,6 +167,46 @@ class RankCourseDraft:
 
 
 def _parse_music_slot(info: ET.Element) -> CourseMusicSlot | None:
+    slot_type = _safe_int(info.findtext("type")) or 0
+
+    if slot_type == 1:
+        # 按等级池随机
+        level_id = _safe_int(info.findtext("selectLevel/fromLevel/id")) or -1
+        if level_id < 19 or level_id > 30:
+            return None
+        return CourseMusicSlot(
+            slot_type=1,
+            level_id=level_id,
+            music_str=_level_id_to_label(level_id),  # 用于 _music_summary 显示
+        )
+
+    if slot_type == 2:
+        # 按候选池随机
+        candidates: list[CourseMusicCandidate] = []
+        for sub in info.findall("selectMusicList/musicList/list/CourseMusicListSubData"):
+            cid = _safe_int(sub.findtext("courseMusicData/name/id"))
+            cstr = (sub.findtext("courseMusicData/name/str") or "").strip()
+            cdid = _safe_int(sub.findtext("courseMusicData/diff/id"))
+            cdstr = (sub.findtext("courseMusicData/diff/str") or "").strip()
+            cddata = (sub.findtext("courseMusicData/diff/data") or "").strip()
+            if cid is None or cdid is None:
+                continue
+            if not cdstr:
+                cdstr = next((s for i, s, _ in _MUSIC_DIFFS if i == cdid), "Master")
+            if not cddata:
+                cddata = next((d for i, _, d in _MUSIC_DIFFS if i == cdid), cdstr.upper())
+            candidates.append(CourseMusicCandidate(cid, cstr or f"Music{cid}", cdid, cdstr, cddata))
+        if not candidates:
+            return None
+        return CourseMusicSlot(
+            slot_type=2,
+            candidates=tuple(candidates),
+            music_str=f"{len(candidates)}首候选",  # 用于 _music_summary 显示
+        )
+
+    # slot_type == 0 固定选曲（现有逻辑）
+    if slot_type not in (0, 1, 2):
+        return None
     mid = _safe_int(info.findtext("selectMusic/musicName/id"))
     mstr = (info.findtext("selectMusic/musicName/str") or "").strip()
     did = _safe_int(info.findtext("selectMusic/musicDiff/id"))
@@ -125,7 +224,16 @@ def _parse_music_slot(info: ET.Element) -> CourseMusicSlot | None:
 def _music_summary(slots: tuple[CourseMusicSlot, ...]) -> str:
     if not slots:
         return "—"
-    parts = [f"{s.music_str}({s.diff_str})" for s in slots[:3]]
+    parts: list[str] = []
+    for s in slots[:3]:
+        if s.is_fixed:
+            parts.append(f"{s.music_str}({s.diff_str})")
+        elif s.is_level_random:
+            parts.append(f"{_level_id_to_label(s.level_id)}(随机)")
+        elif s.is_pool_random:
+            parts.append(f"{len(s.candidates)}首候选(随机)")
+        else:
+            parts.append("?")
     if len(slots) > 3:
         parts.append(f"+{len(slots) - 3}")
     return " · ".join(parts)
@@ -290,6 +398,16 @@ def apply_music_meta_to_draft(acus_root: Path, draft: RankCourseDraft, music_id:
 
 
 def _course_music_block(slot: CourseMusicSlot) -> str:
+    """根据 slot.slot_type 生成对应的 CourseMusicDataInfo XML 块。"""
+    if slot.is_level_random:
+        return _course_music_block_level(slot)
+    if slot.is_pool_random:
+        return _course_music_block_pool(slot)
+    return _course_music_block_fixed(slot)
+
+
+def _course_music_block_fixed(slot: CourseMusicSlot) -> str:
+    """type=0 固定选曲（保持现有逻辑）。"""
     esc_m = _xml_esc(slot.music_str.strip() or f"Music{slot.music_id}")
     esc_ds = _xml_esc(slot.diff_str)
     esc_dd = _xml_esc(slot.diff_data)
@@ -320,6 +438,100 @@ def _course_music_block(slot: CourseMusicSlot) -> str:
         </musicList>
         <panelType>0</panelType>
         <isRecordShown>true</isRecordShown>
+      </selectMusicList>
+    </CourseMusicDataInfo>"""
+
+
+def _course_music_block_level(slot: CourseMusicSlot) -> str:
+    """type=1 按等级池随机。"""
+    lid = int(slot.level_id)
+    lstr = _xml_esc(f"ID_{lid}")
+    ldata = _xml_esc(_level_id_to_label(lid))
+    return f"""    <CourseMusicDataInfo>
+      <type>1</type>
+      <selectMusic>
+        <musicName>
+          <id>-1</id>
+          <str>Invalid</str>
+          <data />
+        </musicName>
+        <musicDiff>
+          <id>-1</id>
+          <str>Invalid</str>
+          <data />
+        </musicDiff>
+      </selectMusic>
+      <selectLevel>
+        <fromLevel>
+          <id>{lid}</id>
+          <str>{lstr}</str>
+          <data>{ldata}</data>
+        </fromLevel>
+      </selectLevel>
+      <selectMusicList>
+        <musicList>
+          <list />
+        </musicList>
+        <panelType>0</panelType>
+        <isRecordShown>true</isRecordShown>
+      </selectMusicList>
+    </CourseMusicDataInfo>"""
+
+
+def _course_music_block_pool(slot: CourseMusicSlot) -> str:
+    """type=2 按候选池随机。"""
+    candidate_blocks: list[str] = []
+    for c in slot.candidates:
+        esc_cm = _xml_esc(c.music_str.strip() or f"Music{c.music_id}")
+        esc_cds = _xml_esc(c.diff_str)
+        esc_cdd = _xml_esc(c.diff_data)
+        candidate_blocks.append(f"""            <CourseMusicListSubData>
+              <type>0</type>
+              <courseMusicData>
+                <name>
+                  <id>{int(c.music_id)}</id>
+                  <str>{esc_cm}</str>
+                  <data />
+                </name>
+                <diff>
+                  <id>{int(c.diff_id)}</id>
+                  <str>{esc_cds}</str>
+                  <data>{esc_cdd}</data>
+                </diff>
+              </courseMusicData>
+            </CourseMusicListSubData>""")
+    if candidate_blocks:
+        list_body = "\n".join(candidate_blocks)
+        list_xml = f"          <list>\n{list_body}\n          </list>"
+    else:
+        list_xml = "          <list />"
+    return f"""    <CourseMusicDataInfo>
+      <type>2</type>
+      <selectMusic>
+        <musicName>
+          <id>-1</id>
+          <str>Invalid</str>
+          <data />
+        </musicName>
+        <musicDiff>
+          <id>-1</id>
+          <str>Invalid</str>
+          <data />
+        </musicDiff>
+      </selectMusic>
+      <selectLevel>
+        <fromLevel>
+          <id>-1</id>
+          <str>Invalid</str>
+          <data />
+        </fromLevel>
+      </selectLevel>
+      <selectMusicList>
+        <musicList>
+{list_xml}
+        </musicList>
+        <panelType>1</panelType>
+        <isRecordShown>false</isRecordShown>
       </selectMusicList>
     </CourseMusicDataInfo>"""
 
