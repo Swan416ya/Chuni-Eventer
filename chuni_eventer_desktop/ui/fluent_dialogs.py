@@ -833,7 +833,13 @@ def fly_warning(parent: QWidget | None, title: str, text: str) -> None:
     )
 
 
-def fly_critical(parent: QWidget | None, title: str, text: str) -> None:
+def fly_critical(
+    parent: QWidget | None,
+    title: str,
+    text: str,
+    *,
+    details: str | None = None,
+) -> None:
     fly_message_async(
         parent,
         title,
@@ -841,6 +847,7 @@ def fly_critical(parent: QWidget | None, title: str, text: str) -> None:
         single_button=True,
         window_modal=True,
         icon=QMessageBox.Icon.Critical,
+        details=details,
     )
 
 
@@ -852,6 +859,7 @@ def fly_message_async(
     single_button: bool = True,
     window_modal: bool = False,
     icon: QMessageBox.Icon = QMessageBox.Icon.Information,
+    details: str | None = None,
 ) -> None:
     """
     非阻塞提示框：用于避免连环模态框导致 UI 卡死。
@@ -872,6 +880,8 @@ def fly_message_async(
             icon=icon,
             single_button=single_button,
         )
+        if details:
+            w.setDetailedText(details)
         # Must match QDialog.open(): window-modal over parent. ApplicationModal here
         # conflicts with open() and can prevent native QMessageBox from appearing.
         w.setWindowModality(

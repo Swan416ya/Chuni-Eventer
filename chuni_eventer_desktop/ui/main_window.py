@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import traceback
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, Qt, QThread, QTimer, pyqtSignal
@@ -424,6 +425,7 @@ class MainWindow(MSFluentWindow):
             get_game_index=self._resolve_game_index,
             on_settings_saved=self._on_settings_saved,
             on_request_game_rescan=self._request_game_index_rescan,
+            game_root=self._cfg.game_root or "",
             parent=self,
         )
         self.stackedWidget.addWidget(self._settings_page)
@@ -644,8 +646,9 @@ class MainWindow(MSFluentWindow):
             self.switchTo(self._ensure_settings_page())
             self.navigationInterface.setCurrentItem("nav_settings")
         except Exception:
+            tb = traceback.format_exc()
             _scan_logger().exception("ui_enter_settings_crash")
-            fly_critical(self, "操作失败", "打开设置页时发生异常，请提供日志。")
+            fly_critical(self, "操作失败", "打开设置页时发生异常。", details=tb)
 
     def _on_settings_saved(self) -> None:
         fly_message(self, "已保存", "设置已保存。")
@@ -786,8 +789,9 @@ class MainWindow(MSFluentWindow):
             )
             dlg.exec()
         except Exception:
+            tb = traceback.format_exc()
             _scan_logger().exception("ui_click_game_music_browser_crash")
-            fly_critical(self, "操作失败", "打开游戏乐曲浏览时发生异常，请提供日志。")
+            fly_critical(self, "操作失败", "打开游戏乐曲浏览时发生异常。", details=tb)
 
     def _request_game_index_rescan(self, game_root: Path, compressonatorcli_path: Path | None) -> None:
         if self._index_thread is not None:
@@ -819,8 +823,9 @@ class MainWindow(MSFluentWindow):
                 kind = self._nav_specs[idx][3] if 0 <= idx < len(self._nav_specs) else ""
                 _scan_logger().info("ui_click_add kind=%s", kind)
         except Exception:
+            tb = traceback.format_exc()
             _scan_logger().exception("ui_click_add_precheck_crash")
-            fly_critical(self, "操作失败", "新增入口初始化失败，请提供日志。")
+            fly_critical(self, "操作失败", "新增入口初始化失败。", details=tb)
             return
 
         if self._in_avatar_mode:

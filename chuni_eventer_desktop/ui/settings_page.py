@@ -50,6 +50,7 @@ class SettingsPage(QWidget):
         on_settings_saved: Callable[[], None] | None = None,
         get_game_index: Callable[[], GameDataIndex | None] | None = None,
         on_request_game_rescan: Callable[[Path, Path | None], None] | None = None,
+        game_root: Path | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -86,7 +87,9 @@ class SettingsPage(QWidget):
         self._tools = ToolsSettingsPanel(cfg=cfg, parent=self)
         self._save_patch = SavePatchPanel(
             acus_root=acus_root,
+            game_root=game_root or Path(""),
             get_tool_path=get_tool_path,
+            get_index=get_game_index,
             parent=self,
         )
         self._experimental = SettingsExperimentalPanel(

@@ -24,8 +24,11 @@ from ..game_data_index import (
     iter_release_tag_filter_options,
     patch_catalog_default_have,
     scan_game_chara_catalog,
+    scan_game_map_icon_catalog,
     scan_game_music_catalog,
     scan_game_nameplate_catalog,
+    scan_game_stage_catalog,
+    scan_game_system_voice_catalog,
     scan_game_trophy_catalog,
 )
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
@@ -37,7 +40,7 @@ from .game_data_detail_dialog import (
     open_row_image_dialog,
 )
 
-GameDataKind = Literal["music", "chara", "nameplate", "trophy"]
+GameDataKind = Literal["music", "chara", "nameplate", "trophy", "system_voice", "map_icon", "stage"]
 
 _DEFAULT_HAVE_KINDS = frozenset({"music", "nameplate", "trophy"})
 
@@ -49,6 +52,7 @@ _KIND_META: dict[GameDataKind, dict[str, Any]] = {
         "catalog_attr": "music_catalog",
         "scan": scan_game_music_catalog,
         "filters": ("tag", "genre"),
+        "row_values": "music",
     },
     "chara": {
         "title": "游戏角色",
@@ -57,6 +61,7 @@ _KIND_META: dict[GameDataKind, dict[str, Any]] = {
         "catalog_attr": "chara_catalog",
         "scan": scan_game_chara_catalog,
         "filters": ("tag", "works", "source"),
+        "row_values": "chara",
     },
     "nameplate": {
         "title": "游戏名牌",
@@ -65,6 +70,7 @@ _KIND_META: dict[GameDataKind, dict[str, Any]] = {
         "catalog_attr": "nameplate_catalog",
         "scan": scan_game_nameplate_catalog,
         "filters": ("tag", "source"),
+        "row_values": "nameplate",
     },
     "trophy": {
         "title": "游戏称号",
@@ -73,6 +79,34 @@ _KIND_META: dict[GameDataKind, dict[str, Any]] = {
         "catalog_attr": "trophy_catalog",
         "scan": scan_game_trophy_catalog,
         "filters": ("rare", "source"),
+        "row_values": "trophy",
+    },
+    "system_voice": {
+        "title": "系统语音",
+        "hint": "从所有数据包扫描系统语音。可按数据包筛选。",
+        "columns": ["ID", "名称", "数据包"],
+        "catalog_attr": None,
+        "scan": scan_game_system_voice_catalog,
+        "filters": ("source",),
+        "row_values": "system_voice",
+    },
+    "map_icon": {
+        "title": "跑图小人",
+        "hint": "从所有数据包扫描跑图小人。可按数据包筛选。",
+        "columns": ["ID", "名称", "数据包"],
+        "catalog_attr": None,
+        "scan": scan_game_map_icon_catalog,
+        "filters": ("source",),
+        "row_values": "map_icon",
+    },
+    "stage": {
+        "title": "背景（Stage）",
+        "hint": "从所有数据包扫描背景（Stage）。可按数据包筛选。",
+        "columns": ["ID", "名称", "数据包"],
+        "catalog_attr": None,
+        "scan": scan_game_stage_catalog,
+        "filters": ("source",),
+        "row_values": "stage",
     },
 }
 
@@ -87,6 +121,8 @@ class GameDataBrowseDialog(FluentCaptionDialog):
         get_index: Callable[[], GameDataIndex | None],
         get_tool_path: Callable[[], Path | None],
         parent=None,
+        select_mode: bool = False,
+        preset_rows: list[dict[str, Any]] | None = None,
     ) -> None:
         meta = _KIND_META[kind]
         super().__init__(parent=parent)
@@ -98,7 +134,9 @@ class GameDataBrowseDialog(FluentCaptionDialog):
         self._get_tool_path = get_tool_path
         self._rows: list[dict[str, Any]] = []
         self._populating_table = False
-        self._has_default_have_col = kind in _DEFAULT_HAVE_KINDS
+        self._select_mode = select_mode
+        self._has_default_have_col = not select_mode and kind in _DEFAULT_HAVE_KINDS
+        self._preset_rows = preset_rows
 
         self.setWindowTitle(str(meta["title"]))
         self.setModal(True)
@@ -180,13 +218,34 @@ class GameDataBrowseDialog(FluentCaptionDialog):
 
         refresh = PushButton("从磁盘重新扫描", self)
         refresh.clicked.connect(self._reload_from_disk)
-        close = PrimaryPushButton("关闭", self)
-        close.clicked.connect(self.accept)
-        btns = QHBoxLayout()
-        btns.setSpacing(8)
-        btns.addWidget(refresh)
-        btns.addStretch(1)
-        btns.addWidget(close)
+
+        if self._select_mode:
+            # 选择模式：刷新 + 取消 + 确定（无选中行时禁用确定）
+            self._btn_refresh = refresh
+            self._btn_confirm = PrimaryPushButton("确定", self)
+            self._btn_confirm.setEnabled(False)
+            self._btn_confirm.clicked.connect(self.accept)
+            cancel_btn = PushButton("取消", self)
+            cancel_btn.clicked.connect(self.reject)
+            btns = QHBoxLayout()
+            btns.setSpacing(8)
+            btns.addWidget(refresh)
+            btns.addStretch(1)
+            btns.addWidget(cancel_btn)
+            btns.addWidget(self._btn_confirm)
+        else:
+            # 浏览模式：刷新 + 关闭（关闭按钮只在非选择模式创建，避免 select_mode 下残留显示）
+            close = PrimaryPushButton("关闭", self)
+            close.clicked.connect(self.accept)
+            btns = QHBoxLayout()
+            btns.setSpacing(8)
+            btns.addWidget(refresh)
+            btns.addStretch(1)
+            btns.addWidget(close)
+
+        # 选择模式下，选中行时启用确定按钮
+        if self._select_mode:
+            self._table.itemSelectionChanged.connect(self._on_selection_changed)
 
         card = CardWidget(self)
         cly = QVBoxLayout(card)
@@ -228,6 +287,10 @@ class GameDataBrowseDialog(FluentCaptionDialog):
         return [dict(r) for r in raw if isinstance(r, dict)]
 
     def _load_rows(self) -> None:
+        # 优先使用调用方传入的 preset_rows（避免重复扫描）
+        if self._preset_rows:
+            self._rows = list(self._preset_rows)
+            return
         rows = self._catalog_from_index()
         if rows:
             self._rows = rows
@@ -374,7 +437,9 @@ class GameDataBrowseDialog(FluentCaptionDialog):
         return True
 
     def _row_values(self, r: dict[str, Any]) -> list[str]:
-        if self._kind == "music":
+        kind = self._kind
+        # nameplate 和 trophy 共用"现有"分支：用 if/elif 链
+        if kind == "music":
             genres = "、".join(str(x) for x in (r.get("genres") or []))
             return [
                 str(r.get("id", "")),
@@ -385,7 +450,7 @@ class GameDataBrowseDialog(FluentCaptionDialog):
                 format_release_tag_version(r),
                 str(r.get("source", "")),
             ]
-        if self._kind == "chara":
+        if kind == "chara":
             return [
                 str(r.get("id", "")),
                 str(r.get("name", "")),
@@ -394,18 +459,25 @@ class GameDataBrowseDialog(FluentCaptionDialog):
                 str(r.get("default_image_key", "")),
                 str(r.get("source", "")),
             ]
-        if self._kind == "nameplate":
+        if kind == "nameplate":
             return [
                 str(r.get("id", "")),
                 str(r.get("name", "")),
                 format_release_tag_version(r),
                 str(r.get("source", "")),
             ]
+        if kind == "trophy":
+            return [
+                str(r.get("id", "")),
+                str(r.get("name", "")),
+                "" if r.get("rare_type") is None else str(r.get("rare_type")),
+                str(r.get("explain", "")),
+                str(r.get("source", "")),
+            ]
+        # system_voice / map_icon / stage — 共享同一布局
         return [
             str(r.get("id", "")),
             str(r.get("name", "")),
-            "" if r.get("rare_type") is None else str(r.get("rare_type")),
-            str(r.get("explain", "")),
             str(r.get("source", "")),
         ]
 
@@ -465,6 +537,12 @@ class GameDataBrowseDialog(FluentCaptionDialog):
         self._populating_table = False
         self._table.resizeColumnsToContents()
 
+    def _on_selection_changed(self) -> None:
+        """选择模式下：有选中行则启用确定按钮。"""
+        if self._select_mode:
+            has = self._table.currentRow() >= 0
+            self._btn_confirm.setEnabled(has)
+
     def _selected_row(self) -> dict[str, Any] | None:
         r = self._table.currentRow()
         if r < 0:
@@ -476,7 +554,14 @@ class GameDataBrowseDialog(FluentCaptionDialog):
         data = it.data(Qt.ItemDataRole.UserRole)
         return data if isinstance(data, dict) else None
 
+    def selected_item(self) -> dict[str, Any] | None:
+        """select_mode 下获取选中的行数据，调用方在 exec()==Accepted 后调用。"""
+        return self._selected_row()
+
     def _on_double_click(self, _index) -> None:
+        if self._select_mode:
+            self.accept()
+            return
         row = self._selected_row()
         if row is None:
             return

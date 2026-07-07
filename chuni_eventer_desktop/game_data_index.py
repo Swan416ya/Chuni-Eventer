@@ -8,21 +8,26 @@ from typing import Any, Callable
 import xml.etree.ElementTree as ET
 
 from .acus_scan import (
+    MapIconItem,
+    StageItem,
+    SystemVoiceItem,
     CharaItem,
     MusicItem,
     NamePlateItem,
     TrophyItem,
     scan_charas,
     scan_dds_images,
+    scan_map_icons,
     scan_music,
     scan_nameplates,
     scan_stages,
+    scan_system_voices,
     scan_trophies,
 )
 from .acus_workspace import app_cache_dir
 from .dds_convert import convert_dds_to_png
 
-_CATALOG_INT_KEYS = frozenset({"release_tag_id", "works_id", "cue_id", "rare_type"})
+_CATALOG_INT_KEYS = frozenset({"release_tag_id", "works_id", "cue_id", "rare_type", "cue_numeric_id"})
 _CATALOG_BOOL_KEYS = frozenset({"default_have"})
 
 
@@ -486,6 +491,103 @@ def scan_game_trophy_catalog(game_root: Path) -> list[dict[str, Any]]:
         try:
             for t in scan_trophies(pack):
                 rows.append(_trophy_item_to_catalog_row(t, src, pack=pack))
+        except Exception:
+            continue
+    return _merge_catalog_by_id(rows)
+
+
+def _system_voice_item_to_catalog_row(v: SystemVoiceItem, source: str, *, pack: Path) -> dict[str, Any]:
+    try:
+        xml_relpath = str(v.xml_path.relative_to(pack))
+    except ValueError:
+        xml_relpath = v.xml_path.name
+    return {
+        "id": v.name.id,
+        "name": (v.name.str or "").strip() or f"SystemVoice{v.name.id}",
+        "preview_relpath": (v.preview_relpath or "").strip(),
+        "cue_numeric_id": v.cue_numeric_id,
+        "source": source,
+        "xml_path": str(v.xml_path),
+        "xml_relpath": xml_relpath,
+    }
+
+
+def scan_game_system_voice_catalog(game_root: Path) -> list[dict[str, Any]]:
+    """扫描所有 opt 的系统语音，去重返回。"""
+    try:
+        gr = game_root.expanduser().resolve()
+    except OSError:
+        return []
+    rows: list[dict[str, Any]] = []
+    for pack in enumerate_game_data_roots(gr):
+        src = _relative_under(gr, pack)
+        try:
+            for v in scan_system_voices(pack):
+                rows.append(_system_voice_item_to_catalog_row(v, src, pack=pack))
+        except Exception:
+            continue
+    return _merge_catalog_by_id(rows)
+
+
+def _map_icon_item_to_catalog_row(mi: MapIconItem, source: str, *, pack: Path) -> dict[str, Any]:
+    try:
+        xml_relpath = str(mi.xml_path.relative_to(pack))
+    except ValueError:
+        xml_relpath = mi.xml_path.name
+    return {
+        "id": mi.name.id,
+        "name": (mi.name.str or "").strip() or f"MapIcon{mi.name.id}",
+        "image_path": (mi.image_path or "").strip(),
+        "source": source,
+        "xml_path": str(mi.xml_path),
+        "xml_relpath": xml_relpath,
+    }
+
+
+def scan_game_map_icon_catalog(game_root: Path) -> list[dict[str, Any]]:
+    """扫描所有 opt 的跑图小人，去重返回。"""
+    try:
+        gr = game_root.expanduser().resolve()
+    except OSError:
+        return []
+    rows: list[dict[str, Any]] = []
+    for pack in enumerate_game_data_roots(gr):
+        src = _relative_under(gr, pack)
+        try:
+            for mi in scan_map_icons(pack):
+                rows.append(_map_icon_item_to_catalog_row(mi, src, pack=pack))
+        except Exception:
+            continue
+    return _merge_catalog_by_id(rows)
+
+
+def _stage_item_to_catalog_row(s: StageItem, source: str, *, pack: Path) -> dict[str, Any]:
+    try:
+        xml_relpath = str(s.xml_path.relative_to(pack))
+    except ValueError:
+        xml_relpath = s.xml_path.name
+    return {
+        "id": s.name.id,
+        "name": (s.name.str or "").strip() or f"Stage{s.name.id}",
+        "image_path": (s.image_path or "").strip(),
+        "source": source,
+        "xml_path": str(s.xml_path),
+        "xml_relpath": xml_relpath,
+    }
+
+
+def scan_game_stage_catalog(game_root: Path) -> list[dict[str, Any]]:
+    """扫描所有 opt 的背景（Stage），去重返回。"""
+    try:
+        gr = game_root.expanduser().resolve()
+    except OSError:
+        return []
+    rows: list[dict[str, Any]] = []
+    for pack in enumerate_game_data_roots(gr):
+        src = _relative_under(gr, pack)
+        try:
+            for s in scan_stages(pack):
+                rows.append(_stage_item_to_catalog_row(s, src, pack=pack))
         except Exception:
             continue
     return _merge_catalog_by_id(rows)
