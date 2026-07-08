@@ -95,12 +95,30 @@ class SettingsExperimentalPanel(QWidget):
         self.pgko_exp_checkbox.setChecked(bool(getattr(cfg, "enable_pgko_ugc_experimental", False)))
         pgko_layout.addWidget(self.pgko_exp_checkbox)
 
+        wall_card = CardWidget(self)
+        wall_layout = QVBoxLayout(wall_card)
+        wall_layout.setContentsMargins(16, 16, 16, 16)
+        wall_layout.setSpacing(12)
+        wall_layout.addWidget(BodyLabel("默认挡板贴图替换（ddsFieldWall0001）", self))
+        wall_hint = BodyLabel(
+            "上传一张图片替换游戏内的默认挡板贴图。图片会自动规整为 640×480 并转 BC3 DDS，"
+            "写入 ACUS 的 ddsFieldWall/ddsFieldWall0001/，游戏加载时优先读取 ACUS 版本从而覆盖 A000 原版。\n"
+            "建议使用 4:3 比例的图片以获得最佳效果；可反复替换。"
+        )
+        wall_hint.setWordWrap(True)
+        wall_hint.setStyleSheet("color:#6B7280;font-size:13px;")
+        wall_layout.addWidget(wall_hint)
+        wall_open = PushButton("选择图片替换默认挡板…", self)
+        wall_open.clicked.connect(self._open_field_wall)
+        wall_layout.addWidget(wall_open)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 8)
         layout.setSpacing(16)
         layout.addWidget(exp_hint)
         layout.addWidget(pjsk_card)
         layout.addWidget(pgko_card)
+        layout.addWidget(wall_card)
         layout.setContentsMargins(0, 0, 0, 16)
 
     def _open_pjsk_hub(self) -> None:
@@ -110,6 +128,15 @@ class SettingsExperimentalPanel(QWidget):
             parent=self.window(),
         )
         hub.exec()
+
+    def _open_field_wall(self) -> None:
+        from .field_wall_add_dialog import FieldWallAddDialog
+        dlg = FieldWallAddDialog(
+            acus_root=self._acus_root,
+            tool_path=self._get_tool_path(),
+            parent=self.window(),
+        )
+        dlg.exec()
 
     def apply_fields(self) -> None:
         self._cfg.enable_pgko_ugc_experimental = bool(self.pgko_exp_checkbox.isChecked())
