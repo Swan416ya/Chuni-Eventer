@@ -37,3 +37,9 @@ audio_test/
 
 # 做视频用的ppt和相关素材
 docs/Introduction/
+
+# 后端服务（独立部署，勿提交到桌面端仓库）
+/backend/
+
+# 打包脚本与发布说明（本地维护，勿提交）
+/packaging/
