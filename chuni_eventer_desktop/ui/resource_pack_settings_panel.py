@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import traceback
-from datetime import datetime, timezone
 from pathlib import Path
 
 import xml.etree.ElementTree as ET
@@ -16,8 +14,6 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
-    QListWidget,
-    QListWidgetItem,
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -61,72 +57,6 @@ _log = logging.getLogger(__name__)
 _STATUS_CONFLICT = "conflict"
 _STATUS_CLEAN = "clean"
 _STATUS_WARNING = "warning"
-
-# ---------------------------------------------------------------------------
-# 导入历史记录
-# ---------------------------------------------------------------------------
-
-_HISTORY_FILE_NAME = "resource_pack_import_history.json"
-_MAX_HISTORY = 50
-
-
-def _history_path(acus_root: Path) -> Path:
-    return acus_root / ".cache" / _HISTORY_FILE_NAME
-
-
-def _load_history(acus_root: Path) -> list[dict]:
-    """加载导入历史记录。"""
-    path = _history_path(acus_root)
-    if not path.is_file():
-        return []
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if isinstance(data, list):
-            return data
-    except Exception:
-        pass
-    return []
-
-
-def _save_history(acus_root: Path, history: list[dict]) -> None:
-    """保存导入历史记录（最多保留 _MAX_HISTORY 条）。"""
-    path = _history_path(acus_root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(history, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
-
-def _add_history_entry(
-    acus_root: Path,
-    package: str,
-    resource_count: int,
-    remaps: dict,
-    success: bool = True,
-) -> None:
-    """追加一条导入记录。"""
-    history = _load_history(acus_root)
-    entry = {
-        "package": package,
-        "time": datetime.now(timezone.utc).isoformat(),
-        "resource_count": resource_count,
-        "success": success,
-        "remaps": {f"{k[0]}:{k[1]}": v for k, v in remaps.items()},
-    }
-    history.insert(0, entry)
-    history = history[:_MAX_HISTORY]
-    _save_history(acus_root, history)
-
-
-def _format_time(iso_str: str) -> str:
-    """格式化 ISO 时间字符串为本地时间。"""
-    try:
-        dt = datetime.fromisoformat(iso_str)
-        return dt.strftime("%Y-%m-%d %H:%M")
-    except Exception:
-        return iso_str
-
 
 # ---------------------------------------------------------------------------
 # Helper: read dataName from XML
@@ -383,59 +313,12 @@ class _ResourceTable(QWidget):
 
 
 # ---------------------------------------------------------------------------
-# History List Widget
-# ---------------------------------------------------------------------------
-
-
-class _ImportHistoryWidget(QListWidget):
-    """导入历史记录列表。"""
-
-    def __init__(
-        self,
-        history: list[dict],
-        *,
-        parent: QWidget | None = None,
-    ) -> None:
-        super().__init__(parent)
-        self._items: list[QListWidgetItem] = []
-        self._populate(history)
-
-    def _populate(self, history: list[dict]) -> None:
-        if not history:
-            item = QListWidgetItem("暂无导入记录", self)
-            item.setToolTip("导入资源包后，历史记录将显示在这里")
-            item.setForeground(Qt.GlobalColor.darkGray)
-            self._items.append(item)
-            return
-
-        for entry in history:
-            pkg = entry.get("package", "?")
-            time_str = _format_time(entry.get("time", ""))
-            res_count = entry.get("resource_count", 0)
-            success = entry.get("success", False)
-
-            status_icon = FluentIcon.CHECK_MARK_CIRCLE.icon().pixmap(16, 16) if success else (
-                FluentIcon.CANCEL.icon().pixmap(16, 16)
-            )
-            status_text = "成功" if success else "失败"
-
-            text = f"{pkg}  |  {time_str}  |  {res_count} 个资源  |  {status_text}"
-            item = QListWidgetItem(text, self)
-            item.setData(Qt.ItemDataRole.DecorationRole, status_icon)
-            item.setToolTip(json.dumps(entry, ensure_ascii=False))
-            self._items.append(item)
-
-        # 排序：保持时间倒序
-        self.sortItems(Qt.SortOrder.DescendingOrder)
-
-
-# ---------------------------------------------------------------------------
 # Main Panel
 # ---------------------------------------------------------------------------
 
 
 class ResourcePackSettingsPanel(QWidget):
-    """设置页中的"资源导入"分段 — 嵌入式导入工作区 + 历史记录。
+    """设置页中的"资源导入"分段 — 嵌入式导入工作区。
 
     流程：选择压缩包 → 规划(后台) → 预览 → 确认导入(后台) → 完成
     """
@@ -475,7 +358,7 @@ class ResourcePackSettingsPanel(QWidget):
         hint.setStyleSheet("color: #6b7280; font-size: 11px;")
         root.addWidget(hint)
 
-        # === 导入工作区卡片 ===
+        # === 导入工作区卡片（占据剩余全部空间）===
         import_card = CardWidget(self)
         card_lay = QVBoxLayout(import_card)
         card_lay.setContentsMargins(12, 12, 12, 12)
@@ -577,23 +460,6 @@ class ResourcePackSettingsPanel(QWidget):
         card_lay.addLayout(bottom_row)
 
         root.addWidget(import_card, stretch=1)
-
-        # === 导入历史 ===
-        root.addWidget(SubtitleLabel("导入历史", self))
-
-        history_card = CardWidget(self)
-        history_lay = QVBoxLayout(history_card)
-        history_lay.setContentsMargins(16, 16, 16, 16)
-        history_lay.setSpacing(8)
-
-        self._history_widget = _ImportHistoryWidget(
-            _load_history(self._acus_root),
-            parent=history_card,
-        )
-        history_lay.addWidget(self._history_widget, stretch=1)
-
-        root.addWidget(history_card)
-        root.addStretch(1)
 
     # ---- Page management ----
 
@@ -765,19 +631,6 @@ class ResourcePackSettingsPanel(QWidget):
             self._result_label.setText("导入成功")
             self._result_label.setStyleSheet("color: #15803d;")
             self._result_detail.setText("\n".join(parts))
-
-            # 刷新历史记录
-            package_name = (self._zip_path.name if self._zip_path else "unknown")
-            total_count = len(self._conflict_report.conflicts) + len(self._conflict_report.clean_resources) if self._conflict_report else 0
-            plan_remaps = dict(self._plan.remaps) if self._plan else {}
-            _add_history_entry(
-                self._acus_root,
-                package=package_name,
-                resource_count=total_count,
-                remaps=plan_remaps,
-                success=True,
-            )
-            self.refresh_history()
         else:
             self._result_label.setText("导入失败")
             self._result_label.setStyleSheet("color: #dc2626;")
@@ -791,19 +644,6 @@ class ResourcePackSettingsPanel(QWidget):
                 for warn in result.warnings:
                     parts.append(f"  - {warn}")
             self._result_detail.setText("\n".join(parts))
-
-            # 刷新历史记录（标记失败）
-            package_name = (self._zip_path.name if self._zip_path else "unknown")
-            total_count = len(self._conflict_report.conflicts) + len(self._conflict_report.clean_resources) if self._conflict_report else 0
-            plan_remaps = dict(self._plan.remaps) if self._plan else {}
-            _add_history_entry(
-                self._acus_root,
-                package=package_name,
-                resource_count=total_count,
-                remaps=plan_remaps,
-                success=False,
-            )
-            self.refresh_history()
 
     def _on_apply_failed(self, details: str) -> None:
         self._staging_root = None  # worker finally 里已清理
@@ -843,18 +683,3 @@ class ResourcePackSettingsPanel(QWidget):
         self._import_btn.setVisible(False)
         self._path_edit.clear()
         self._stats_label.setText("")
-
-    # ---- History refresh ----
-
-    def refresh_history(self) -> None:
-        """刷新导入历史记录。"""
-        history = _load_history(self._acus_root)
-        # 直接重建 widget
-        old_widget = self._history_widget
-        new_widget = _ImportHistoryWidget(history, parent=old_widget.parent())
-        lay = old_widget.parent().layout()
-        if lay is not None:
-            lay.removeWidget(old_widget)
-            old_widget.deleteLater()
-        lay.addWidget(new_widget, stretch=1)
-        self._history_widget = new_widget
