@@ -8,6 +8,9 @@ from dataclasses import dataclass
 from urllib.error import HTTPError
 
 PGKO_BASE_URL = "https://pgko.dev"
+# API 端点在 api.pgko.dev 子域名（pgko.dev/api/* 改版后返回 SPA HTML）
+# 下载端点 /download/{id} 仍在主站 pgko.dev
+PGKO_API_BASE_URL = "https://api.pgko.dev"
 _HTTP_MAX_RETRIES = 2  # total 3 attempts
 _HTTP_RETRY_DELAYS = [1.0, 2.0]  # exponential backoff
 
@@ -124,17 +127,21 @@ def _bundle_download_api_url(bundle_id: str) -> str:
     return f"{PGKO_BASE_URL}/download/{bundle_id}"
 
 
-def list_pgko_sheets(base_url: str = PGKO_BASE_URL) -> list[PgkoSheetEntry]:
+def list_pgko_sheets(
+    base_url: str = PGKO_BASE_URL,
+    api_base_url: str = PGKO_API_BASE_URL,
+) -> list[PgkoSheetEntry]:
     """
     从 pgko.dev 的网站 API 抓取乐曲列表（分页）：
     GET /api/bundles?cursor=...
     这是网站本身使用的数据源，符合“从该网站爬取列表”。
+    api_base_url 指向 API 子域名（api.pgko.dev），base_url 指向主站（用于 detail_url）。
     """
     entries: list[PgkoSheetEntry] = []
     seen_ids: set[str] = set()
     cursor: str | None = None
     for _ in range(100):
-        url = f"{base_url.rstrip('/')}/api/bundles"
+        url = f"{api_base_url.rstrip('/')}/api/bundles"
         if cursor:
             url += f"?cursor={cursor}"
         data = _http_get_json(url)
@@ -168,10 +175,11 @@ def list_pgko_sheets(base_url: str = PGKO_BASE_URL) -> list[PgkoSheetEntry]:
 def fetch_pgko_sheet_page(
     *,
     base_url: str = PGKO_BASE_URL,
+    api_base_url: str = PGKO_API_BASE_URL,
     cursor: str | None = None,
 ) -> PgkoSheetPage:
     """按 cursor 拉取一页 bundles。"""
-    url = f"{base_url.rstrip('/')}/api/bundles"
+    url = f"{api_base_url.rstrip('/')}/api/bundles"
     if cursor:
         url += f"?cursor={cursor}"
     data = _http_get_json(url)
@@ -201,14 +209,15 @@ def fetch_pgko_sheet_page(
 def resolve_pgko_download_from_bundle(
     entry: PgkoSheetEntry,
     base_url: str = PGKO_BASE_URL,
+    api_base_url: str = PGKO_API_BASE_URL,
 ) -> tuple[str, str]:
     """
     点进乐曲后（bundle detail）再从网站推导下载链接：
-    - detail: /api/bundles/{id}
-    - download: /api/bundles/{id}/download
+    - detail: /api/bundles/{id}（走 api_base_url）
+    - download: /download/{id}（走 base_url 主站）
     返回 (download_url, ext_guess)。
     """
-    detail_api_url = f"{base_url.rstrip('/')}/api/bundles/{entry.bundle_id}"
+    detail_api_url = f"{api_base_url.rstrip('/')}/api/bundles/{entry.bundle_id}"
     detail = _http_get_json(detail_api_url)
     ext = "ugc"
     try:

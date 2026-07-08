@@ -40,6 +40,7 @@ from ..acus_workspace import AcusConfig, acus_root_dir, app_cache_dir, resolve_c
 from ..game_data_index import load_cached_game_index, merged_stage_pairs
 from ..pgko_sheet_client import (
     PGKO_BASE_URL,
+    PGKO_API_BASE_URL,
     PgkoSheetPage,
     PgkoSheetEntry,
     download_pgko_sheet,
@@ -146,7 +147,7 @@ class _FetchPgkoThread(QThread):
 
     def run(self) -> None:
         try:
-            self.ok.emit(fetch_pgko_sheet_page(base_url=PGKO_BASE_URL, cursor=self._cursor))
+            self.ok.emit(fetch_pgko_sheet_page(base_url=PGKO_BASE_URL, api_base_url=PGKO_API_BASE_URL, cursor=self._cursor))
         except Exception as e:
             detail = (
                 f"异常类型: {type(e).__name__}\n"
@@ -167,7 +168,7 @@ class _DownloadPgkoThread(QThread):
 
     def run(self) -> None:
         try:
-            download_url, ext = resolve_pgko_download_from_bundle(self._entry, PGKO_BASE_URL)
+            download_url, ext = resolve_pgko_download_from_bundle(self._entry, PGKO_BASE_URL, PGKO_API_BASE_URL)
             self.resolved.emit(
                 f"bundle={self._entry.bundle_id}\n"
                 f"detail={self._entry.detail_url}\n"
