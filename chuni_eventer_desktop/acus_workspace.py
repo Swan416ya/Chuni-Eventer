@@ -3,8 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import shutil
 import sys
+import tempfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,6 +32,40 @@ def _cfg_logger() -> logging.Logger:
         pass
     _cfg_log_logger = logger
     return logger
+
+
+def atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> None:
+    """原子写入文本：写 .tmp 再 os.replace，避免崩溃导致配置损坏。"""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp", prefix=path.name + ".")
+    try:
+        with os.fdopen(fd, "w", encoding=encoding, newline="") as f:
+            f.write(content)
+        os.replace(tmp, str(path))
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def atomic_write_bytes(path: Path, data: bytes) -> None:
+    """原子写入字节。"""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp", prefix=path.name + ".")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(tmp, str(path))
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def app_root_dir() -> Path:
@@ -314,7 +350,7 @@ class AcusConfig:
             bool((self.compressonatorcli_path or "").strip()),
             bool(self.enable_pgko_ugc_experimental),
         )
-        p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_text(p, json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         lg.info("config_save_done path=%s", p)
 
 

@@ -1011,9 +1011,11 @@ def build_game_data_index(
 
 
 def save_game_data_index(idx: GameDataIndex) -> None:
+    from .acus_workspace import atomic_write_text
+
     p = index_cache_path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(idx.to_json(), ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_text(p, json.dumps(idx.to_json(), ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def patch_catalog_default_have(

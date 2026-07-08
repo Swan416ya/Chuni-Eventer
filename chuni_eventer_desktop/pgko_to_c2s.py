@@ -1367,26 +1367,27 @@ def _resolve_audio_path_in_dir(base: Path, filename: str) -> Path | None:
     safe = Path(filename.replace("\\", "/")).name
     if not safe or safe in (".", ".."):
         return None
-    base = base.resolve()
-    for candidate in (
+    base_resolved = base.resolve()
+    for candidate_raw in (
         base / filename,
         base / safe,
         base.parent / filename,
         base.parent / safe,
     ):
         try:
-            p = candidate.resolve()
+            candidate = candidate_raw.resolve()
         except OSError:
             continue
-        if p.is_file():
+        # 先校验不逃逸基目录，再 is_file
+        try:
+            candidate.relative_to(base_resolved)
+        except ValueError:
             try:
-                p.relative_to(base)
+                candidate.relative_to(base.parent.resolve())
             except ValueError:
-                try:
-                    p.relative_to(base.parent)
-                except ValueError:
-                    continue
-            return p
+                continue
+        if candidate.is_file():
+            return candidate
     return None
 
 
@@ -1469,26 +1470,27 @@ def _resolve_image_path_in_dir(base: Path, filename: str) -> Path | None:
     safe = Path(filename.replace("\\", "/")).name
     if not safe or safe in (".", ".."):
         return None
-    base = base.resolve()
-    for candidate in (
+    base_resolved = base.resolve()
+    for candidate_raw in (
         base / filename,
         base / safe,
         base.parent / filename,
         base.parent / safe,
     ):
         try:
-            p = candidate.resolve()
+            candidate = candidate_raw.resolve()
         except OSError:
             continue
-        if p.is_file():
+        # 先校验不逃逸基目录，再 is_file
+        try:
+            candidate.relative_to(base_resolved)
+        except ValueError:
             try:
-                p.relative_to(base)
+                candidate.relative_to(base.parent.resolve())
             except ValueError:
-                try:
-                    p.relative_to(base.parent)
-                except ValueError:
-                    continue
-            return p
+                continue
+        if candidate.is_file():
+            return candidate
     return None
 
 
@@ -2114,7 +2116,7 @@ def convert_pgko_audio_to_chuni_from_pick(
 
     return {
         "musicId": music_id,
-        "audioSource": str(src_audio),
+        "audioSource": str(prep.safe_bgm_wav),
         "cueDirectory": _rel(cue_dir),
         "cueFileXml": _rel(cue_xml),
         "acbFile": _rel(acb_p),
