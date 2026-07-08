@@ -28,31 +28,12 @@ from ..acus_workspace import (
     refresh_chara_works_sorts_with_game,
     resolve_compressonatorcli_path,
 )
-from ..external_tools import apply_resolved_paths_to_config, has_bundled_ffmpeg
+from ..external_tools import apply_resolved_paths_to_config
 from ..version import APP_VERSION
 from ..game_data_index import GameDataIndex, load_cached_game_index, rebuild_and_save_game_index
 from ..dds_quicktex import quicktex_available
-from .manager_widget import ManagerWidget
-from .fluent_dialogs import (
-    fly_critical,
-    fly_message,
-    fly_message_async,
-    fly_warning,
-    show_archive_readme_dialog,
-    safe_dismiss_modal_progress_dialog,
-)
-from .external_tools_bootstrap import abort_tool_install_on_parent, run_external_tools_bootstrap
+from . import fluent_dialogs as _fd
 from .qthread_lifecycle import shutdown_qthreads_for_exit
-from .nav_icons import (
-    SVG_AVATAR,
-    SVG_STAGE_BG,
-    SVG_CHARA,
-    SVG_MAP,
-    SVG_MUSIC,
-    SVG_NAMEPLATE,
-    SVG_TROPHY,
-    nav_qicon,
-)
 
 _scan_log_logger: logging.Logger | None = None
 
@@ -189,6 +170,7 @@ class MainWindow(MSFluentWindow):
         self._install_startup_shell()
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        from .external_tools_bootstrap import abort_tool_install_on_parent
         self._shutting_down = True
         if self._settings_page is not None:
             tools = getattr(self._settings_page, "_tools", None)
@@ -267,6 +249,7 @@ class MainWindow(MSFluentWindow):
         QTimer.singleShot(0, self._bootstrap_external_tools)
 
     def _build_workspace_ui(self) -> None:
+        from .manager_widget import ManagerWidget
         self._workspace = QWidget()
         self._workspace.setObjectName("acusWorkspace")
         wlay = QVBoxLayout(self._workspace)
@@ -368,6 +351,16 @@ class MainWindow(MSFluentWindow):
         self.stackedWidget.addWidget(self._workspace)
 
     def _build_navigation(self) -> None:
+        from .nav_icons import (
+            SVG_AVATAR,
+            SVG_STAGE_BG,
+            SVG_CHARA,
+            SVG_MAP,
+            SVG_MUSIC,
+            SVG_NAMEPLATE,
+            SVG_TROPHY,
+            nav_qicon,
+        )
         self._nav_specs = [
             ("nav_chara", nav_qicon(SVG_CHARA), "角色", "Chara", "角色"),
             ("nav_map", nav_qicon(SVG_MAP), "地图", "Map", "地图"),
@@ -433,6 +426,8 @@ class MainWindow(MSFluentWindow):
 
     def _bootstrap_external_tools(self) -> None:
         """Lite 单 exe 首次启动：在 exe 旁自动下载 .tools；懒人包已含工具则跳过。"""
+        from ..external_tools import has_bundled_ffmpeg
+        from .external_tools_bootstrap import run_external_tools_bootstrap
         if not getattr(sys, "frozen", False):
             return
         if self._cfg.external_tools_bootstrap_done:
@@ -457,7 +452,7 @@ class MainWindow(MSFluentWindow):
     def _ensure_game_index_background(self) -> None:
         gr_raw = (self._cfg.game_root or "").strip()
         if not gr_raw:
-            fly_message_async(
+            _fd.fly_message_async(
                 self,
                 "提示",
                 "未设置游戏目录时，乐曲/场景/ddsMap 等下拉列表仅包含 ACUS 内已有数据。\n"
@@ -472,7 +467,7 @@ class MainWindow(MSFluentWindow):
         if cached is not None:
             return
 
-        fly_message_async(
+        _fd.fly_message_async(
             self,
             "后台扫描",
             "正在后台建立游戏数据索引，可先浏览 ACUS 内容。\n"
@@ -509,7 +504,7 @@ class MainWindow(MSFluentWindow):
     def _on_background_index_finished(self, idx: object, err: str) -> None:
         if not isinstance(idx, GameDataIndex):
             _scan_logger().warning("scan_result_failed err=%s", err)
-            fly_message_async(
+            _fd.fly_message_async(
                 self,
                 "游戏索引失败",
                 f"{err or '无法建立游戏索引。'}\n可在【设置】中重新选择目录并点击「重新扫描游戏索引」。",
@@ -518,7 +513,7 @@ class MainWindow(MSFluentWindow):
             )
             return
         _scan_logger().info("scan_result_ok")
-        fly_message_async(
+        _fd.fly_message_async(
             self,
             "索引完成",
             f"已缓存游戏内乐曲 {len(idx.music)}、角色 {len(idx.chara)}、"
@@ -569,7 +564,7 @@ class MainWindow(MSFluentWindow):
         self._index_status.setText("")
         if self._index_progress is None:
             return
-        safe_dismiss_modal_progress_dialog(self._index_progress)
+        _fd.safe_dismiss_modal_progress_dialog(self._index_progress)
         self._index_progress = None
 
     def _get_tool_path_or_none(self) -> Path | None:
@@ -648,10 +643,10 @@ class MainWindow(MSFluentWindow):
         except Exception:
             tb = traceback.format_exc()
             _scan_logger().exception("ui_enter_settings_crash")
-            fly_critical(self, "操作失败", "打开设置页时发生异常。", details=tb)
+            _fd.fly_critical(self, "操作失败", "打开设置页时发生异常。", details=tb)
 
     def _on_settings_saved(self) -> None:
-        fly_message(self, "已保存", "设置已保存。")
+        _fd.fly_message(self, "已保存", "设置已保存。")
         self._on_refresh()
 
     def _enter_others_mode(self, route_key: str) -> None:
@@ -777,7 +772,7 @@ class MainWindow(MSFluentWindow):
 
             raw = (self._cfg.game_root or "").strip()
             if not raw:
-                fly_message(self, "提示", "请先在【设置】中配置「游戏数据目录」。")
+                _fd.fly_message(self, "提示", "请先在【设置】中配置「游戏数据目录」。")
                 return
             dlg = GameDataBrowseDialog(
                 kind="music",
@@ -791,11 +786,11 @@ class MainWindow(MSFluentWindow):
         except Exception:
             tb = traceback.format_exc()
             _scan_logger().exception("ui_click_game_music_browser_crash")
-            fly_critical(self, "操作失败", "打开游戏乐曲浏览时发生异常。", details=tb)
+            _fd.fly_critical(self, "操作失败", "打开游戏乐曲浏览时发生异常。", details=tb)
 
     def _request_game_index_rescan(self, game_root: Path, compressonatorcli_path: Path | None) -> None:
         if self._index_thread is not None:
-            fly_message_async(
+            _fd.fly_message_async(
                 self,
                 "扫描进行中",
                 "已有游戏索引扫描任务在后台运行，请稍候完成。",
@@ -825,13 +820,13 @@ class MainWindow(MSFluentWindow):
         except Exception:
             tb = traceback.format_exc()
             _scan_logger().exception("ui_click_add_precheck_crash")
-            fly_critical(self, "操作失败", "新增入口初始化失败。", details=tb)
+            _fd.fly_critical(self, "操作失败", "新增入口初始化失败。", details=tb)
             return
 
         if self._in_avatar_mode:
             rk = self._avatar_seg.currentRouteKey() or "acc_wear"
             if rk not in ("acc_wear", "acc_head", "acc_face", "acc_hand", "acc_back"):
-                fly_message(
+                _fd.fly_message(
                     self,
                     "敬请期待",
                     "该装扮分类尚未实现，请先在「衣服」「帽子」「面具」「手部」或「披风」分段操作。",
@@ -839,7 +834,7 @@ class MainWindow(MSFluentWindow):
                 return
             tool = self._get_tool_path_or_none()
             if tool is None and not quicktex_available():
-                fly_critical(
+                _fd.fly_critical(
                     self,
                     "无法生成 DDS",
                     "请任选其一：\n"
@@ -946,15 +941,15 @@ class MainWindow(MSFluentWindow):
                 try:
                     readme = peek_root_readme_from_archive(zp)
                     if readme is not None and readme.strip():
-                        show_archive_readme_dialog(self, readme)
+                        _fd.show_archive_readme_dialog(self, readme)
                     written = install_zip_to_acus(zp, self._acus_root)
-                    fly_message(
+                    _fd.fly_message(
                         self,
                         "已导入",
                         f"已写入 {len(written)} 个文件到 ACUS。",
                     )
                 except Exception as e:
-                    fly_critical(self, "导入失败", str(e))
+                    _fd.fly_critical(self, "导入失败", str(e))
                 self._on_refresh()
             return
 
@@ -1044,7 +1039,7 @@ class MainWindow(MSFluentWindow):
 
         tool = self._get_tool_path_or_none()
         if tool is None and not quicktex_available():
-            fly_critical(
+            _fd.fly_critical(
                 self,
                 "无法生成 DDS",
                 "请任选其一：\n"
@@ -1089,7 +1084,7 @@ class MainWindow(MSFluentWindow):
             if dlg.exec() == dlg.DialogCode.Accepted:
                 self._on_refresh()
         else:
-            fly_warning(
+            _fd.fly_warning(
                 self,
                 "未实现",
                 "当前已实现【新增角色】【新增地图】【新增事件】【新增任务】【新增歌曲课题称号】【新增称号】【新增名牌】【新增奖励】【系统语音打包向导】【段位组曲】。"
