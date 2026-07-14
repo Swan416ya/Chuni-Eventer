@@ -921,65 +921,44 @@ class SavePatchPanel(QWidget):
             fly_warning(self, "提示", "请先选择存档 JSON")
             return
 
-        # 名牌
+        # 名牌 — 未选则保留存档原值
         np_row = self.np_holder.row
-        if np_row is None:
-            fly_warning(self, "提示", "请选择名牌")
-            return
-        np_id = int(np_row.get("id", -1))
-        if np_id < 0:
-            fly_warning(self, "提示", "请选择有效的名牌")
-            return
+        if np_row is not None:
+            np_id = int(np_row.get("id", -1))
+            if np_id >= 0:
+                set_equipped_nameplate(self._data, np_id)
 
-        # 称号
+        # 称号 — 未选则保留存档原值；主/副称号独立处理
         main_row = self.tr_main_holder.row
-        if main_row is None:
-            fly_warning(self, "提示", "请选择主称号")
-            return
-        main_id = int(main_row.get("id", -1))
-        if main_id < 0:
-            fly_warning(self, "提示", "请选择有效的主称号")
-            return
-        sub1_row = self.tr_sub1_holder.row
-        sub1_id = int(sub1_row.get("id", -1)) if sub1_row and sub1_row.get("id") is not None else -1
-        sub2_row = self.tr_sub2_holder.row
-        sub2_id = int(sub2_row.get("id", -1)) if sub2_row and sub2_row.get("id") is not None else -1
+        if main_row is not None:
+            main_id = int(main_row.get("id", -1))
+            if main_id >= 0:
+                sub1_row = self.tr_sub1_holder.row
+                sub2_row = self.tr_sub2_holder.row
+                sub1_id = int(sub1_row.get("id", -1)) if sub1_row and sub1_row.get("id") is not None else -1
+                sub2_id = int(sub2_row.get("id", -1)) if sub2_row and sub2_row.get("id") is not None else -1
+                set_equipped_trophies(self._data, main_id, sub1_id, sub2_id)
 
-        # 系统语音
+        # 系统语音 — 未选则保留存档原值
         sv_row = self.sv_holder.row
-        if sv_row is None:
-            fly_warning(self, "提示", "请选择系统语音")
-            return
-        voice_id = int(sv_row.get("id", -1))
-        if voice_id < 0:
-            fly_warning(self, "提示", "请选择有效的系统语音")
-            return
+        if sv_row is not None:
+            voice_id = int(sv_row.get("id", -1))
+            if voice_id >= 0:
+                set_equipped_voice(self._data, voice_id)
 
-        # 跑图小人
+        # 跑图小人 — 未选则保留存档原值
         mi_row = self.mi_holder.row
-        if mi_row is None:
-            fly_warning(self, "提示", "请选择跑图小人")
-            return
-        map_icon_id = int(mi_row.get("id", -1))
-        if map_icon_id < 0:
-            fly_warning(self, "提示", "请选择有效的跑图小人")
-            return
+        if mi_row is not None:
+            map_icon_id = int(mi_row.get("id", -1))
+            if map_icon_id >= 0:
+                set_equipped_map_icon(self._data, map_icon_id)
 
-        # 背景
+        # 背景 — 未选则保留存档原值
         st_row = self.st_holder.row
-        if st_row is None:
-            fly_warning(self, "提示", "请选择背景")
-            return
-        stage_id = int(st_row.get("id", -1))
-        if stage_id < 0:
-            fly_warning(self, "提示", "请选择有效的背景")
-            return
-
-        set_equipped_nameplate(self._data, np_id)
-        set_equipped_trophies(self._data, main_id, sub1_id, sub2_id)
-        set_equipped_voice(self._data, voice_id)
-        set_equipped_map_icon(self._data, map_icon_id)
-        set_equipped_stage(self._data, stage_id)
+        if st_row is not None:
+            stage_id = int(st_row.get("id", -1))
+            if stage_id >= 0:
+                set_equipped_stage(self._data, stage_id)
 
         stocks = {pid: sp.value() for sp, pid in zip(self._penguin_spins, PENGUIN_ITEM_IDS, strict=True)}
         set_penguin_stocks(self._data, stocks)

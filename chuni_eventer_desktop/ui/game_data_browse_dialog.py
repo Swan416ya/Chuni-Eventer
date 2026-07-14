@@ -137,6 +137,7 @@ class GameDataBrowseDialog(FluentCaptionDialog):
         self._select_mode = select_mode
         self._has_default_have_col = not select_mode and kind in _DEFAULT_HAVE_KINDS
         self._preset_rows = preset_rows
+        self._selected_row_cache: dict[str, Any] | None = None
 
         self.setWindowTitle(str(meta["title"]))
         self.setModal(True)
@@ -543,7 +544,7 @@ class GameDataBrowseDialog(FluentCaptionDialog):
             has = self._table.currentRow() >= 0
             self._btn_confirm.setEnabled(has)
 
-    def _selected_row(self) -> dict[str, Any] | None:
+    def _read_selected_row_from_table(self) -> dict[str, Any] | None:
         r = self._table.currentRow()
         if r < 0:
             return None
@@ -553,6 +554,18 @@ class GameDataBrowseDialog(FluentCaptionDialog):
             return None
         data = it.data(Qt.ItemDataRole.UserRole)
         return data if isinstance(data, dict) else None
+
+    def _selected_row(self) -> dict[str, Any] | None:
+        # 优先读 accept 时缓存的行（dialog 关闭后 table C++ 对象已销毁）
+        if self._selected_row_cache is not None:
+            return self._selected_row_cache
+        return self._read_selected_row_from_table()
+
+    def accept(self) -> None:
+        """select_mode 下：在关闭前缓存选中行，避免 dialog 销毁后 table 失效。"""
+        if self._select_mode:
+            self._selected_row_cache = self._read_selected_row_from_table()
+        super().accept()
 
     def selected_item(self) -> dict[str, Any] | None:
         """select_mode 下获取选中的行数据，调用方在 exec()==Accepted 后调用。"""
