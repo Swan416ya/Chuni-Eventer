@@ -10,12 +10,8 @@ from urllib.error import HTTPError, URLError
 _REPO = "Swan416ya/Chuni-Eventer"
 _USER_AGENT = "Chuni-Eventer/1.0"
 
-_PENGUIN_TOOLS_CLI_EXE_RE = re.compile(
-    r"^PenguinTools\.CLI\.v\d+(?:\.\d+)*\.exe$",
-    re.IGNORECASE,
-)
-_PENGUIN_TOOLS_CLI_ASSETS_RE = re.compile(
-    r"^PenguinTools\.CLI\.v\d+(?:\.\d+)*\.external-assets\.zip$",
+_PENGUIN_TOOLS_CLI_AOT_ZIP_RE = re.compile(
+    r"^PenguinTools\.CLI\.v\d+(?:\.\d+)*\.AOT\.zip$",
     re.IGNORECASE,
 )
 
@@ -122,36 +118,22 @@ def fetch_latest_release(*, timeout: float = 12.0) -> LatestReleaseInfo:
     )
 
 
-def penguin_tools_cli_download_urls_from_tag(tag: str) -> tuple[str, str]:
-    """按 Foahh/PenguinTools Release 资源命名规则构造下载 URL。"""
+def penguin_tools_cli_aot_zip_url_from_tag(tag: str) -> str:
+    """按 ChuniPingu/PenguinTools Release 命名规则构造 Native AOT 包 URL。"""
     tag = tag.strip()
     if not tag:
         raise ValueError("tag 为空")
     if not tag.startswith("v"):
         tag = f"v{tag}"
-    base = f"https://github.com/Foahh/PenguinTools/releases/download/{tag}"
     return (
-        f"{base}/PenguinTools.CLI.{tag}.exe",
-        f"{base}/PenguinTools.CLI.{tag}.external-assets.zip",
+        f"https://github.com/ChuniPingu/PenguinTools/releases/download/{tag}/"
+        f"PenguinTools.CLI.{tag}.AOT.zip"
     )
 
 
-def resolve_penguin_tools_cli_download_urls(
-    release: GitHubReleaseDetails,
-) -> tuple[str, str | None]:
-    """从 latest release 解析 CLI exe 与 external-assets 包 URL。"""
-    exe_url: str | None = None
-    assets_url: str | None = None
+def resolve_penguin_tools_cli_download_url(release: GitHubReleaseDetails) -> str:
+    """从 latest release 解析 ``PenguinTools.CLI.v*.AOT.zip`` 下载地址。"""
     for asset in release.assets:
-        if _PENGUIN_TOOLS_CLI_EXE_RE.match(asset.name):
-            exe_url = asset.download_url
-        elif _PENGUIN_TOOLS_CLI_ASSETS_RE.match(asset.name):
-            assets_url = asset.download_url
-
-    if exe_url is None:
-        exe_url, assets_url = penguin_tools_cli_download_urls_from_tag(release.tag_name)
-        return exe_url, assets_url
-
-    if assets_url is None:
-        _, assets_url = penguin_tools_cli_download_urls_from_tag(release.tag_name)
-    return exe_url, assets_url
+        if _PENGUIN_TOOLS_CLI_AOT_ZIP_RE.match(asset.name):
+            return asset.download_url
+    return penguin_tools_cli_aot_zip_url_from_tag(release.tag_name)

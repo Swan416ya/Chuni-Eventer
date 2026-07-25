@@ -2,11 +2,11 @@
 
 目标：让 `mgxc -> c2s` 优先走 C#（PenguinTools.Core）转换内核，Python 仅调用桥接程序。
 
-参考项目：[`Foahh/PenguinTools`](https://github.com/Foahh/PenguinTools)
+参考项目：[`ChuniPingu/PenguinTools`](https://github.com/ChuniPingu/PenguinTools)
 
 ## 0. 必须先准备 PenguinTools.Core（重要）
 
-`PenguinBridge.exe` **不是**独立单文件：它依赖 `PenguinTools.Core` 项目编译出的 `PenguinTools.Core.dll` 及传递依赖。若本地没有克隆 Foahh/PenguinTools，你会在运行 bridge 时看到：
+`PenguinBridge.exe` **不是**独立单文件：它依赖 `PenguinTools.Core` 项目编译出的 `PenguinTools.Core.dll` 及传递依赖。若本地没有克隆 ChuniPingu/PenguinTools，你会在运行 bridge 时看到：
 
 - `PenguinTools.Core is not loaded`（退出码 4）
 

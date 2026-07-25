@@ -4,7 +4,7 @@
 
 本文给出当前 Python 内置实现与 PenguinTools（C#）的逐项映射关系，便于后续精确补齐。
 
-参考项目：`[Foahh/PenguinTools](https://github.com/Foahh/PenguinTools)`
+参考项目：`[ChuniPingu/PenguinTools](https://github.com/ChuniPingu/PenguinTools)`
 
 ---
 

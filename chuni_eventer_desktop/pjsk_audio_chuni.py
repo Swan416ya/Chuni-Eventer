@@ -4,9 +4,9 @@ PJSK long audio -> CHUNITHM-style streaming ACB/AWB.
 烤谱音频：先用 ffmpeg 裁掉 PJSK 长音频前约 **9 秒**，再交给 **PenguinTools.CLI** + **SUS**
 （按谱面 BPM/片头空白小节做二次对齐，与 mgxc 转 c2s 同源逻辑）。
 CLI 不可用时回退为「仅裁 9 秒 + 本地 PyCriCodecsEx 编码」。
-并按 Foahh/PenguinTools MusicConverter (MIT) 同款密钥与表结构打包 HCA + ACB/AWB：
+并按 ChuniPingu/PenguinTools MusicConverter (MIT) 同款密钥与表结构打包 HCA + ACB/AWB：
 
-https://github.com/Foahh/PenguinTools/blob/main/PenguinTools.Core/Media/MusicConverter.cs
+https://github.com/ChuniPingu/PenguinTools/blob/main/PenguinTools.Core/Media/MusicConverter.cs
 
 Template ``dummy.acb`` is vendored from PenguinTools (PenguinTools/Resources/dummy.acb).
 """
@@ -315,7 +315,7 @@ def build_pjsk_audio_cue_via_penguin_tools(
 ) -> Path:
     """
     1) ffmpeg 裁掉片头 ``PJSK_AUDIO_TRIM_LEADING_SEC``（默认 9s）→ 48k WAV
-    2) ``PenguinTools.CLI media audio <sus> <out> --working-audio <wav>``（SUS 负责空白小节对齐）
+    2) ``PenguinTools.CLI audio convert <sus> <out> --working-audio <wav>``（SUS 负责空白小节对齐）
     """
     from .penguin_tools_cli import (
         convert_audio_with_penguin_tools_cli,

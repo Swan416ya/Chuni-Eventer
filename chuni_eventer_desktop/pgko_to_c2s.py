@@ -25,7 +25,7 @@ from .pjsk_acus_install import (
 )
 PGKO_RELEASE_TAG_ID = -1
 PGKO_RELEASE_TAG_STR = "Invalid"
-# 导入管线标识（UI/日志）；含 ``music export`` 的旧版为 split-v1 之前。
+# 导入管线标识（UI/日志）。
 PGKO_INSTALL_PIPELINE_ID = "split-v2"
 MGXC_TICKS_PER_BAR_4_4 = 1920
 
@@ -2072,7 +2072,7 @@ def convert_pgko_audio_to_chuni_from_pick(
     pick: PgkoChartPick, *, music_id_override: int | None = None
 ) -> dict[str, object]:
     """
-    通过 PenguinTools.CLI ``media audio`` 生成中二 cueFile（含 SOFFSET / wvof 等元数据对齐）。
+    通过 PenguinTools.CLI ``audio convert`` 生成中二 cueFile（含 SOFFSET / wvof 等元数据对齐）。
     """
     source_path = pick.path
     if pick.ext.lower().strip(".") != "mgxc":
@@ -2332,7 +2332,7 @@ def _export_pgko_cue_for_acus(
 ) -> tuple[Path, str]:
     """
     生成 cueFile：PGKO 默认用 PyCriCodecsEx 写 ACB/AWB（绕开 PenguinTools 的 WAV data chunk 问题）。
-    仅当本地编码失败时才尝试 ``media audio``。
+    仅当本地编码失败时才尝试 ``audio convert``。
     """
     from .pjsk_audio_chuni import build_chuni_music_acb_awb, patch_cue_preview_window
 
@@ -2383,9 +2383,9 @@ def _export_pgko_cue_for_acus(
         return cue_dst, "penguin-media-audio"
     except Exception as penguin_err:
         raise RuntimeError(
-            "PGKO 音频写入失败（已跳过 music export）。\n"
+            "PGKO 音频写入失败。\n"
             f"PyCriCodecsEx: {pycri_err}\n"
-            f"PenguinTools media audio: {penguin_err}\n"
+            f"PenguinTools audio convert: {penguin_err}\n"
             f"WAV: {prep.safe_bgm_wav}"
         ) from penguin_err
 
@@ -2426,7 +2426,7 @@ def install_pgko_pick_to_acus(
         shutil.rmtree(export_root, ignore_errors=True)
     export_root.mkdir(parents=True, exist_ok=True)
 
-    # 分步导入（不用 music export）：chart convert + 封面 + media audio / 本地 ACB 回退。
+    # 分步导入：chart convert + 封面 + audio convert / 本地 ACB 回退。
     import xml.etree.ElementTree as ET
 
     slot_work = export_root / "bundle_slots"

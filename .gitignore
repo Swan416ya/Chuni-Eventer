@@ -31,9 +31,18 @@ _tmp_pjsk_test/
 # 官方 A001 参考包（体积大，仅本地对照，勿提交）
 A001/
 
-# scripts/setup_penguin_tools.ps1 克隆的依赖（构建 PenguinBridge 用，勿提交）
+# scripts/setup_penguin_tools.ps1 克隆的 PenguinTools 源码（勿提交）
 PenguinTools/
 audio_test/
+
+# PenguinTools.CLI 本地/打包产物（由构建或一键下载取得，勿提交）
+tools/PenguinToolsCLI/
+.tools/PenguinToolsCLI/
+*.exe.bak
+
+# 已弃用 PenguinBridge 的构建产物
+tools/PenguinBridge/bin/
+tools/PenguinBridge/obj/
 
 # 做视频用的ppt和相关素材
 docs/Introduction/

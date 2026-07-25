@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Literal
 
 from .acus_workspace import AcusConfig, app_cache_dir, app_root_dir
-from .github_release import fetch_github_release_latest, resolve_penguin_tools_cli_download_urls
+from .github_release import fetch_github_release_latest, resolve_penguin_tools_cli_download_url
 
 _log = logging.getLogger("chuni.external_tools")
 
@@ -88,7 +88,7 @@ TOOL_COMPRESSONATOR = ExternalToolSpec(
 )
 
 # API 不可用时回退到该 tag 的 Release 资源（须与上游命名一致）。
-_PENGUIN_TOOLS_CLI_FALLBACK_TAG = "v1.12.1"
+_PENGUIN_TOOLS_CLI_FALLBACK_TAG = "v2.0.0"
 
 TOOL_PENGUINTOOLS_CLI = ExternalToolSpec(
     id="penguin_tools_cli",
@@ -100,16 +100,12 @@ TOOL_PENGUINTOOLS_CLI = ExternalToolSpec(
     default_rel="PenguinToolsCLI/PenguinTools.CLI.exe",
     exe_name="PenguinTools.CLI.exe",
     download_url=(
-        f"https://github.com/Foahh/PenguinTools/releases/download/{_PENGUIN_TOOLS_CLI_FALLBACK_TAG}/"
-        f"PenguinTools.CLI.{_PENGUIN_TOOLS_CLI_FALLBACK_TAG}.exe"
+        f"https://github.com/ChuniPingu/PenguinTools/releases/download/{_PENGUIN_TOOLS_CLI_FALLBACK_TAG}/"
+        f"PenguinTools.CLI.{_PENGUIN_TOOLS_CLI_FALLBACK_TAG}.AOT.zip"
     ),
-    archive_kind="exe",
-    companion_download_url=(
-        f"https://github.com/Foahh/PenguinTools/releases/download/{_PENGUIN_TOOLS_CLI_FALLBACK_TAG}/"
-        f"PenguinTools.CLI.{_PENGUIN_TOOLS_CLI_FALLBACK_TAG}.external-assets.zip"
-    ),
-    latest_release_repo="Foahh/PenguinTools",
-    help_url="https://github.com/Foahh/PenguinTools/releases",
+    archive_kind="zip",
+    latest_release_repo="ChuniPingu/PenguinTools",
+    help_url="https://github.com/ChuniPingu/PenguinTools/releases",
 )
 
 # mua 固定从 v0.7.1 Release 下载；二进制不随 Chuni-Eventer 版本更新而重新发布。
@@ -467,6 +463,19 @@ def _install_exe_from_zip(
         if dest_exe.exists():
             dest_exe.unlink()
         shutil.copy2(found, dest_exe)
+
+        if spec.id == "penguin_tools_cli":
+            # AOT.zip：exe + assets/。
+            src_dir = found.parent
+            assets_src = src_dir / "assets"
+            assets_dst = dest_exe.parent / "assets"
+            if assets_dst.exists():
+                shutil.rmtree(assets_dst)
+            if assets_src.is_dir():
+                shutil.copytree(assets_src, assets_dst)
+            _assert_penguin_tools_cli_runtime(dest_exe)
+            return
+
         if spec.id == "compressonator":
             src_dir = found.parent
             for extra in src_dir.iterdir():
@@ -493,6 +502,23 @@ def _extract_zip_into_dir(
     dest_dir.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(zip_path, "r") as zf:
         zf.extractall(dest_dir)
+
+
+def _assert_penguin_tools_cli_runtime(dest_exe: Path) -> None:
+    """校验 Native AOT CLI 旁是否具备完整 runtime assets。"""
+    root = dest_exe.parent
+    required = [
+        root / "assets" / "assets.json",
+        root / "assets" / "cri" / "PenguinTools.CRI.exe",
+        root / "assets" / "mua" / "mua_wav.exe",
+        root / "assets" / "mua" / "mua_img.exe",
+    ]
+    missing = [str(p) for p in required if not p.is_file()]
+    if missing:
+        raise RuntimeError(
+            "PenguinTools.CLI 运行时资源不完整（需要 assets.json / CRI / mua）：\n"
+            + "\n".join(f"- {p}" for p in missing)
+        )
 
 
 def _install_direct_exe(
@@ -529,8 +555,7 @@ def _resolve_tool_download_urls(
         """Block until GitHub API resolves, or raise. Returns (download_url, companion_url, tag_name)."""
         release = fetch_github_release_latest(spec.latest_release_repo)
         if spec.id == "penguin_tools_cli":
-            download_url, companion_url = resolve_penguin_tools_cli_download_urls(release)
-            return download_url, companion_url, release.tag_name
+            return resolve_penguin_tools_cli_download_url(release), None, release.tag_name
         raise RuntimeError(f"未实现 {spec.latest_release_repo} 的 latest release 解析")
 
     github_future: Future[tuple[str, str | None, str | None]] | None = None

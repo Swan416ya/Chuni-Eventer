@@ -27,7 +27,7 @@
 
 ## 2) 参考实现与对照项目（高优先级）
 
-- [Foahh/PenguinTools](https://github.com/Foahh/PenguinTools)  
+- [ChuniPingu/PenguinTools](https://github.com/ChuniPingu/PenguinTools)  
   - 关键价值：`mgxc -> c2s` 的开源实现（`MgxcParser`、`C2SConverter`）。  
   - 用法：作为“语义输出目标”对照，不直接解决 UGC 紧凑正文解析。
 

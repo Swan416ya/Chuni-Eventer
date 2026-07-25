@@ -652,9 +652,9 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
             '<span style="color:#c62828;font-weight:700;">※</span> '
             f'<a href="{PGKO_BASE_URL}" style="color:#1565c0;font-weight:600;text-decoration:none;">'
             "pgko.dev</a> 列表数据与谱面转码（<b>mgxc → c2s</b>、音频、封面）均使用 "
-            '<a href="https://github.com/Foahh/PenguinTools" style="color:#1565c0;font-weight:600;text-decoration:none;">'
+            '<a href="https://github.com/ChuniPingu/PenguinTools" style="color:#1565c0;font-weight:600;text-decoration:none;">'
             "PenguinTools CLI</a>（作者 "
-            '<a href="https://github.com/Foahh" style="color:#1565c0;font-weight:600;text-decoration:none;">Foahh</a>）。'
+            '<a href="https://github.com/ChuniPingu" style="color:#1565c0;font-weight:600;text-decoration:none;">ChuniPingu</a>）。'
             "</p>"
         )
         credit.setWordWrap(True)
@@ -1367,7 +1367,7 @@ class _PgkoInstallConfigDialog(FluentCaptionDialog):
             fly_critical(self, "导入前检查未通过", str(e))
             return
         pre_status = (
-            f"导入管线：{PGKO_INSTALL_PIPELINE_ID}（分步：多难度 chart + 本地音频，无 music export）\n"
+            f"导入管线：{PGKO_INSTALL_PIPELINE_ID}（分步：多难度 chart + 本地音频）\n"
             "正在导入（谱面/音频/事件），请稍候…"
         )
         if prep.filled_fields:
@@ -1409,12 +1409,6 @@ class _PgkoInstallConfigDialog(FluentCaptionDialog):
     def _on_install_fail(self, msg: str) -> None:
         _pgko_dlog("_on_install_fail", msg=msg[:220])
         text = f"导入失败：{msg}"
-        if "music export" in msg and PGKO_INSTALL_PIPELINE_ID not in msg:
-            text += (
-                "\n\n【提示】当前报错来自旧版「music export」管线。"
-                f"请用本仓库最新源码启动（应显示管线 {PGKO_INSTALL_PIPELINE_ID}），"
-                "或重新打包 exe；勿直接运行未更新的 CHUNITOOL 目录下旧程序。"
-            )
         self._status.setText(text)
         self._status.show()
 
