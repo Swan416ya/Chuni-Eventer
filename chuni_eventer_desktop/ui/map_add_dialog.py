@@ -70,6 +70,7 @@ from ..acus_scan import scan_map_bonuses, scan_map_icons, scan_system_voices
 from ..system_voice_pack import system_voice_dir_name, system_voice_preview_ui_dds_basename
 from .name_glyph_preview import wrap_name_input_with_preview
 from .mapbonus_dialogs import MapBonusEditDialog
+from .image_crop_editor_dialog import ImageCropEditorDialog
 
 
 def _safe_int(text: str) -> int | None:
@@ -1812,12 +1813,16 @@ class DdsMapCreateDialog(FluentCaptionDialog):
         self.image_path.setPlaceholderText("选择图片或 DDS（DDS 将直接导入，需为 BC3）…")
         br = PushButton("浏览…")
         br.clicked.connect(self._pick_image)
+        crop_btn = PushButton("✂ 编辑裁剪…")
+        crop_btn.setToolTip(f"打开贴图编辑器，缩放并手动选择 {MAP_DDS_WIDTH}×{MAP_DDS_HEIGHT} 范围")
+        crop_btn.clicked.connect(self._open_crop_editor)
 
         row = QWidget()
         hl = QHBoxLayout(row)
         hl.setContentsMargins(0, 0, 0, 0)
         hl.addWidget(self.image_path, stretch=1)
         hl.addWidget(br)
+        hl.addWidget(crop_btn)
 
         hint = QLabel(
             f"贴图将自动缩放并裁切为 **{MAP_DDS_WIDTH}×{MAP_DDS_HEIGHT}** 像素（与游戏地图格背景常见规格一致），再编码为 BC3 DDS。\n"
@@ -1858,6 +1863,35 @@ class DdsMapCreateDialog(FluentCaptionDialog):
         )
         if path:
             self.image_path.setText(path)
+
+    def _open_crop_editor(self) -> None:
+        text = self.image_path.text().strip()
+        if not text:
+            fly_critical(self, "提示", "请先选择源图片，再进行裁剪编辑。")
+            return
+        src = Path(text).expanduser()
+        if not src.is_file():
+            fly_critical(self, "错误", "源图片路径无效，请重新选择。")
+            return
+        if src.suffix.lower() == ".dds":
+            fly_critical(
+                self,
+                "提示",
+                "裁剪编辑器仅支持普通图片（PNG/JPG 等）。如需裁剪 DDS，请先转换为 PNG。",
+            )
+            return
+        try:
+            dlg = ImageCropEditorDialog(
+                source_path=src,
+                target_size=(MAP_DDS_WIDTH, MAP_DDS_HEIGHT),
+                title="裁剪地图背景",
+                parent=self,
+            )
+        except Exception as e:
+            fly_critical(self, "错误", f"无法打开裁剪编辑器：{e}")
+            return
+        if dlg.exec() == ImageCropEditorDialog.DialogCode.Accepted and dlg.output_path:
+            self.image_path.setText(str(dlg.output_path))
 
     def _run(self) -> None:
         mid = self._alloc_id

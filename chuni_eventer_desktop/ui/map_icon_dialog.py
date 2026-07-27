@@ -23,6 +23,7 @@ from .dds_progress import run_bc3_jobs_with_progress
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical
 from .name_glyph_preview import wrap_name_input_with_preview
+from .image_crop_editor_dialog import ImageCropEditorDialog
 
 
 MAP_ICON_PX = 256
@@ -122,10 +123,7 @@ class MapIconAddEditDialog(FluentCaptionDialog):
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         form.addRow("MapIcon ID", self.id_edit)
         form.addRow("显示名", wrap_name_input_with_preview(self.name_edit, parent=self))
-        form.addRow(
-            "贴图",
-            self._file_row(self.image_edit, "选择图片或 DDS"),
-        )
+        form.addRow("贴图", self._image_row())
         ml.addLayout(form)
 
         ok = PrimaryPushButton("生成并写入 ACUS", self)
@@ -144,16 +142,50 @@ class MapIconAddEditDialog(FluentCaptionDialog):
         layout.addStretch(1)
         layout.addLayout(btns)
 
-    def _file_row(self, edit: LineEdit, title: str) -> QWidget:
+    def _image_row(self) -> QWidget:
+        """贴图行：路径 + 浏览… + 编辑裁剪…"""
         w = QWidget(self)
         h = QHBoxLayout(w)
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(8)
-        h.addWidget(edit, stretch=1)
+        h.addWidget(self.image_edit, stretch=1)
         b = PushButton("浏览…", self)
-        b.clicked.connect(lambda: self._pick_into(edit, title))
+        b.clicked.connect(lambda: self._pick_into(self.image_edit, "选择图片或 DDS"))
         h.addWidget(b)
+        crop_btn = PushButton("✂ 编辑裁剪…", self)
+        crop_btn.setToolTip(f"打开贴图编辑器，缩放并手动选择 {MAP_ICON_PX}×{MAP_ICON_PX} 范围")
+        crop_btn.clicked.connect(self._open_crop_editor)
+        h.addWidget(crop_btn)
         return w
+
+    def _open_crop_editor(self) -> None:
+        text = self.image_edit.text().strip()
+        if not text:
+            fly_critical(self, "提示", "请先选择源图片，再进行裁剪编辑。")
+            return
+        src = Path(text).expanduser()
+        if not src.is_file():
+            fly_critical(self, "错误", "源图片路径无效，请重新选择。")
+            return
+        if src.suffix.lower() == ".dds":
+            fly_critical(
+                self,
+                "提示",
+                "裁剪编辑器仅支持普通图片（PNG/JPG 等）。如需裁剪 DDS，请先转换为 PNG。",
+            )
+            return
+        try:
+            dlg = ImageCropEditorDialog(
+                source_path=src,
+                target_size=(MAP_ICON_PX, MAP_ICON_PX),
+                title="裁剪跑图小人",
+                parent=self,
+            )
+        except Exception as e:
+            fly_critical(self, "错误", f"无法打开裁剪编辑器：{e}")
+            return
+        if dlg.exec() == ImageCropEditorDialog.DialogCode.Accepted and dlg.output_path:
+            self.image_edit.setText(str(dlg.output_path))
 
     def _pick_into(self, edit: LineEdit, title: str) -> None:
         p, _ = QFileDialog.getOpenFileName(
