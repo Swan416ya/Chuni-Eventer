@@ -1,6 +1,6 @@
 # UGC → MGXC → c2s 管线设计说明
 
-本文说明 [PenguinTools](https://github.com/Foahh/PenguinTools) 中与谱面相关的**真实代码结构**、**UGC / MGXC / c2s 三种形态的阅读方式与对应关系**，以及本仓库**计划中的「UGC 转 MGXC（再沿用现有 MGXC→c2s）」**逻辑与可行性理由。
+本文说明 [PenguinTools](https://github.com/ChuniPingu/PenguinTools) 中与谱面相关的**真实代码结构**、**UGC / MGXC / c2s 三种形态的阅读方式与对应关系**，以及本仓库**计划中的「UGC 转 MGXC（再沿用现有 MGXC→c2s）」**逻辑与可行性理由。
 
 > **本地样本说明**：当前工作区内的 `.cache/pgko_downloads` 目录下**未检出任何文件**，因此下文**无法**基于你机器上的具体 UGC/MGXC/c2s 做逐行或十六进制对比；待缓存目录有样本后，可将典型文件与本文结构描述逐项核对。
 
@@ -10,7 +10,7 @@
 
 ### 1.1与 Issues 页的关系
 
-[PenguinTools Issues](https://github.com/Foahh/PenguinTools/issues) 在公开页面上**没有可检索的讨论串**（当前为0 条 open issue）。**可复核的「转谱逻辑」应以仓库源码为准**，核心在 `PenguinTools.Core` 工程内。
+[PenguinTools Issues](https://github.com/ChuniPingu/PenguinTools/issues) 在公开页面上**没有可检索的讨论串**（当前为0 条 open issue）。**可复核的「转谱逻辑」应以仓库源码为准**，核心在 `PenguinTools.Core` 工程内。
 
 ### 1.2 总体数据流
 
@@ -41,7 +41,7 @@
 - 生成 c2s 头（`VERSION`、`CREATOR`、`BPM_DEF`、`MET_DEF`、`RESOLUTION`、`CLK_DEF` 等）；
 - 遍历 `Events` / `Notes` 输出 `.Text` 行。
 
-**结论**：在 Foahh/PenguinTools **当前公开代码树中，不存在独立的「UGC 文件解析器」**；社区若谈「用 PenguinTools 转谱」，通常指 **已有 MGXC（或由其它工具先得到 MGXC）→ c2s**。
+**结论**：在 ChuniPingu/PenguinTools **当前公开代码树中，不存在独立的「UGC 文件解析器」**；社区若谈「用 PenguinTools 转谱」，通常指 **已有 MGXC（或由其它工具先得到 MGXC）→ c2s**。
 
 ### 1.3 `mgxc -> c2s` 的实现细化（可直接借鉴）
 
@@ -347,8 +347,8 @@
 
 ## 6. 参考链接
 
-- [Foahh/PenguinTools](https://github.com/Foahh/PenguinTools) — 源码中 `MgxcParser`、`C2SConverter`。  
-- [PenguinTools Issues](https://github.com/Foahh/PenguinTools/issues) — 当前无公开 issue 可供引用；技术细节以代码为准。  
+- [ChuniPingu/PenguinTools](https://github.com/ChuniPingu/PenguinTools) — 源码中 `MgxcParser`、`C2SConverter`。  
+- [PenguinTools Issues](https://github.com/ChuniPingu/PenguinTools/issues) — 当前无公开 issue 可供引用；技术细节以代码为准。  
 - 本仓库：`docs/pgko_mgxc_conversion_tech.md`、`docs/pgko_mgxc_conversion_1to1_mapping.md`、`chuni_eventer_desktop/pgko_to_c2s.py`。
 
 ---

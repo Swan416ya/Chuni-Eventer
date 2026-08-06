@@ -1,6 +1,6 @@
 # PenguinTools 图片转 Stage AFB 实现解析
 
-本文专门解释 `Foahh/PenguinTools` 里“图片转 Stage 的 `afb`”是怎么做的（即 `st_*.afb` 生成流程），不讨论图片转 DDS 封面链路。
+本文专门解释 `ChuniPingu/PenguinTools` 里“图片转 Stage 的 `afb`”是怎么做的（即 `st_*.afb` 生成流程），不讨论图片转 DDS 封面链路。
 
 ---
 
@@ -126,10 +126,10 @@
 
 ## 7. 参考链接
 
-- PenguinTools 仓库：<https://github.com/Foahh/PenguinTools>
-- StageConverter：<https://raw.githubusercontent.com/Foahh/PenguinTools/main/PenguinTools.Core/Media/StageConverter.cs>
-- Manipulate：<https://raw.githubusercontent.com/Foahh/PenguinTools/main/PenguinTools.Core/Media/Manipulate.cs>
-- StageViewModel：<https://raw.githubusercontent.com/Foahh/PenguinTools/main/PenguinTools/ViewModels/StageViewModel.cs>
-- StageXml：<https://raw.githubusercontent.com/Foahh/PenguinTools/main/PenguinTools.Core/Xml/StageXml.cs>
-- 中文 Wiki：<https://raw.githubusercontent.com/wiki/Foahh/PenguinTools/%E4%B8%AD%E6%96%87.md>
+- PenguinTools 仓库：<https://github.com/ChuniPingu/PenguinTools>
+- StageConverter：<https://raw.githubusercontent.com/ChuniPingu/PenguinTools/main/PenguinTools.Core/Media/StageConverter.cs>
+- Manipulate：<https://raw.githubusercontent.com/ChuniPingu/PenguinTools/main/PenguinTools.Core/Media/Manipulate.cs>
+- StageViewModel：<https://raw.githubusercontent.com/ChuniPingu/PenguinTools/main/PenguinTools/ViewModels/StageViewModel.cs>
+- StageXml：<https://raw.githubusercontent.com/ChuniPingu/PenguinTools/main/PenguinTools.Core/Xml/StageXml.cs>
+- 中文 Wiki：<https://raw.githubusercontent.com/wiki/ChuniPingu/PenguinTools/%E4%B8%AD%E6%96%87.md>
 

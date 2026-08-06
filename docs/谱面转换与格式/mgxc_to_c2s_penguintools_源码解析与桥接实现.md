@@ -3,7 +3,7 @@
 # mgxc -> c2s（PenguinTools）源码解析与本仓库桥接说明
 
 本文目标：
-- 详细解释 `Foahh/PenguinTools` 中 `mgxc -> c2s` 的真实实现链路。
+- 详细解释 `ChuniPingu/PenguinTools` 中 `mgxc -> c2s` 的真实实现链路。
 - 说明本仓库如何“抄实现思路 + 改入口”构建 `exe`，供 Python 调用。
 
 参考源码（上游）：

@@ -1,8 +1,8 @@
 """
 Install a PJSK cache bundle (pjsk_cache/pjsk_XXXX) into ACUS as official-style music + cueFile.
 
-Aligns with Foahh/PenguinTools Music.xml / Event.xml (ULT unlock) layout:
-https://github.com/Foahh/PenguinTools/tree/main/PenguinTools.Core/Xml
+Aligns with ChuniPingu/PenguinTools Music.xml / Event.xml (ULT unlock) layout:
+https://github.com/ChuniPingu/PenguinTools/tree/main/PenguinTools.Core/Xml
 
 Release tag for 烤谱: releaseTagName id=-2 str=PJSK (fixed).
 """

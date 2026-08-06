@@ -11,6 +11,46 @@ from typing import Any
 
 from .acus_workspace import app_root_dir
 
+# PenguinTools.CLI 发布目录名（位于 .../net10.0/publish/ 下；仅 Native AOT）。
+_PUBLISH_PROFILES = (
+    "WinX64-NativeAOT",
+)
+
+
+def _format_cli_message(message: Any) -> str:
+    """将 CLI 的 message / 诊断 message（字符串或 MessageDescriptor）格式化为可读文本。"""
+    if message is None:
+        return ""
+    if isinstance(message, str):
+        return message.strip()
+    if not isinstance(message, dict):
+        return str(message).strip()
+
+    key = str(message.get("key") or "").strip()
+    args = message.get("args")
+    if not isinstance(args, dict) or not args:
+        return key
+
+    numbered: list[str] = []
+    for i in range(16):
+        if f"arg{i}" not in args:
+            if i == 0:
+                break
+            continue
+        numbered.append(str(args[f"arg{i}"]))
+    if numbered:
+        detail = "; ".join(numbered)
+        return f"{key}: {detail}" if key else detail
+
+    # 常见命名占位符（例如 diag.error.unhandled → args.detail）。
+    for named in ("detail", "path", "file", "value"):
+        if named in args and args[named] is not None:
+            detail = str(args[named])
+            return f"{key}: {detail}" if key else detail
+
+    extras = ", ".join(f"{k}={v}" for k, v in args.items())
+    return f"{key} ({extras})" if key else extras
+
 
 def _format_penguin_tools_cli_failure(
     *,
@@ -20,7 +60,7 @@ def _format_penguin_tools_cli_failure(
     stderr: str,
 ) -> str:
     lines = ["PenguinTools.CLI 调用失败：", f"cmd: {' '.join(cmd)}"]
-    message = str(payload.get("message") or "").strip()
+    message = _format_cli_message(payload.get("message"))
     if message:
         lines.append(f"message: {message}")
 
@@ -32,7 +72,12 @@ def _format_penguin_tools_cli_failure(
             if not isinstance(item, dict):
                 continue
             sev = str(item.get("severity") or "").strip().lower()
-            text = str(item.get("message") or "").strip()
+            text = _format_cli_message(item.get("message"))
+            path = str(item.get("path") or "").strip()
+            if path and text:
+                text = f"{text} ({path})"
+            elif path and not text:
+                text = path
             if not text:
                 continue
             if sev == "error":
@@ -69,12 +114,7 @@ def _candidate_cli_paths() -> list[Path]:
     cwd = Path.cwd().resolve()
     exe_dir = Path(sys.executable).resolve().parent
     sibling_penguin_tools = root.parent / "PenguinTools"
-    bundled_publish_embedded = Path(
-        "PenguinTools.CLI/bin/Release/net10.0/publish/WinX64-SelfContained-SingleFile-EmbeddedAssets"
-    )
-    bundled_publish_external = Path(
-        "PenguinTools.CLI/bin/Release/net10.0/publish/WinX64-SelfContained-SingleFile-ExternalAssets"
-    )
+    butler_penguin_tools = root.parent / "penguin-butler" / "external" / "PenguinTools"
 
     out.extend(
         [
@@ -85,16 +125,17 @@ def _candidate_cli_paths() -> list[Path]:
             (exe_dir / "PenguinTools.CLI.exe").resolve(),
             (cwd / ".tools" / "PenguinToolsCLI" / "PenguinTools.CLI.exe").resolve(),
             (cwd / "PenguinTools.CLI.exe").resolve(),
-            (root / "PenguinTools" / bundled_publish_embedded / "PenguinTools.CLI.exe").resolve(),
-            (sibling_penguin_tools / bundled_publish_embedded / "PenguinTools.CLI.exe").resolve(),
-            (root / "PenguinTools" / bundled_publish_external / "PenguinTools.CLI.exe").resolve(),
-            (sibling_penguin_tools / bundled_publish_external / "PenguinTools.CLI.exe").resolve(),
-            (root / "PenguinTools" / "PenguinTools.CLI" / "bin" / "Release" / "net10.0" / "PenguinTools.CLI.dll")
-            .resolve(),
-            (sibling_penguin_tools / "PenguinTools.CLI" / "bin" / "Release" / "net10.0" / "PenguinTools.CLI.dll")
-            .resolve(),
         ]
     )
+
+    for penguin_root in (root / "PenguinTools", sibling_penguin_tools, butler_penguin_tools):
+        for profile in _PUBLISH_PROFILES:
+            out.append(
+                (penguin_root / "PenguinTools.CLI" / "bin" / "Release" / "net10.0" / "publish" / profile / "PenguinTools.CLI.exe").resolve()
+            )
+        out.append(
+            (penguin_root / "PenguinTools.CLI" / "bin" / "Release" / "net10.0" / "PenguinTools.CLI.dll").resolve()
+        )
 
     unique: list[Path] = []
     seen: set[str] = set()
@@ -139,6 +180,40 @@ def _command_prefix(cli_path: Path) -> list[str]:
     return [str(cli_path)]
 
 
+def _parse_cli_result_payload(stdout: str) -> dict[str, Any] | None:
+    """
+    解析 PenguinTools.CLI 标准输出。
+
+    输出为 NDJSON：可选的 ``type=progress`` 行，最后一行 ``type=result``（schemaVersion 4）。
+    """
+    text = (stdout or "").strip()
+    if not text:
+        return None
+
+    # 整段 stdout 恰好是一个 JSON 对象时走快路径。
+    try:
+        payload = json.loads(text)
+        if isinstance(payload, dict) and str(payload.get("type") or "").lower() == "result":
+            return payload
+    except json.JSONDecodeError:
+        pass
+
+    result: dict[str, Any] | None = None
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or not line.startswith("{"):
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        if str(obj.get("type") or "").strip().lower() == "result":
+            result = obj
+    return result
+
+
 def _run_penguin_tools_cli(args: list[str], *, cfg: object | None = None) -> dict[str, Any]:
     cli_path = resolve_penguin_tools_cli(cfg)
     if cli_path is None:
@@ -147,7 +222,12 @@ def _run_penguin_tools_cli(args: list[str], *, cfg: object | None = None) -> dic
             + explain_penguin_tools_cli_lookup()
         )
 
-    cmd = [*_command_prefix(cli_path), "--no-pretty", *args]
+    # ``--no-progress`` 挂在子命令上；未声明该选项的命令（如 jacket/audio convert）不能传。
+    cmd_args = list(args)
+    if _supports_no_progress(cmd_args) and "--no-progress" not in cmd_args:
+        cmd_args.append("--no-progress")
+
+    cmd = [*_command_prefix(cli_path), *cmd_args]
     process = subprocess.run(
         cmd,
         capture_output=True,
@@ -159,19 +239,11 @@ def _run_penguin_tools_cli(args: list[str], *, cfg: object | None = None) -> dic
 
     stdout = process.stdout.strip()
     stderr = process.stderr.strip()
-    try:
-        payload = json.loads(stdout) if stdout else None
-    except json.JSONDecodeError as exc:
+    payload = _parse_cli_result_payload(stdout)
+
+    if payload is None:
         raise RuntimeError(
             "PenguinTools.CLI 未返回可解析的 JSON。\n"
-            f"cmd: {' '.join(cmd)}\n"
-            f"stdout:\n{stdout or '(empty)'}\n"
-            f"stderr:\n{stderr or '(empty)'}"
-        ) from exc
-
-    if not isinstance(payload, dict):
-        raise RuntimeError(
-            "PenguinTools.CLI 返回了意外的响应格式。\n"
             f"cmd: {' '.join(cmd)}\n"
             f"stdout:\n{stdout or '(empty)'}\n"
             f"stderr:\n{stderr or '(empty)'}"
@@ -188,6 +260,13 @@ def _run_penguin_tools_cli(args: list[str], *, cfg: object | None = None) -> dic
         )
 
     return payload
+
+
+def _supports_no_progress(args: list[str]) -> bool:
+    """当前调用链里需要抑制进度输出的子命令。"""
+    if len(args) < 2:
+        return False
+    return (args[0], args[1]) == ("chart", "convert")
 
 
 def convert_chart_with_penguin_tools_cli(
@@ -343,7 +422,7 @@ def convert_jacket_with_penguin_tools_cli(
     input_path = Path(input_path).resolve()
     output_path = Path(output_path).resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    args = ["media", "jacket", str(input_path), str(output_path)]
+    args = ["jacket", "convert", str(input_path), str(output_path)]
     if jacket_input is not None:
         args.extend(["--jacket-input", str(Path(jacket_input).resolve())])
     payload = _run_penguin_tools_cli(args)
@@ -365,45 +444,11 @@ def convert_audio_with_penguin_tools_cli(
     working_audio: Path | None = None,
     cfg: object | None = None,
 ) -> dict[str, Any]:
-    """``media audio``：input 可为 .mgxc / .ugc / .sus；PJSK 用 SUS 的 BPM/片头空白对齐音频。"""
+    """``audio convert``：输入可为 .mgxc / .ugc / .sus；PJSK 用 SUS 的 BPM/片头空白对齐音频。"""
     input_path = Path(input_path).resolve()
     output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    args = ["media", "audio", str(input_path), str(output_dir)]
-    if working_audio is not None:
-        wa = Path(working_audio).resolve()
-        if wa.is_file():
-            args.extend(["--working-audio", str(wa)])
-    return _run_penguin_tools_cli(args, cfg=cfg)
-
-
-def export_music_with_penguin_tools_cli(
-    *,
-    input_path: Path,
-    output_dir: Path,
-    jacket_input: Path | None = None,
-    stage_id: int | None = None,
-    background: Path | None = None,
-    working_audio: Path | None = None,
-    cfg: object | None = None,
-) -> dict[str, Any]:
-    """
-    ``music export``：一次性导出 music/cueFile（以及可选 stage/event）。
-    """
-    input_path = Path(input_path).resolve()
-    output_dir = Path(output_dir).resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    args = ["music", "export", str(input_path), str(output_dir)]
-    if jacket_input is not None:
-        ji = Path(jacket_input).resolve()
-        if ji.is_file():
-            args.extend(["--jacket-input", str(ji)])
-    if background is not None:
-        bg = Path(background).resolve()
-        if bg.is_file():
-            args.extend(["--background", str(bg)])
-            if stage_id is not None:
-                args.extend(["--stage-id", str(int(stage_id))])
+    args = ["audio", "convert", str(input_path), str(output_dir)]
     if working_audio is not None:
         wa = Path(working_audio).resolve()
         if wa.is_file():

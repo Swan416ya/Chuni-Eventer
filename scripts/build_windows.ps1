@@ -30,6 +30,8 @@ function Resolve-PenguinToolsRoot {
     }
     $candidates += (Join-Path $Root "PenguinTools")
     $candidates += (Join-Path (Split-Path -Parent $Root) "PenguinTools")
+    # 同级仓库中的 penguin-butler/external/PenguinTools。
+    $candidates += (Join-Path (Split-Path -Parent $Root) "penguin-butler\external\PenguinTools")
     foreach ($cand in $candidates) {
         if (-not $cand) { continue }
         $full = [System.IO.Path]::GetFullPath($cand)
@@ -41,25 +43,55 @@ function Resolve-PenguinToolsRoot {
     return $null
 }
 
+function Resolve-PenguinToolsPublishProfile([string]$penguinToolsRoot) {
+    # Always use Native AOT (matches ChuniPingu/PenguinTools GitHub release primary binary).
+    $name = "WinX64-NativeAOT"
+    $pubxml = Join-Path $penguinToolsRoot "PenguinTools.CLI\Properties\PublishProfiles\$name.pubxml"
+    if (-not (Test-Path $pubxml)) {
+        throw "PenguinTools Native AOT publish profile missing: $pubxml"
+    }
+    return $name
+}
+
+function Assert-PenguinToolsCliRuntime([string]$publishDir) {
+    $required = @(
+        (Join-Path $publishDir "PenguinTools.CLI.exe"),
+        (Join-Path $publishDir "assets\assets.json"),
+        (Join-Path $publishDir "assets\cri\PenguinTools.CRI.exe"),
+        (Join-Path $publishDir "assets\mua\mua_wav.exe"),
+        (Join-Path $publishDir "assets\mua\mua_img.exe")
+    )
+    $missing = @()
+    foreach ($p in $required) {
+        if (-not (Test-Path $p)) { $missing += $p }
+    }
+    if ($missing.Count -gt 0) {
+        throw ("PenguinTools.CLI runtime incomplete (need AOT exe + full assets):`n" + ($missing -join "`n"))
+    }
+}
+
 function Initialize-PenguinToolsMua([string]$penguinToolsRoot, [string]$projectRoot) {
     if (-not $penguinToolsRoot) { return }
-    $expected = Join-Path $penguinToolsRoot "External\muautils\cmake-build-vcpkg\Release\mua.exe"
-    if (Test-Path $expected) { return }
 
-    $fallbackExe = Join-Path $projectRoot "tools\PenguinTools\mua.exe"
-    $fallbackLicense = Join-Path $projectRoot "tools\PenguinTools\mua.LICENSE.txt"
-    if (-not (Test-Path $fallbackExe)) {
+    # External/mua: Rust media tools (mua_wav / mua_img) embedded into CLI publish assets.
+    $muaPublish = Join-Path $penguinToolsRoot "External\mua\target\release\mua"
+    $muaWav = Join-Path $muaPublish "mua_wav.exe"
+    if (Test-Path $muaWav) { return }
+
+    $muaBuild = Join-Path $penguinToolsRoot "External\mua\scripts\build.ps1"
+    if (Test-Path $muaBuild) {
+        Write-Host "  Building PenguinTools External/mua ..."
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $muaBuild
+        if ($LASTEXITCODE -ne 0) {
+            throw "PenguinTools mua build failed (exit $LASTEXITCODE). Install Rust/vcpkg/LLVM, or pass -SkipPenguinToolsCli."
+        }
+        if (-not (Test-Path $muaWav)) {
+            throw "mua_wav.exe missing after build: $muaWav"
+        }
         return
     }
 
-    Write-Host "  mua.exe missing in PenguinTools submodule output; applying fallback copy from tools\PenguinTools ..."
-    New-Item -ItemType Directory -Path (Split-Path -Parent $expected) -Force | Out-Null
-    Copy-Item $fallbackExe $expected -Force
-
-    $muautilsLicense = Join-Path $penguinToolsRoot "External\muautils\LICENSE"
-    if (Test-Path $fallbackLicense) {
-        Copy-Item $fallbackLicense $muautilsLicense -Force
-    }
+    Write-Host "  Warning: External/mua not found; CLI publish may fail without mua assets."
 }
 
 $VenvPy = Join-Path $Root ".venv-build\Scripts\python.exe"
@@ -82,19 +114,41 @@ $PenguinToolsRoot = Resolve-PenguinToolsRoot
 $PenguinToolsCliOut = $null
 if (-not $SkipPenguinToolsCli) {
     if (-not $PenguinToolsRoot) {
-        throw "PenguinTools source not found. Run scripts\setup_penguin_tools.ps1, or set CHUNI_PENGUINTOOLS_ROOT to a Foahh/PenguinTools checkout."
+        throw "PenguinTools source not found. Run scripts\setup_penguin_tools.ps1, or set CHUNI_PENGUINTOOLS_ROOT to a ChuniPingu/PenguinTools checkout."
     }
     Initialize-PenguinToolsMua -penguinToolsRoot $PenguinToolsRoot -projectRoot $Root
+    $PublishProfile = Resolve-PenguinToolsPublishProfile -penguinToolsRoot $PenguinToolsRoot
     $PenguinToolsCliProject = Join-Path $PenguinToolsRoot "PenguinTools.CLI\PenguinTools.CLI.csproj"
-    $PenguinToolsCliOut = Join-Path $PenguinToolsRoot "PenguinTools.CLI\bin\Release\net10.0\publish\WinX64-SelfContained-SingleFile-EmbeddedAssets"
-    Write-Host "[3/6] Publish PenguinTools.CLI ..."
-    & dotnet publish $PenguinToolsCliProject -c Release -p:PublishProfile=WinX64-SelfContained-SingleFile-EmbeddedAssets
+    $PenguinToolsCriProject = Join-Path $PenguinToolsRoot "PenguinTools.CRI\PenguinTools.CRI.csproj"
+    $PenguinToolsCliOut = Join-Path $PenguinToolsRoot "PenguinTools.CLI\bin\Release\net10.0\publish\$PublishProfile"
+
+    Write-Host "[3/6] Restore/publish PenguinTools Native AOT ($PublishProfile) ..."
+    & dotnet restore (Join-Path $PenguinToolsRoot "PenguinTools.slnx")
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet restore PenguinTools failed (exit $LASTEXITCODE)."
+    }
+
+    if (Test-Path $PenguinToolsCriProject) {
+        Write-Host "  Publishing PenguinTools.CRI (Native AOT) ..."
+        & dotnet publish $PenguinToolsCriProject -c Release -p:PublishProfile=$PublishProfile /p:DebugType=None /p:DebugSymbols=false
+        if ($LASTEXITCODE -ne 0) {
+            throw "dotnet publish PenguinTools.CRI failed (exit $LASTEXITCODE). Pass -SkipPenguinToolsCli to use a prebuilt CLI."
+        }
+    }
+
+    Write-Host "  Publishing PenguinTools.CLI (Native AOT + full assets) ..."
+    & dotnet publish $PenguinToolsCliProject -c Release -p:PublishProfile=$PublishProfile /p:PenguinToolsCriPublishProfile=$PublishProfile /p:DebugType=None /p:DebugSymbols=false
     if ($LASTEXITCODE -ne 0) {
         throw "dotnet publish PenguinTools.CLI failed (exit $LASTEXITCODE). Run scripts\setup_penguin_tools.ps1, or pass -SkipPenguinToolsCli."
     }
+
+    Assert-PenguinToolsCliRuntime -publishDir $PenguinToolsCliOut
 } else {
     $PenguinToolsCliOut = Join-Path $Root "tools\PenguinToolsCLI"
     Write-Host "[3/6] Skip PenguinTools.CLI publish"
+    if (Test-Path (Join-Path $PenguinToolsCliOut "PenguinTools.CLI.exe")) {
+        Assert-PenguinToolsCliRuntime -publishDir $PenguinToolsCliOut
+    }
 }
 
 # AMD GPUOpen Compressonator CLI (pinned zip). App resolves .tools/CompressonatorCLI/compressonatorcli.exe when frozen.
@@ -208,10 +262,12 @@ function Copy-PenguinToolsCliPublish([string]$dest) {
 }
 
 if (Test-Path $PenguinToolsCliExe) {
+    Assert-PenguinToolsCliRuntime -publishDir $PenguinToolsCliOut
     Copy-PenguinToolsCliPublish (Join-Path $OutTools "PenguinToolsCLI")
     Copy-PenguinToolsCliPublish (Join-Path $DistToolsRoot "PenguinToolsCLI")
+    Assert-PenguinToolsCliRuntime -publishDir (Join-Path $OutTools "PenguinToolsCLI")
 } elseif ($SkipPenguinToolsCli) {
-    Write-Host "  Skip PenguinTools.CLI bundle (no $PenguinToolsCliExe ; pgko / pjsk 转谱不可用)"
+    Write-Host "  Skip PenguinTools.CLI bundle (missing $PenguinToolsCliExe; pgko/pjsk convert unavailable)"
 } else {
     throw "PenguinTools.CLI.exe not found: $PenguinToolsCliExe"
 }

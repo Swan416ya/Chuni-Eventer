@@ -579,7 +579,7 @@ def save_pjsk_bundle_to_cache(
     完整音频：与 PjskSUSPatcher 一致，来自 `musicVocals` 的 `assetbundleName` 与 long 音频 URL。
     若已安装 ffmpeg 与 PyCriCodecsEx，会在同目录下额外生成 48 kHz WAV 与中二用 ACB/AWB，
     以及 ``chuni_cue/cueFileXXXXXX/`` 下的 ``musicXXXX.acb`` / ``.awb``（逻辑对齐
-    [PenguinTools MusicConverter](https://github.com/Foahh/PenguinTools/blob/main/PenguinTools.Core/Media/MusicConverter.cs)）。
+    [PenguinTools MusicConverter](https://github.com/ChuniPingu/PenguinTools/blob/main/PenguinTools.Core/Media/MusicConverter.cs)）。
     """
     from . import pjsk_audio_chuni as pjsk_ac
     from . import sus_to_c2s as s2c

@@ -1,6 +1,6 @@
 # PenguinTools 图片转 DDS 实现解析
 
-本文基于 `Foahh/PenguinTools` 公开源码，说明它“图片转 DDS”是怎么实现的，以及哪些环节在主仓库里、哪些在外部工具里。
+本文基于 `ChuniPingu/PenguinTools` 公开源码，说明它“图片转 DDS”是怎么实现的，以及哪些环节在主仓库里、哪些在外部工具里。
 
 ---
 
@@ -108,11 +108,11 @@
 
 ## 6. 参考链接
 
-- PenguinTools 仓库：<https://github.com/Foahh/PenguinTools>
-- Manipulate（命令封装）：<https://raw.githubusercontent.com/Foahh/PenguinTools/main/PenguinTools.Core/Media/Manipulate.cs>
-- JacketConverter：<https://raw.githubusercontent.com/Foahh/PenguinTools/main/PenguinTools.Core/Media/JacketConverter.cs>
-- StageConverter：<https://raw.githubusercontent.com/Foahh/PenguinTools/main/PenguinTools.Core/Media/StageConverter.cs>
-- StageXml：<https://raw.githubusercontent.com/Foahh/PenguinTools/main/PenguinTools.Core/Xml/StageXml.cs>
-- .gitmodules（外部依赖）：<https://raw.githubusercontent.com/Foahh/PenguinTools/main/.gitmodules>
-- 中文 Wiki：<https://raw.githubusercontent.com/wiki/Foahh/PenguinTools/%E4%B8%AD%E6%96%87.md>
+- PenguinTools 仓库：<https://github.com/ChuniPingu/PenguinTools>
+- Manipulate（命令封装）：<https://raw.githubusercontent.com/ChuniPingu/PenguinTools/main/PenguinTools.Core/Media/Manipulate.cs>
+- JacketConverter：<https://raw.githubusercontent.com/ChuniPingu/PenguinTools/main/PenguinTools.Core/Media/JacketConverter.cs>
+- StageConverter：<https://raw.githubusercontent.com/ChuniPingu/PenguinTools/main/PenguinTools.Core/Media/StageConverter.cs>
+- StageXml：<https://raw.githubusercontent.com/ChuniPingu/PenguinTools/main/PenguinTools.Core/Xml/StageXml.cs>
+- .gitmodules（外部依赖）：<https://raw.githubusercontent.com/ChuniPingu/PenguinTools/main/.gitmodules>
+- 中文 Wiki：<https://raw.githubusercontent.com/wiki/ChuniPingu/PenguinTools/%E4%B8%AD%E6%96%87.md>
 

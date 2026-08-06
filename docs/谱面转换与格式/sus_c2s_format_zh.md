@@ -10,7 +10,7 @@
 | 来源                                                                                                   | 用途                                                                                                                      |
 | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | [SUS フォーマット v2.7 仕様（kb10uy / Gist）](https://gist.github.com/kb10uy/c171c175ba913dc40a73c6ce69da9859) | SUS 官方化程度较高的文本规格：元数据、`#REQUEST`、各通道（Tap / Hold / Slide / Directional 等）编码规则。                                            |
-| [Foahh / PenguinTools](https://github.com/Foahh/PenguinTools)                                        | 面向 CHUNITHM 的自制资源工具箱（含谱面相关管线）；可作为 **MRGC 等中间格式 → c2s** 的社区实现参考，对照字段语义与工程化做法。                                            |
+| [ChuniPingu / PenguinTools](https://github.com/ChuniPingu/PenguinTools)                                        | 面向 CHUNITHM 的自制资源工具箱（含谱面相关管线）；可作为 **MRGC 等中间格式 → c2s** 的社区实现参考，对照字段语义与工程化做法。                                            |
 | 社区整理的 c2s 事件注释图（你提供的示意图）                                                                             | 将 c2s 中 `TAP` / `FLK` / `HLD` / `SLC` / `SLD` / `AIR` 系 / `ASC` / `ASD` / `AHD` 等与「键型」对应，并列出各类型大致参数字段。需与真实文件交叉验证。       |
 | 本仓库 `A001/music/music2896/2896_04.c2s`                                                               | 官方（或参考包）Ultima 档真实样本：`VERSION`、`RESOLUTION`、`BPM`/`MET` 头与 `TAP`/`SLC`/`SLD`/`HLD`/`FLK`/`CHR`/`ASC`/`ASD`/`ADL` 等混排实例。 |
 
@@ -112,7 +112,7 @@ c2s 在本样本中为 **制表符或空白分隔的文本行**（非二进制�
 | 2 | `tick` | 该小节内时间，与 `RESOLUTION` 同一套 tick |
 | 3 | `length` | **持续长度（tick）**：该条规则作用的时间跨度 |
 | 4 | `speed` | **速度倍率**（浮点）；见下文物殊值 |
-| 5 | `timeline` | **Hi-Speed / 流速时间线编号**（整数）。与 MRGC 侧按 `#TIL` 等分组的 **ScrollSpeed** 轨道一致；单轨谱常见为 `0`。[PenguinTools](https://github.com/Foahh/PenguinTools) 的 `Slp.Timeline` 即此列（`C2SConverter.Event.cs` 中按 `Timeline` 分组后再生成相邻区段 `SLP`）。 |
+| 5 | `timeline` | **Hi-Speed / 流速时间线编号**（整数）。与 MRGC 侧按 `#TIL` 等分组的 **ScrollSpeed** 轨道一致；单轨谱常见为 `0`。[PenguinTools](https://github.com/ChuniPingu/PenguinTools) 的 `Slp.Timeline` 即此列（`C2SConverter.Event.cs` 中按 `Timeline` 分组后再生成相邻区段 `SLP`）。 |
 
 **阅读方式**：在「`(measure, tick)` 起、持续 `length` tick」的区间内，谱面流动使用约 **`speed` 倍**于某默认流速（与引擎内部基准相关；实现时以对照官谱手感为准）。
 
@@ -160,7 +160,7 @@ SUS→c2s **若无法从 `#TIL`/`#HISPEED` 推导**：要么 **不生成 `SLP`**
 
 ### 3.4 BPM 变化与拍号变化（`BPM` / `MET` / `*_DEF`）：对照 PenguinTools
 
-以下与 [Foahh / PenguinTools](https://github.com/Foahh/PenguinTools) 中 **`PenguinTools.Core/Chart`** 一致：`C2SConverter.cs` 写头部与事件表，`Models/c2s/Events.cs` 定义各事件**写出时的列顺序**，`C2SConverter.Event.cs` 把 MRGC（`mgxc`）里的 BPM / 拍号 / 流速事件展开为 c2s 行；`TimeCalculator.cs`（改编自 [Ched](https://github.com/paralleltree/Ched)）说明 **拍号变化后小节长度（tick）如何递推**。
+以下与 [ChuniPingu / PenguinTools](https://github.com/ChuniPingu/PenguinTools) 中 **`PenguinTools.Core/Chart`** 一致：`C2SConverter.cs` 写头部与事件表，`Models/c2s/Events.cs` 定义各事件**写出时的列顺序**，`C2SConverter.Event.cs` 把 MRGC（`mgxc`）里的 BPM / 拍号 / 流速事件展开为 c2s 行；`TimeCalculator.cs`（改编自 [Ched](https://github.com/paralleltree/Ched)）说明 **拍号变化后小节长度（tick）如何递推**。
 
 #### 3.4.1 头部 `BPM_DEF` / `MET_DEF`
 

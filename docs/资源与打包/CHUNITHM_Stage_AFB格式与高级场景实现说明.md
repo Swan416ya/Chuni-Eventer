@@ -1,6 +1,6 @@
 # CHUNITHM Stage 用 AFB：格式要点、DDS 嵌入方式与「高级场景」实现路径
 
-本文整理 **Stage 相关的 `*.afb`** 在公开工具链（[PenguinTools](https://github.com/Foahh/PenguinTools) + [muautils / `mua`](https://github.com/Foahh/muautils)）中的**可操作语义**，说明 **DDS 在 AFB 内如何被定位与替换**，并对比 **「单图生成 st」** 与 **「游戏内复杂 stage（如 `stage026801`）」** 的差距，供 Chuni-Eventer 后续实现参考。
+本文整理 **Stage 相关的 `*.afb`** 在公开工具链（[PenguinTools](https://github.com/ChuniPingu/PenguinTools) + [muautils / `mua`](https://github.com/Foahh/muautils)）中的**可操作语义**，说明 **DDS 在 AFB 内如何被定位与替换**，并对比 **「单图生成 st」** 与 **「游戏内复杂 stage（如 `stage026801`）」** 的差距，供 Chuni-Eventer 后续实现参考。
 
 > **范围说明**：下文关于二进制分块的描述，严格对应 `muautils` 当前开源实现；完整 AFB 是否为某一封包规范的全貌，需以逆向或官方资料为准，本文不声称覆盖全部字段语义。
 
@@ -176,9 +176,9 @@ mua convert_stage -b <背景图> -s <st 模板.afb> -d <输出 st.afb> [-f1 <图
 
 | 说明 | URL |
 |------|-----|
-| PenguinTools（编排、资源、免责声明） | https://github.com/Foahh/PenguinTools |
+| PenguinTools（编排、资源、免责声明） | https://github.com/ChuniPingu/PenguinTools |
 | muautils / `mua`（`extract_dds`、`convert_stage`、chunk/dds 实现） | https://github.com/Foahh/muautils |
-| PenguinTools 子模块声明（含 muautils 路径） | https://github.com/Foahh/PenguinTools/blob/main/.gitmodules |
+| PenguinTools 子模块声明（含 muautils 路径） | https://github.com/ChuniPingu/PenguinTools/blob/main/.gitmodules |
 
 ---
 
