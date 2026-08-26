@@ -5,7 +5,7 @@ import tempfile
 import shutil
 from pathlib import Path
 
-from .dds_convert import ingest_to_bc3_dds
+from .dds_convert import ingest_to_bc1_dds
 from .stage_afb_convert import StageAfbToolError, build_stage_afb_from_image
 from PIL import Image, UnidentifiedImageError
 
@@ -26,7 +26,7 @@ def _prepare_stage_preview_png(source: Path) -> Path:
     3) 裁切下方 960x450（即去掉上方 90 像素）
     4) 把该 960x450 覆盖到 960x540 底图顶部
     5) 叠加半透明轨道指示图 `static/tool/stage.png`
-    6) 输出临时 PNG，供 BC3 DDS 编码
+    6) 输出临时 PNG，供 BC1 DDS 编码
     """
     try:
         with Image.open(source) as im0:
@@ -122,7 +122,7 @@ def create_stage_from_image(
     根据图片生成 Stage 目录与 Stage.xml。
 
     - 目录：stage/stageXXXXXX/
-    - 可选：把 image_source 转成 BC3 DDS 并写到 image/path
+    - 可选：把 image_source 转成 BC1 DDS 并写到 image/path
     - 固定写出 StageData 主结构（兼容 A001 样本字段）
     """
     if opts.stage_id <= 0:
@@ -149,7 +149,7 @@ def create_stage_from_image(
             normalized.save(normalized_stage_bg, "PNG")
             tmp_preview_png = _prepare_stage_preview_png(normalized_stage_bg)
             image_name = opts.default_image_name()
-            ingest_to_bc3_dds(
+            ingest_to_bc1_dds(
                 tool_path=tool_path,
                 input_path=tmp_preview_png,
                 output_dds=sdir / image_name,

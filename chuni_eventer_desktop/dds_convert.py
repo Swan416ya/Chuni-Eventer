@@ -51,6 +51,15 @@ def is_bc3_dds(path: Path) -> bool:
         return False
 
 
+def is_bc1_dds(path: Path) -> bool:
+    """
+    仅接受 BC1(DXT1)：legacy header FourCC == DXT1。
+    原版封面/地图背景/宣传图等无 alpha 资源均使用此格式。
+    """
+    fourcc = _dds_fourcc(path)
+    return fourcc == "DXT1"
+
+
 def validate_compressonator_tool(tool_path: Path) -> None:
     """
     配置里若误填「当前目录 .」或文件夹，exists() 仍为真但无法执行，会导致 PermissionError。
@@ -100,76 +109,136 @@ def run_cmd(argv: Sequence[str]) -> None:
         )
 
 
-def convert_to_bc3_dds(*, tool_path: Path | None, input_image: Path, output_dds: Path) -> None:
-    """
-    图片 → BC3(DXT5) DDS。
-
-    默认优先 **Pillow DDS(DXT5)**（纯内置、打包稳定），失败时尝试 **quicktex**，
-    最后回退 **compressonatorcli**（若已配置）。
-
-    说明：Pillow 的 DDS 写出为内置编码路径，不依赖外部 exe，可提升打包版可用性。
-    """
+def _try_quicktex_bc3(input_image: Path, output_dds: Path) -> bool:
     from . import dds_quicktex
 
+    if not dds_quicktex.quicktex_available():
+        return False
+    try:
+        dds_quicktex.encode_image_to_bc3_dds_quicktex(
+            input_image=input_image, output_dds=output_dds
+        )
+        return True
+    except Exception:
+        return False
+
+
+def _try_quicktex_bc1(input_image: Path, output_dds: Path) -> bool:
+    from . import dds_quicktex
+
+    if not dds_quicktex.quicktex_available():
+        return False
+    try:
+        dds_quicktex.encode_image_to_bc1_dds_quicktex(
+            input_image=input_image, output_dds=output_dds
+        )
+        return True
+    except Exception:
+        return False
+
+
+def _try_pillow_dds(
+    input_image: Path, output_dds: Path, *, pixel_format: str, validate_fn
+) -> bool:
+    """
+    Pillow 内置 DDS 编码兜底（质量低于 quicktex，仅作最后保障）。
+
+    ``pixel_format`` 为 ``"DXT5"`` (BC3) 或 ``"DXT1"`` (BC1)；
+    ``validate_fn`` 为输出校验函数（``is_bc3_dds`` / ``is_bc1_dds``）。
+    """
+    try:
+        from PIL import Image
+
+        with Image.open(input_image) as im:
+            rgba = im.convert("RGBA")
+            output_dds.parent.mkdir(parents=True, exist_ok=True)
+            rgba.save(output_dds, format="DDS", pixel_format=pixel_format)
+        if not validate_fn(output_dds):
+            raise DdsToolError(f"Pillow 已输出 DDS，但格式校验不是 {pixel_format}。")
+        return True
+    except Exception:
+        return False
+
+
+def _try_compress(
+    tool_path: Path | None, input_image: Path, output_dds: Path, *, fd: str
+) -> bool:
+    """compressonatorcli 兜底；``fd`` 为 ``"BC3"`` 或 ``"BC1"``。"""
+    if tool_path is None:
+        return False
+    try:
+        validate_compressonator_tool(tool_path)
+        tool = str(tool_path)
+        output_dds.parent.mkdir(parents=True, exist_ok=True)
+        run_cmd([tool, "-fd", fd, str(input_image), str(output_dds)])
+        return True
+    except Exception:
+        return False
+
+
+def convert_to_bc3_dds(*, tool_path: Path | None, input_image: Path, output_dds: Path) -> None:
+    """
+    图片 → BC3(DXT5) DDS（带 alpha，用于角色立绘/名牌/奖杯/avatar 等原版 BC3 资源）。
+
+    优先 **quicktex**（C++ 编码器，质量最高），失败回退 **compressonatorcli**（若已配置），
+    最后兜底 **Pillow DDS(DXT5)**（纯内置、质量最低但保证可用性）。
+    """
     last: Exception | None = None
 
-    def _try_quicktex() -> bool:
+    def _try(fn) -> bool:
         nonlocal last
-        if not dds_quicktex.quicktex_available():
-            return False
         try:
-            dds_quicktex.encode_image_to_bc3_dds_quicktex(
-                input_image=input_image, output_dds=output_dds
-            )
-            return True
+            return fn()
         except Exception as e:
             last = e
             return False
 
-    def _try_pillow_dds() -> bool:
-        nonlocal last
-        try:
-            from PIL import Image
-
-            with Image.open(input_image) as im:
-                rgba = im.convert("RGBA")
-                output_dds.parent.mkdir(parents=True, exist_ok=True)
-                rgba.save(output_dds, format="DDS", pixel_format="DXT5")
-            if not is_bc3_dds(output_dds):
-                raise DdsToolError("Pillow 已输出 DDS，但格式校验不是 BC3(DXT5)。")
-            return True
-        except Exception as e:
-            last = e
-            return False
-
-    def _try_compress() -> bool:
-        nonlocal last
-        if tool_path is None:
-            return False
-        try:
-            validate_compressonator_tool(tool_path)
-            tool = str(tool_path)
-            output_dds.parent.mkdir(parents=True, exist_ok=True)
-            run_cmd([tool, "-fd", "BC3", str(input_image), str(output_dds)])
-            return True
-        except Exception as e:
-            last = e
-            return False
-
-    if _try_pillow_dds():
+    if _try(lambda: _try_quicktex_bc3(input_image, output_dds)):
         return
-    if _try_quicktex():
+    if _try(lambda: _try_compress(tool_path, input_image, output_dds, fd="BC3")):
         return
-    if _try_compress():
+    if _try(lambda: _try_pillow_dds(input_image, output_dds, pixel_format="DXT5", validate_fn=is_bc3_dds)):
         return
 
     hint = (
-        "可用转换链路均失败：Pillow DDS(DXT5) -> quicktex -> compressonatorcli。\n"
+        "可用转换链路均失败：quicktex → compressonatorcli → Pillow DDS(DXT5)。\n"
         "请在【设置】中测试各路径，并优先确认输入图片可被 PIL 正常读取。"
     )
     if last is not None:
         raise DdsToolError(f"生成 BC3 DDS 失败。\n{hint}\n\n底层错误：{last}") from last
     raise DdsToolError(f"无法生成 BC3 DDS。\n{hint}")
+
+
+def convert_to_bc1_dds(*, tool_path: Path | None, input_image: Path, output_dds: Path) -> None:
+    """
+    图片 → BC1(DXT1) DDS（无 alpha，用于封面/地图背景/宣传图/舞台等原版 DXT1 资源）。
+
+    优先 **quicktex**，失败回退 **compressonatorcli**（``-fd BC1``），最后兜底 **Pillow DDS(DXT1)**。
+    """
+    last: Exception | None = None
+
+    def _try(fn) -> bool:
+        nonlocal last
+        try:
+            return fn()
+        except Exception as e:
+            last = e
+            return False
+
+    if _try(lambda: _try_quicktex_bc1(input_image, output_dds)):
+        return
+    if _try(lambda: _try_compress(tool_path, input_image, output_dds, fd="BC1")):
+        return
+    if _try(lambda: _try_pillow_dds(input_image, output_dds, pixel_format="DXT1", validate_fn=is_bc1_dds)):
+        return
+
+    hint = (
+        "可用转换链路均失败：quicktex → compressonatorcli → Pillow DDS(DXT1)。\n"
+        "请在【设置】中测试各路径，并优先确认输入图片可被 PIL 正常读取。"
+    )
+    if last is not None:
+        raise DdsToolError(f"生成 BC1 DDS 失败。\n{hint}\n\n底层错误：{last}") from last
+    raise DdsToolError(f"无法生成 BC1 DDS。\n{hint}")
 
 
 def convert_dds_to_png(*, tool_path: Path | None, input_dds: Path, output_png: Path) -> None:
@@ -217,4 +286,19 @@ def ingest_to_bc3_dds(*, tool_path: Path | None, input_path: Path, output_dds: P
         shutil.copy2(input_path, output_dds)
         return
     convert_to_bc3_dds(tool_path=tool_path, input_image=input_path, output_dds=output_dds)
+
+
+def ingest_to_bc1_dds(*, tool_path: Path | None, input_path: Path, output_dds: Path) -> None:
+    """
+    导入到目标 BC1(DXT1) DDS（无 alpha，用于封面/地图背景/宣传图等原版 DXT1 资源）：
+    - 输入是 .dds：校验必须为 BC1 后直接复制
+    - 其它图片：转换为 BC1 DDS
+    """
+    output_dds.parent.mkdir(parents=True, exist_ok=True)
+    if input_path.suffix.lower() == ".dds":
+        if not is_bc1_dds(input_path):
+            raise DdsToolError("检测到上传的是 DDS，但不是 BC1(DXT1) 格式；请先转换为 BC1 后再导入。")
+        shutil.copy2(input_path, output_dds)
+        return
+    convert_to_bc1_dds(tool_path=tool_path, input_image=input_path, output_dds=output_dds)
 

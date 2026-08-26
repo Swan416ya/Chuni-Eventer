@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PIL import Image, UnidentifiedImageError
 
-from .dds_convert import ingest_to_bc3_dds
+from .dds_convert import ingest_to_bc1_dds
 
 
 def _xml_text(s: str) -> str:
@@ -48,7 +48,7 @@ def create_field_wall_from_image(
 ) -> Path:
     """
     生成 ACUS/ddsFieldWall/ddsFieldWall0001/ 目录（覆盖式）。
-    - 转 DDS: CHU_UI_Fieldwall_0001.dds (640x480 BC3)
+    - 转 DDS: CHU_UI_Fieldwall_0001.dds (640x480 BC1)
     - 写 XML: DDSFieldWall.xml
     返回 XML 路径。
     """
@@ -63,6 +63,7 @@ def create_field_wall_from_image(
 
     wall_name = (opts.wall_name or "").strip() or "フィールドウォール0001"
 
+    norm_tmp: Path | None = None
     try:
         # 1. 读图片 + 规整 640x480
         src = opts.image_source.expanduser().resolve()
@@ -77,8 +78,8 @@ def create_field_wall_from_image(
             norm_tmp = Path(tf.name)
         normalized.save(norm_tmp, "PNG")
 
-        # 3. 转 BC3 DDS
-        ingest_to_bc3_dds(
+        # 3. 转 BC1 DDS
+        ingest_to_bc1_dds(
             tool_path=tool_path,
             input_path=norm_tmp,
             output_dds=dds_path,
@@ -113,7 +114,7 @@ def create_field_wall_from_image(
         shutil.rmtree(dir_path, ignore_errors=True)
         raise
     finally:
-        if 'norm_tmp' in dir():
+        if norm_tmp is not None:
             norm_tmp.unlink(missing_ok=True)
 
 

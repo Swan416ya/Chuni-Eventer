@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 """
-可选依赖：quicktex（PyPI）可在纯 Python 流程中解码/编码 BC3(DXT5) DDS。
+可选依赖：quicktex（PyPI）可在纯 Python 流程中解码/编码 BC1(DXT1) 与 BC3(DXT5) DDS。
 
 - 预览：read + decode → PNG
-- 生成：PIL Image + BC3Encoder + DXT5 → DDS
+- 生成：PIL Image + BCnEncoder + DXTn → DDS（BC3 用于带 alpha 的立绘/名牌等，BC1 用于无 alpha 的封面/地图背景/宣传图）
 
 不支持 DX10 头等特殊 DDS；失败时可回退到 compressonatorcli（若已配置）。
 """
@@ -57,19 +57,23 @@ def _rgba_padded_to_multiple_of_4(image):
     return canvas
 
 
-def encode_bc3_inprocess(
+def _encode_inprocess(
     *,
     input_image: Path,
     output_dds: Path,
+    encoder,
+    four_cc: str,
     quality_level: int = 18,
     mip_count: int = 1,
 ) -> None:
     """
     在当前进程内调用 quicktex 编码（可能因原生 bug 直接崩溃，仅供子进程 worker 使用）。
+
+    ``encoder`` 为已构造的 quicktex 编码器实例（如 ``BC3Encoder(18)``），
+    ``four_cc`` 为写入 DDS header 的 FourCC（如 ``"DXT5"`` / ``"DXT1"``）。
     """
     from PIL import Image, UnidentifiedImageError
     from quicktex.dds import encode as dds_encode
-    from quicktex.s3tc.bc3 import BC3Encoder
 
     try:
         with Image.open(input_image) as im:
@@ -82,22 +86,63 @@ def encode_bc3_inprocess(
         raise RuntimeError(f"无法读取图片文件：{input_image}\n{e}") from e
 
     # 与 quicktex CLI 默认一致：不在这里做垂直翻转；若实机贴图上下颠倒再单独加开关
-    dds_file = dds_encode(image, BC3Encoder(quality_level), "DXT5", mip_count=mip_count)
+    dds_file = dds_encode(image, encoder, four_cc, mip_count=mip_count)
     output_dds.parent.mkdir(parents=True, exist_ok=True)
     dds_file.save(output_dds)
 
 
-def encode_image_to_bc3_dds_quicktex(
+def encode_bc3_inprocess(
     *,
     input_image: Path,
     output_dds: Path,
     quality_level: int = 18,
     mip_count: int = 1,
 ) -> None:
-    """
-    使用 quicktex 将常见位图转为 DXT5/BC3 单级 mipmap DDS（与 CLI `encode bc3` 同类）。
+    """BC3(DXT5) 编码，详见 :func:`_encode_inprocess`。"""
+    from quicktex.s3tc.bc3 import BC3Encoder
 
-    始终在**子进程**中执行编码，避免 Windows 上 quicktex 原生崩溃/访问冲突拖垮 PyQt 主进程。
+    _encode_inprocess(
+        input_image=input_image,
+        output_dds=output_dds,
+        encoder=BC3Encoder(quality_level),
+        four_cc="DXT5",
+        quality_level=quality_level,
+        mip_count=mip_count,
+    )
+
+
+def encode_bc1_inprocess(
+    *,
+    input_image: Path,
+    output_dds: Path,
+    quality_level: int = 18,
+    mip_count: int = 1,
+) -> None:
+    """BC1(DXT1) 编码，无 alpha 通道；用于封面/地图背景/宣传图等原版 DXT1 资源。"""
+    from quicktex.s3tc.bc1 import BC1Encoder
+
+    _encode_inprocess(
+        input_image=input_image,
+        output_dds=output_dds,
+        encoder=BC1Encoder(quality_level),
+        four_cc="DXT1",
+        quality_level=quality_level,
+        mip_count=mip_count,
+    )
+
+
+def _run_quicktex_worker(
+    *,
+    input_image: Path,
+    output_dds: Path,
+    fmt: str,
+    quality_level: int = 18,
+    mip_count: int = 1,
+) -> None:
+    """
+    在子进程中调用 quicktex worker 编码 DDS，避免 Windows 上原生崩溃拖垮主进程。
+
+    ``fmt`` 为 ``"bc3"`` 或 ``"bc1"``，决定 worker 调用哪个编码器。
 
     - 开发环境：``python -m chuni_eventer_desktop.quicktex_worker ...``
     - PyInstaller：``ChuniEventer.exe --chuni-quicktex-worker ...``（run_desktop 入口在启动 GUI 前转交 quicktex_worker）
@@ -108,7 +153,7 @@ def encode_image_to_bc3_dds_quicktex(
     m = str(mip_count)
 
     if getattr(sys, "frozen", False):
-        cmd = [sys.executable, QUICKTEX_WORKER_ARG, in_p, out_p, q, m]
+        cmd = [sys.executable, QUICKTEX_WORKER_ARG, in_p, out_p, q, m, fmt]
         popen_kw: dict = {}
     else:
         root = _package_parent_dir()
@@ -120,6 +165,7 @@ def encode_image_to_bc3_dds_quicktex(
             out_p,
             q,
             m,
+            fmt,
         ]
         popen_kw = {"cwd": str(root)}
 
@@ -158,7 +204,7 @@ def encode_image_to_bc3_dds_quicktex(
         hint = (
             "quicktex 在子进程内发生访问冲突（access violation），主界面已保持运行。\n"
             "这通常是 quicktex 原生扩展在当前机器/运行库上的兼容性问题。\n"
-            "程序会继续尝试内置备用编码器（Pillow DDS DXT5）；若仍失败再回退 Compressonator。"
+            "程序会继续尝试内置备用编码器（Pillow DDS）；若仍失败再回退 Compressonator。"
         )
         err = f"{hint}\n\n{common_diag}\n\n原始错误:\n{err or '<empty>'}"
     elif not err:
@@ -170,3 +216,37 @@ def encode_image_to_bc3_dds_quicktex(
     else:
         err = f"{err}\n\n{common_diag}"
     raise RuntimeError(err)
+
+
+def encode_image_to_bc3_dds_quicktex(
+    *,
+    input_image: Path,
+    output_dds: Path,
+    quality_level: int = 18,
+    mip_count: int = 1,
+) -> None:
+    """使用 quicktex 将常见位图转为 DXT5/BC3 单级 mipmap DDS。"""
+    _run_quicktex_worker(
+        input_image=input_image,
+        output_dds=output_dds,
+        fmt="bc3",
+        quality_level=quality_level,
+        mip_count=mip_count,
+    )
+
+
+def encode_image_to_bc1_dds_quicktex(
+    *,
+    input_image: Path,
+    output_dds: Path,
+    quality_level: int = 18,
+    mip_count: int = 1,
+) -> None:
+    """使用 quicktex 将常见位图转为 DXT1/BC1 单级 mipmap DDS（无 alpha）。"""
+    _run_quicktex_worker(
+        input_image=input_image,
+        output_dds=output_dds,
+        fmt="bc1",
+        quality_level=quality_level,
+        mip_count=mip_count,
+    )

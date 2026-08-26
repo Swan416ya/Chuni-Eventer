@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
 
 from qfluentwidgets import BodyLabel, CardWidget, LineEdit, PrimaryPushButton, PushButton
 
-from ..dds_convert import DdsToolError, ingest_to_bc3_dds
+from ..dds_convert import DdsToolError, ingest_to_bc1_dds
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message
 from .name_glyph_preview import wrap_name_input_with_preview
@@ -99,7 +99,7 @@ class EventAddDialog(FluentCaptionDialog):
         hint.setWordWrap(True)
         hint.setText(
             "宣传图要求：1152 × 648 像素。\n"
-            "可上传图片（将转 BC3 DDS）或直接上传 DDS（必须 BC3/DXT5）。\n"
+            "可上传图片（将转 BC1 DDS）或直接上传 DDS（必须 BC1/DXT1）。\n"
             "事件结构与官方「Collaboration 告知」一致：substances/type=1，informationDispType=3。"
         )
         hint.setTextColor("#6B7280", "#9CA3AF")
@@ -185,7 +185,7 @@ class EventAddDialog(FluentCaptionDialog):
             edir = self._acus_root / "event" / f"event{eid:08d}"
             edir.mkdir(parents=True, exist_ok=True)
             dds_name = f"CHU_info_event_custom{eid:08d}.dds"
-            ingest_to_bc3_dds(tool_path=self._tool, input_path=src, output_dds=edir / dds_name)
+            ingest_to_bc1_dds(tool_path=self._tool, input_path=src, output_dds=edir / dds_name)
 
             title = _xml_text(name)
             xml = f"""<?xml version='1.0' encoding='utf-8'?>

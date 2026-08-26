@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from PyQt6.QtCore import QEventLoop, QObject, QThread, Qt, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QProgressDialog, QWidget
 
-from ..dds_convert import ingest_to_bc3_dds
+from ..dds_convert import ingest_to_bc1_dds, ingest_to_bc3_dds
 from .fluent_dialogs import safe_dismiss_modal_progress_dialog
 
 
@@ -14,17 +15,19 @@ class _Bc3Worker(QObject):
     finished_ok = pyqtSignal()
     failed = pyqtSignal(str)
 
-    def __init__(self, jobs: list[tuple[Path, Path]], tool_path: Path | None) -> None:
+    def __init__(self, jobs: list[tuple[Path, Path]], tool_path: Path | None, fmt: str) -> None:
         super().__init__()
         self._jobs = jobs
         self._tool = tool_path
+        self._fmt = fmt
 
     def run(self) -> None:
         n = len(self._jobs)
+        ingest_fn = ingest_to_bc1_dds if self._fmt == "bc1" else ingest_to_bc3_dds
         for i, (src, dst) in enumerate(self._jobs):
             self.progress.emit(i, f"正在编码 ({i + 1}/{n})：{src.name}")
             try:
-                ingest_to_bc3_dds(tool_path=self._tool, input_path=src, output_dds=dst)
+                ingest_fn(tool_path=self._tool, input_path=src, output_dds=dst)
             except Exception as e:
                 self.failed.emit(str(e))
                 return
@@ -37,10 +40,14 @@ def run_bc3_jobs_with_progress(
     tool_path: Path | None,
     jobs: list[tuple[Path, Path]],
     title: str = "正在生成 DDS",
+    fmt: Literal["bc1", "bc3"] = "bc3",
 ) -> tuple[bool, str | None]:
     """
-    在后台线程执行 BC3 编码并显示进度对话框，避免主界面长时间无响应。
+    在后台线程执行 BC1/BC3 编码并显示进度对话框，避免主界面长时间无响应。
     成功返回 (True, None)，失败返回 (False, 错误信息)。
+
+    ``fmt`` 默认 ``"bc3"``（角色立绘/名牌/avatar 等带 alpha 资源）；
+    封面/地图背景/宣传图等无 alpha 资源应传 ``"bc1"``。
     """
     if not jobs:
         return True, None
@@ -59,7 +66,7 @@ def run_bc3_jobs_with_progress(
     dialog.setCancelButton(None)
 
     thread = QThread(parent)
-    worker = _Bc3Worker(jobs, tool_path)
+    worker = _Bc3Worker(jobs, tool_path, fmt)
     worker.moveToThread(thread)
     loop = QEventLoop(parent)
 

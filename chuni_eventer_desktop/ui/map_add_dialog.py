@@ -51,7 +51,7 @@ from .fluent_dialogs import (
 )
 from .fluent_table import apply_fluent_sheet_table
 
-from ..dds_convert import DdsToolError, ingest_to_bc3_dds
+from ..dds_convert import DdsToolError, ingest_to_bc1_dds
 from ..game_data_index import (
     GameDataIndex,
     acus_chara_pairs,
@@ -1784,7 +1784,7 @@ MAP_DDS_HEIGHT = 680
 
 
 def prepare_map_background_rgba(*, source_image: Path) -> Image.Image:
-    """将任意比例图源缩放并居中裁切为地图背景贴图尺寸（BC3 编码前）。"""
+    """将任意比例图源缩放并居中裁切为地图背景贴图尺寸（BC1 编码前）。"""
     with Image.open(source_image) as im:
         im.seek(0)
         im.load()
@@ -1793,7 +1793,7 @@ def prepare_map_background_rgba(*, source_image: Path) -> Image.Image:
 
 
 class DdsMapCreateDialog(FluentCaptionDialog):
-    """从位图生成 ddsMap 目录（BC3 DDS + DDSMap.xml），供 Map.xml ddsMapName 引用。"""
+    """从位图生成 ddsMap 目录（BC1 DDS + DDSMap.xml），供 Map.xml ddsMapName 引用。"""
 
     def __init__(self, *, acus_root: Path, tool_path: Path | None, parent=None) -> None:
         super().__init__(parent=parent)
@@ -1810,7 +1810,7 @@ class DdsMapCreateDialog(FluentCaptionDialog):
         self.name = LineEdit()
         self.name.setPlaceholderText("显示名（写入 DDSMap name.str）")
         self.image_path = LineEdit()
-        self.image_path.setPlaceholderText("选择图片或 DDS（DDS 将直接导入，需为 BC3）…")
+        self.image_path.setPlaceholderText("选择图片或 DDS（DDS 将直接导入，需为 BC1）…")
         br = PushButton("浏览…")
         br.clicked.connect(self._pick_image)
         crop_btn = PushButton("✂ 编辑裁剪…")
@@ -1825,8 +1825,8 @@ class DdsMapCreateDialog(FluentCaptionDialog):
         hl.addWidget(crop_btn)
 
         hint = QLabel(
-            f"贴图将自动缩放并裁切为 **{MAP_DDS_WIDTH}×{MAP_DDS_HEIGHT}** 像素（与游戏地图格背景常见规格一致），再编码为 BC3 DDS。\n"
-            "若直接上传 `.dds` 则不会重编码，会直接写入（必须是 BC3/DXT5）。\n"
+            f"贴图将自动缩放并裁切为 **{MAP_DDS_WIDTH}×{MAP_DDS_HEIGHT}** 像素（与游戏地图格背景常见规格一致），再编码为 BC1 DDS。\n"
+            "若直接上传 `.dds` 则不会重编码，会直接写入（必须是 BC1/DXT1）。\n"
             f"ID 自动分配为 **7xxxxxxx**，与官方小包 id 错开。"
         )
         hint.setWordWrap(True)
@@ -1906,7 +1906,7 @@ class DdsMapCreateDialog(FluentCaptionDialog):
             ddir.mkdir(parents=True, exist_ok=True)
             out_dds = ddir / dds_basename
             if src.suffix.lower() == ".dds":
-                ingest_to_bc3_dds(tool_path=self._tool, input_path=src, output_dds=out_dds)
+                ingest_to_bc1_dds(tool_path=self._tool, input_path=src, output_dds=out_dds)
             else:
                 try:
                     img = prepare_map_background_rgba(source_image=src)
@@ -1924,6 +1924,7 @@ class DdsMapCreateDialog(FluentCaptionDialog):
                         tool_path=self._tool,
                         jobs=[(tp, out_dds)],
                         title="正在生成地图 DDS",
+                        fmt="bc1",
                     )
                     if not ok:
                         raise DdsToolError(dds_msg)

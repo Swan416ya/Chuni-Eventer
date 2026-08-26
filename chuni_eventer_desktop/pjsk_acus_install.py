@@ -18,7 +18,7 @@ from typing import Any, Callable
 
 from . import pjsk_audio_chuni as pjsk_ac
 from .acus_workspace import AcusConfig
-from .dds_convert import DdsToolError, convert_to_bc3_dds
+from .dds_convert import DdsToolError, convert_to_bc1_dds
 from .c2s_sanitize import C2sSanitizeError, sanitize_c2s_file
 from .penguin_tools_cli import convert_chart_with_penguin_tools_cli
 
@@ -565,7 +565,7 @@ def install_pjsk_bundle_to_acus(
     jacket_name = f"CHU_UI_Jacket_{mid:04d}.dds"
     jacket_path = mdir / jacket_name
     try:
-        convert_to_bc3_dds(tool_path=tool_path, input_image=jacket_png, output_dds=jacket_path)
+        convert_to_bc1_dds(tool_path=tool_path, input_image=jacket_png, output_dds=jacket_path)
     except DdsToolError:
         raise
     log(f"已生成封面 DDS：{jacket_name}")

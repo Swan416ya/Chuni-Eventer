@@ -9,9 +9,9 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from PyQt6.QtWidgets import QWidget
 
 from .acus_scan import MusicItem
-from .dds_convert import convert_dds_to_png, convert_to_bc3_dds
+from .dds_convert import convert_dds_to_png, convert_to_bc1_dds
 
-# 与游戏侧封面缩略图常见规格一致：先规范为方形再压 BC3
+# 与游戏侧封面缩略图常见规格一致：先规范为方形再压 BC1(DXT1，无 alpha)
 JACKET_BC3_EDGE = 300
 
 
@@ -90,10 +90,10 @@ def apply_music_jacket_image(
     progress_parent: QWidget | None = None,
 ) -> Path:
     """
-    将本地图片或 DDS 先规范为 JACKET_BC3_EDGE×JACKET_BC3_EDGE，再写入 BC3 DDS。
+    将本地图片或 DDS 先规范为 JACKET_BC3_EDGE×JACKET_BC3_EDGE，再写入 BC1(DXT1) DDS。
     若 Music.xml 未配置 jaketFile/path，则使用 CHU_UI_Jacket_{id:04d}.dds 并回写 XML。
 
-    progress_parent：若传入则在后台线程编码 BC3 并显示进度，避免打包版主线程长时间无响应。
+    progress_parent：若传入则在后台线程编码 BC1 并显示进度，避免打包版主线程长时间无响应。
     """
     src = source.expanduser().resolve()
     if not src.is_file():
@@ -120,11 +120,12 @@ def apply_music_jacket_image(
                 tool_path=tool_path,
                 jobs=[(tmp_png, out)],
                 title="正在生成封面 DDS",
+                fmt="bc1",
             )
             if not ok:
                 raise RuntimeError(err or "DDS 编码失败")
         else:
-            convert_to_bc3_dds(
+            convert_to_bc1_dds(
                 tool_path=tool_path, input_image=tmp_png, output_dds=out
             )
     finally:

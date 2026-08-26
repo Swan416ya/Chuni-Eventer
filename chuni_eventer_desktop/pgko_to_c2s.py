@@ -2289,7 +2289,7 @@ def _write_pgko_jacket_dds(
     tool_path: Path | None,
 ) -> bool:
     """写入乐曲封面 DDS；成功返回 True。"""
-    from .dds_convert import DdsToolError, convert_to_bc3_dds
+    from .dds_convert import DdsToolError, convert_to_bc1_dds
 
     out_dds.parent.mkdir(parents=True, exist_ok=True)
     if jacket_raw is not None and jacket_raw.is_file():
@@ -2302,7 +2302,7 @@ def _write_pgko_jacket_dds(
             return out_dds.is_file()
         except Exception:
             try:
-                convert_to_bc3_dds(
+                convert_to_bc1_dds(
                     tool_path=tool_path,
                     input_image=jacket_raw,
                     output_dds=out_dds,
