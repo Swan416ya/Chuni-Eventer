@@ -118,7 +118,7 @@ def iter_local_pjsk_bundles(cache_root: Path) -> list[PjskLocalBundle]:
     return out
 
 
-def next_chuni_music_id(acus_root: Path, *, start: int = 7000) -> int:
+def next_chuni_music_id(acus_root: Path, *, start: int = 5000) -> int:
     used: set[int] = set()
     music_root = acus_root / "music"
     if music_root.is_dir():

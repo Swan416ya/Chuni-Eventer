@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import overload
+from typing import Callable, overload
 
 from .course_rank import next_custom_rank_course_id
 from .course_rule import next_custom_course_rule_id
@@ -93,14 +93,9 @@ def _scan_directory_numeric_names(acus_root: Path, kind: str, prefix: str = "") 
         if prefix and not name.startswith(prefix):
             continue
         suffix = name[len(prefix):]
-        if suffix.isdigit() or (suffix and suffix.lstrip("0").isdigit() and int(suffix) > 0):
-            try:
-                ids.add(int(suffix))
-            except ValueError:
-                continue
-        elif suffix == "" and prefix == name:
-            # 目录名就是前缀本身（无数字），跳过
-            continue
+        # 接受纯数字后缀（含前导零，如 "007"）；ID=0 也视为合法
+        if suffix.isdigit():
+            ids.add(int(suffix))
     return ids
 
 
@@ -180,8 +175,9 @@ def _alloc_system_voice(acus_root: Path, count: int, plan_allocated: dict[str, s
 
 
 def _alloc_music(acus_root: Path, count: int, plan_allocated: dict[str, set[int]]) -> int | tuple[int, ...]:
-    """music → 扫描目录名 max(7000, used_max + count) 起连续分配。"""
-    base_min = 7_000
+    """music → 扫描目录名 max(5000, used_max + count) 起连续分配。
+    原版 music 在 2919 以下有 88 首、8292-8317 有 9 首，5000-8291 为空，短期可用。"""
+    base_min = 5_000
     used = _scan_directory_numeric_names(acus_root, "music", "music")
     used |= plan_allocated.get("music", set())
     candidate = max(base_min, max(used, default=base_min - 1) + 1)
@@ -273,39 +269,43 @@ def _alloc_mapicon(acus_root: Path, count: int, plan_allocated: dict[str, set[in
 # 策略注册表
 # ---------------------------------------------------------------------------
 
-_STRATEGIES: dict[str, callable] = {
+_STRATEGIES: dict[str, Callable[[Path, int, dict[str, set[int]]], int | tuple[int, ...]]] = {
     "course":       _alloc_course,
     "courseRule":   _alloc_courerule,
     "reward":       _alloc_reward,
     "trophy":       _alloc_trophy,
     "systemVoice":  _alloc_system_voice,
     "music":        _alloc_music,
-    "chara":        lambda ac, c, pa: _alloc_generic(ac, "chara", c, "Chara.xml", "name/id", 70_000, pa),
+    # 6 位资源：chara/ddsImage 从 30000 起（原版到 25640），trophy 从 50000 起（原版到 10145），
+    # stage 从 100000 起（原版到 99999，6 位已满，突破补零但目录名合法）。
+    "chara":        lambda ac, c, pa: _alloc_generic(ac, "chara", c, "Chara.xml", "name/id", 30_000, pa),
     "namePlate":    lambda ac, c, pa: _alloc_generic(ac, "namePlate", c, "NamePlate.xml", "name/id", 70_000, pa),
-    "stage":        lambda ac, c, pa: _alloc_generic(ac, "stage", c, "Stage.xml", "name/id", 70_000, pa),
+    "stage":        lambda ac, c, pa: _alloc_generic(ac, "stage", c, "Stage.xml", "name/id", 100_000, pa),
     "map":          lambda ac, c, pa: _alloc_generic(ac, "map", c, "Map.xml", "name/id", 70_000_000, pa),
     "mapArea":      lambda ac, c, pa: _alloc_generic(ac, "mapArea", c, "MapArea.xml", "name/id", 70_000_000, pa),
     "mapBonus":     _alloc_mapbonus,
     "mapIcon":      _alloc_mapicon,
     "event":        lambda ac, c, pa: _alloc_generic(ac, "event", c, "Event.xml", "name/id", 70_000, pa),
-    "ddsImage":     lambda ac, c, pa: _alloc_generic(ac, "ddsImage", c, "DDSImage.xml", "name/id", 70_000, pa),
+    "ddsImage":     lambda ac, c, pa: _alloc_generic(ac, "ddsImage", c, "DDSImage.xml", "name/id", 30_000, pa),
     "ddsMap":       lambda ac, c, pa: _alloc_generic(ac, "ddsMap", c, "DDSMap.xml", "name/id", 70_000_000, pa),
-    "ddsBanner":    lambda ac, c, pa: _alloc_generic(ac, "ddsBanner", c, "DDSImage.xml", "name/id", 70_000, pa),
+    "ddsBanner":    lambda ac, c, pa: _alloc_generic(ac, "ddsBanner", c, "DDSImage.xml", "name/id", 30_000, pa),
     "cueFile":      _alloc_cuefile,
-    # 以下类型：通用策略，扫 XML name/id，下限 70000
+    # 6 位通用类型：下限 70000（原版 charaWorks 9090、loginBonus 517030、skill 200005 均低于此）
     "charaWorks":   lambda ac, c, pa: _alloc_generic(ac, "charaWorks", c, "CharaWorks.xml", "name/id", 70_000, pa),
-    "skill":        lambda ac, c, pa: _alloc_generic(ac, "skill", c, "Skill.xml", "name/id", 70_000, pa),
+    "skill":        lambda ac, c, pa: _alloc_generic(ac, "skill", c, "Skill.xml", "name/id", 700_000, pa),
     "skillCategory": lambda ac, c, pa: _alloc_generic(ac, "skillCategory", c, "SkillCategory.xml", "name/id", 70_000, pa),
     "musicGenre":   lambda ac, c, pa: _alloc_generic(ac, "musicGenre", c, "MusicGenre.xml", "name/id", 70_000, pa),
     "musicLabel":   lambda ac, c, pa: _alloc_generic(ac, "musicLabel", c, "MusicLabel.xml", "name/id", 70_000, pa),
-    "releaseTag":   lambda ac, c, pa: _alloc_generic(ac, "releaseTag", c, "ReleaseTag.xml", "name/id", 70_000, pa),
+    "releaseTag":   lambda ac, c, pa: _alloc_generic(ac, "releaseTag", c, "ReleaseTag.xml", "name/id", 900_001, pa),
     "netOpen":      lambda ac, c, pa: _alloc_generic(ac, "netOpen", c, "NetOpen.xml", "name/id", 70_000, pa),
     "gauge":        lambda ac, c, pa: _alloc_generic(ac, "gauge", c, "Gauge.xml", "name/id", 70_000, pa),
     "timeTable":    lambda ac, c, pa: _alloc_generic(ac, "timeTable", c, "TimeTable.xml", "name/id", 70_000, pa),
     "notesFieldLine": lambda ac, c, pa: _alloc_generic(ac, "notesFieldLine", c, "NotesFieldLine.xml", "name/id", 70_000, pa),
     "ticket":       lambda ac, c, pa: _alloc_generic(ac, "ticket", c, "Ticket.xml", "name/id", 70_000, pa),
-    "avatarAccessory": lambda ac, c, pa: _alloc_generic(ac, "avatarAccessory", c, "AvatarAccessory.xml", "name/id", 70_000, pa),
+    # avatarAccessory：第二位为 category（1~9），7X000000~7X999999 分段（原版到 9799999）
+    "avatarAccessory": lambda ac, c, pa: _alloc_generic(ac, "avatarAccessory", c, "AvatarAccessory.xml", "name/id", 71_000_000, pa),
     "quest":        lambda ac, c, pa: _alloc_generic(ac, "quest", c, "Quest.xml", "name/id", 70_000, pa),
+    "mate":         lambda ac, c, pa: _alloc_generic(ac, "mate", c, "Mate.xml", "name/id", 70_000, pa),
 }
 
 
@@ -460,6 +460,8 @@ class ResourceIdAllocator:
                 return _scan_kind_ids(self._acus_root, "avatarAccessory", "AvatarAccessory.xml", "name/id")
             case "quest":
                 return _scan_kind_ids(self._acus_root, "quest", "Quest.xml", "name/id")
+            case "mate":
+                return _scan_kind_ids(self._acus_root, "mate", "Mate.xml", "name/id")
             case _:
                 return set()
 

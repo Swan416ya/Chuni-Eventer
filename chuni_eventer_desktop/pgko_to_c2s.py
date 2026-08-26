@@ -2134,7 +2134,7 @@ class PgkoInstallOptions:
     create_unlock_event: bool = True
 
 
-def suggest_next_pgko_music_id(acus_root: Path, *, start: int = 6000) -> int:
+def suggest_next_pgko_music_id(acus_root: Path, *, start: int = 5000) -> int:
     return next_chuni_music_id(acus_root, start=start)
 
 

@@ -224,6 +224,55 @@ def refresh_chara_works_sorts_with_game(acus_root: Path, game_root: Path | str |
     refresh_chara_works_sorts_from_game_and_merge_acus(acus_root, game_root)
 
 
+def _migrate_legacy_custom_release_tags(acus_root: Path) -> None:
+    """
+    旧版自制 releaseTag 用 releaseTag000021/000022 作为目录编号，
+    与官方版本号紧邻，游戏更新到新版本（如 mate）时会与官方 releaseTag 冲突。
+    迁移到 releaseTag900001/900002（自定义区间，不会与官方版本冲突）。
+    仅迁移 dataName 含 000021/000022 且 name/id 为 -1/-2 的条目，避免误伤官方数据。
+    """
+    import xml.etree.ElementTree as ET
+
+    rt_root = acus_root / "releaseTag"
+    if not rt_root.is_dir():
+        return
+
+    # (旧目录名, 新目录名, 期望的 name/id, 期望的 dataName 旧值, dataName 新值)
+    renames = [
+        ("releaseTag000021", "releaseTag900001", "-1", "releaseTag000021", "releaseTag900001"),
+        ("releaseTag000022", "releaseTag900002", "-2", "releaseTag000022", "releaseTag900002"),
+    ]
+    for old_dir_name, new_dir_name, expect_id, old_dn, new_dn in renames:
+        old_dir = rt_root / old_dir_name
+        new_dir = rt_root / new_dir_name
+        if not old_dir.is_dir():
+            continue
+        xml_path = old_dir / "ReleaseTag.xml"
+        if not xml_path.is_file():
+            continue
+        try:
+            tree = ET.parse(xml_path)
+            root = tree.getroot()
+            # 仅迁移自制条目（name/id 为 -1/-2），不碰官方数据
+            if (root.findtext("name/id") or "").strip() != expect_id:
+                continue
+            # 更新 dataName
+            dn = root.find("dataName")
+            if dn is not None and (dn.text or "").strip() == old_dn:
+                dn.text = new_dn
+                tree.write(xml_path, encoding="utf-8", xml_declaration=True)
+        except Exception:
+            continue
+        # 目标已存在时不覆盖（用户可能已手动迁移）
+        if new_dir.exists():
+            shutil.rmtree(old_dir, ignore_errors=True)
+            continue
+        try:
+            old_dir.rename(new_dir)
+        except OSError:
+            continue
+
+
 def _seed_acus_from_bundled(acus_root: Path) -> None:
     """
     首次创建 ACUS 时从随包数据复制：releaseTag（自制譜 / セカイ 等）、常用点数与功能票 Reward。
@@ -278,8 +327,10 @@ def ensure_acus_layout(*, game_root: Path | str | None = None) -> Path:
         "stage",
         "releaseTag",
         "systemVoice",
+        "mate",
     ]:
         (root / d).mkdir(parents=True, exist_ok=True)
+    _migrate_legacy_custom_release_tags(root)
     _seed_acus_from_bundled(root)
     # 启动链路只做轻量目录准备，避免同步扫描游戏目录导致首屏阻塞。
     # works sort 刷新改为在主界面可交互后由后台任务触发。
@@ -295,6 +346,7 @@ class AcusConfig:
     penguin_tools_cli_path: str = ""
     mua_path: str = ""
     c2s_sanitize_path: str = ""
+    freemote_path: str = ""
     """游戏安装/数据根目录（用于索引全量 music、stage、ddsImage、ddsMap，供下拉选择）。"""
     game_root: str = ""
     enable_pgko_ugc_experimental: bool = False

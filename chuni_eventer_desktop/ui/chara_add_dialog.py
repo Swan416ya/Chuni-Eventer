@@ -443,7 +443,7 @@ class CharaAddDialog(FluentCaptionDialog):
             self._locked_variant = lv
 
         self.base = LineEdit(self)
-        self.base.setPlaceholderText("角色基ID（例如 2469）")
+        self.base.setPlaceholderText("角色基ID（建议 70000+，避开原版）")
         self.variant = LineEdit(self)
         self.variant.setPlaceholderText("皮肤 ID 0~9（例如 0）")
         if self._locked_variant is not None:

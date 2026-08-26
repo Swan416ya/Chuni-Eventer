@@ -43,7 +43,7 @@ def list_release_tags(acus_root: Path) -> list[ReleaseTagEntry]:
     return items
 
 
-def suggest_next_custom_release_tag_id(acus_root: Path, *, start: int = 700) -> int:
+def suggest_next_custom_release_tag_id(acus_root: Path, *, start: int = 900_001) -> int:
     used: set[int] = set()
     for item in list_release_tags(acus_root):
         used.add(item.id)

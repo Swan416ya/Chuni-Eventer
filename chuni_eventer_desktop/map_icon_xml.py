@@ -11,7 +11,7 @@ from .acus_scan import scan_map_icons
 from .game_data_index import GameDataIndex
 
 
-MAP_ICON_ID_START = 7000
+MAP_ICON_ID_START = 2000
 
 # 与 A001 mapIcon1001 一致（自定义条目除 name / image / dataName 外默认沿用）
 _DEFAULT_NET_OPEN_ID = 2701

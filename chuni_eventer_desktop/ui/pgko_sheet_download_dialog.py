@@ -86,7 +86,8 @@ def _readonly_std_item(text: str) -> QStandardItem:
     return it
 
 
-def _next_custom_stage_id_from_70000(acus_root: Path) -> int:
+def _next_custom_stage_id(acus_root: Path) -> int:
+    """原版 stage 已到 99999（含 sentinel），自制从 100000 起避免冲突。"""
     used: set[int] = set()
     sroot = acus_root / "stage"
     if sroot.is_dir():
@@ -97,7 +98,7 @@ def _next_custom_stage_id_from_70000(acus_root: Path) -> int:
                     used.add(rid)
             except Exception:
                 continue
-    cand = 70000
+    cand = 100_000
     while cand in used:
         cand += 1
     return cand
@@ -1181,7 +1182,7 @@ class _PgkoInstallConfigDialog(FluentCaptionDialog):
         self._custom_stage_prompted = False
         self._custom_stage_background = detect_pgko_stage_background_for_pick(pick)
 
-        suggest_id = suggest_next_pgko_music_id(acus_root, start=6000)
+        suggest_id = suggest_next_pgko_music_id(acus_root, start=5000)
         self._id_edit = LineEdit(self)
         self._id_edit.setPlaceholderText(f"留空自动分配（建议 {suggest_id}）")
 
@@ -1251,7 +1252,7 @@ class _PgkoInstallConfigDialog(FluentCaptionDialog):
                 return int(txt)
             except ValueError:
                 pass
-        return suggest_next_pgko_music_id(self._acus_root, start=6000)
+        return suggest_next_pgko_music_id(self._acus_root, start=5000)
 
     def _find_stage_index_by_id(self, stage_id: int) -> int:
         for i in range(self._stage.count()):
@@ -1295,7 +1296,7 @@ class _PgkoInstallConfigDialog(FluentCaptionDialog):
 
     def _create_custom_stage_from_background(self, bg: Path) -> None:
         mid = self._current_target_music_id()
-        stage_id = _next_custom_stage_id_from_70000(self._acus_root)
+        stage_id = _next_custom_stage_id(self._acus_root)
         stage_name = str(self._meta.get("title") or self._pick.path.stem or f"music{mid}").strip()
         if not stage_name:
             stage_name = f"music{mid}"
@@ -1351,7 +1352,7 @@ class _PgkoInstallConfigDialog(FluentCaptionDialog):
                 fly_warning(self, "ID无效", "乐曲ID必须是整数，或留空自动分配。")
                 return
         else:
-            mid = suggest_next_pgko_music_id(self._acus_root, start=6000)
+            mid = suggest_next_pgko_music_id(self._acus_root, start=5000)
 
         data = self._stage.currentData()
         stage_id, stage_str = int(data[0]), str(data[1])
