@@ -131,9 +131,9 @@ SUS / mgxc 等谱面文件的导入与 c2s 转换，快速写入 ACUS
 
 <a href="https://www.star-history.com/?repos=Swan416ya%2FChuni-Eventer&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=Swan416ya/Chuni-Eventer&type=date&theme=dark&legend=top-left&sealed_token=H2cmy5oC1uw0cydyFWzoucty167Tv36GWV0FqkvM5Ujvep0xDJTrAepfN3f5_5HT33VE-xVVwoBFYIX4Qn6gJhRJwjbIjMGsuN-BZhiTJefykjYEL0B1VRKazh2r03NNN2vpU2otpYX3GF9n_357o9CGtmod-m43PEXR0XGGzZ5nUuocDXHjtdLkFYfT" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=Swan416ya/Chuni-Eventer&type=date&legend=top-left&sealed_token=H2cmy5oC1uw0cydyFWzoucty167Tv36GWV0FqkvM5Ujvep0xDJTrAepfN3f5_5HT33VE-xVVwoBFYIX4Qn6gJhRJwjbIjMGsuN-BZhiTJefykjYEL0B1VRKazh2r03NNN2vpU2otpYX3GF9n_357o9CGtmod-m43PEXR0XGGzZ5nUuocDXHjtdLkFYfT" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=Swan416ya/Chuni-Eventer&type=date&legend=top-left&sealed_token=H2cmy5oC1uw0cydyFWzoucty167Tv36GWV0FqkvM5Ujvep0xDJTrAepfN3f5_5HT33VE-xVVwoBFYIX4Qn6gJhRJwjbIjMGsuN-BZhiTJefykjYEL0B1VRKazh2r03NNN2vpU2otpYX3GF9n_357o9CGtmod-m43PEXR0XGGzZ5nUuocDXHjtdLkFYfT" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=Swan416ya/Chuni-Eventer&type=date&theme=dark&legend=top-left&sealed_token=stRh8CGEhYxKYTKrfJVKjRnkNcWcWrDLw3GwOJR_M1Ni6niWKQZ549EFnKWCsaNk1CyJWA0Yvzn7uYxeu1sjsZqgWeQqgteSNYXHTfSGZsFDtQAUftYEqw" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=Swan416ya/Chuni-Eventer&type=date&legend=top-left&sealed_token=stRh8CGEhYxKYTKrfJVKjRnkNcWcWrDLw3GwOJR_M1Ni6niWKQZ549EFnKWCsaNk1CyJWA0Yvzn7uYxeu1sjsZqgWeQqgteSNYXHTfSGZsFDtQAUftYEqw" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=Swan416ya/Chuni-Eventer&type=date&legend=top-left&sealed_token=stRh8CGEhYxKYTKrfJVKjRnkNcWcWrDLw3GwOJR_M1Ni6niWKQZ549EFnKWCsaNk1CyJWA0Yvzn7uYxeu1sjsZqgWeQqgteSNYXHTfSGZsFDtQAUftYEqw" />
  </picture>
 </a>
 
