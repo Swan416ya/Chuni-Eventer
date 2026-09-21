@@ -92,6 +92,16 @@ class NamePlateItem:
 
 
 @dataclass(frozen=True)
+class MateItem:
+    xml_path: Path
+    name: IdStr
+    emote_path: str
+    image_path: str
+    chara: IdStr | None = None
+    default_have: bool = False
+
+
+@dataclass(frozen=True)
 class TrophyItem:
     xml_path: Path
     name: IdStr
@@ -589,6 +599,25 @@ def scan_events(acus_root: Path) -> list[EventItem]:
                     banner_id,
                     img_path,
                 )
+            )
+        except Exception:
+            continue
+    return sorted(items, key=lambda x: x.name.id)
+
+
+def scan_mates(acus_root: Path) -> list[MateItem]:
+    items: list[MateItem] = []
+    for p in iter_xml_files(acus_root, "mate/**/Mate.xml"):
+        try:
+            r = ET.parse(p).getroot()
+            name = _get_idstr(r.find("name"))
+            if not name:
+                continue
+            emote = (r.findtext("emoteFile/path") or "").strip()
+            img = (r.findtext("image/path") or "").strip()
+            chara = _get_idstr(r.find("chara"))
+            items.append(
+                MateItem(p, name, emote, img, chara, default_have=parse_default_have_bool(r))
             )
         except Exception:
             continue

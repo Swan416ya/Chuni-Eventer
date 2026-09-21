@@ -13,6 +13,19 @@
 - **修复宣传图 / 地图背景 / 音乐封面 / 舞台背景 / 场景墙 DDS 格式错误的问题**（[#14](https://github.com/Swan416ya/Chuni-Eventer/issues/14)）：原版游戏中这些无 alpha 通道的资源使用 DXT1(BC1) 格式，但程序此前对所有资源统一转 BC3(DXT5)，格式不匹配导致游戏内显示异常。现已按资源类型分别选用正确格式——封面/地图背景/宣传图/舞台/场景墙走 BC1(DXT1)，角色立绘/名牌/奖杯/avatar/地图图标等带 alpha 资源保持 BC3(DXT5)。新生成的封面 DDS 与原版文件大小完全一致。
 - 场景墙贴图格式同步从 BC3 修正为 BC1。
 
+### 版本换代兼容性修复
+
+- **修复自制 releaseTag 与官方版本号冲突的问题**（[#15](https://github.com/Swan416ya/Chuni-Eventer/issues/15)）：自制 releaseTag 此前用 `releaseTag000021`/`000022` 作为目录编号，紧挨着原版最后的 `000020`（X-VERSE-X），游戏更新到新版本（如 CHUNITHM mate）时会与官方 `releaseTag000021` 冲突，导致分类显示为 PJSK。现已迁移到 `releaseTag900001`/`900002`（自定义区间），程序启动时自动迁移旧版 ACUS 中的残留目录。
+- **全面修正自制资源 ID 起始值**，避免与原版已用编号冲突或突破原版文件名数位：
+  - music：5000 起（原版 5000-8291 区间为空，短期可用）
+  - mapIcon：2000 起（原版到 1002）
+  - chara / ddsImage / ddsBanner：30000 起（原版到 25640）
+  - stage：100000 起（原版到 99999，6 位已满）
+  - skill：700000 起（原版到 200005）
+  - course：700000 起（原版到 500605）
+  - avatarAccessory：71000000 起（按 category 分段 7X000000，原版到 9799999）
+  - releaseTag 分配器统一到 900001 起
+
 ## 打包说明
 
 ```powershell

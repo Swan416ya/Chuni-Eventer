@@ -165,10 +165,34 @@ def validate_voice_folder(folder: Path) -> tuple[list[str], dict[int, Path], lis
     return missing, found, extra
 
 
+def _ffmpeg_version_first_line(ff: Path) -> str:
+    """尽力取 ``ffmpeg -version`` 首行（版本 + 日期），失败时返回空串，绝不抛异常。"""
+    try:
+        v = subprocess.run(
+            [str(ff), "-version"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
+        )
+        out = (v.stdout or "").strip()
+        if out:
+            return out.splitlines()[0]
+        return (v.stderr or "").strip().splitlines()[0] if v.stderr else ""
+    except Exception:
+        return ""
+
+
 def ffmpeg_to_mono_48k_wav(src: Path, dst: Path) -> None:
     ff = find_ffmpeg()
     if ff is None:
-        raise RuntimeError("未找到 ffmpeg（需在 PATH 中），无法转码系统语音。")
+        raise RuntimeError(
+            "未找到 ffmpeg，无法转码系统语音。\n"
+            "请到【设置 → 外部工具】一键下载 FFmpeg，\n"
+            "或确认系统中已安装 ffmpeg 并已加入 PATH。\n"
+            f"已查找：.tools/ffmpeg/、系统 PATH。"
+        )
     dst.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
         str(ff),
@@ -187,9 +211,28 @@ def ffmpeg_to_mono_48k_wav(src: Path, dst: Path) -> None:
     ]
     p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if p.returncode != 0:
-        raise RuntimeError(
-            f"ffmpeg 转码失败：{src.name}\n" f"stderr:\n{p.stderr or '(empty)'}\n"
-        )
+        stderr = (p.stderr or "").strip()
+        version_line = _ffmpeg_version_first_line(ff)
+        lines = [
+            f"ffmpeg 转码失败：{src.name}",
+            f"ffmpeg 路径：{ff}",
+        ]
+        if version_line:
+            lines.append(f"ffmpeg 版本：{version_line}")
+        if stderr:
+            lines.append("ffmpeg 输出：")
+            lines.append(stderr[-2000:])
+        else:
+            lines.append("ffmpeg 无任何输出（stderr 为空）。")
+        # 针对「转码失败但无输出」这种最常见的自助场景给出指引
+        if not stderr:
+            lines.append("")
+            lines.append("常见原因与处理：")
+            lines.append("  · 该 ffmpeg 版本过旧，无法解码此音频（旧版对部分 MP3 支持差）。")
+            lines.append("    请到【设置 → 外部工具】重新下载最新版 FFmpeg，再重试打包。")
+            lines.append("  · 该音频文件损坏或不是有效音频。请换一个文件试试，或确认能正常播放。")
+            lines.append("  · 路径含特殊字符或被占用。可将音频文件移动到一个纯英文短路径下再试。")
+        raise RuntimeError("\n".join(lines))
 
 
 def build_wav_list_in_slot_order(work_dir: Path, source_by_id: dict[int, Path]) -> list[Path]:

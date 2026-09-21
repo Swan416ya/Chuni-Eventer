@@ -738,6 +738,18 @@ class CellEditDialog(FluentCaptionDialog):
     def _sync_state(self) -> None:
         rm = self.reward_mode.currentText()
         rk = self.reward_kind.currentText()
+        # 重建下拉前保存当前选择：用户手动选完后触发 _sync_state（如切换「课题曲」）
+        # 不应静默清空已选目标（否则确定时报「请从列表选择有效的…」，issue #16）
+        prev_pick = self.inner_pick.currentIndex()
+        prev_typed = prev_pick > 0 and rm in {
+            "角色",
+            "称号(Trophy)",
+            "姓名牌装饰(NamePlate)",
+            "场景(Stage)",
+            "系统语音(SystemVoice)",
+            "地图图标(MapIcon)",
+        }
+        prev_tid = _safe_int(self.reward_inner_id.text()) if prev_typed else None
         self.reward_pick.setEnabled(rm == "选择 ACUS 奖励")
         manual = rm == "手填奖励ID"
         typed = rm in {
@@ -773,6 +785,8 @@ class CellEditDialog(FluentCaptionDialog):
         if typed:
             tid = self._pending_inner_match_id
             self._pending_inner_match_id = None
+            if tid is None and prev_typed:
+                tid = prev_tid
             self._match_inner_pick(refs=refs, tid=tid)
 
         if manual:
@@ -863,7 +877,7 @@ class CellEditDialog(FluentCaptionDialog):
             if self._data.reward_kind == "场景(Stage)" and prev_rid is not None:
                 out.reward_id = prev_rid
             else:
-                out.reward_id = next_custom_reward_id(self._acus_root)
+                out.reward_id = next_custom_reward_id(self._acus_root, self._game_index)
         elif rm == "系统语音(SystemVoice)":
             out.reward_kind = "系统语音(SystemVoice)"
             out.reward_inner_id = self._resolve_inner_typed_only(self._sysvoice_refs)
@@ -881,7 +895,7 @@ class CellEditDialog(FluentCaptionDialog):
             if self._data.reward_kind == "系统语音(SystemVoice)" and prev_rid is not None:
                 out.reward_id = prev_rid
             else:
-                out.reward_id = next_custom_reward_id(self._acus_root)
+                out.reward_id = next_custom_reward_id(self._acus_root, self._game_index)
         elif rm == "地图图标(MapIcon)":
             out.reward_kind = "地图图标(MapIcon)"
             out.reward_inner_id = self._resolve_inner_typed_only(self._mapicon_refs)
@@ -899,7 +913,7 @@ class CellEditDialog(FluentCaptionDialog):
             if self._data.reward_kind == "地图图标(MapIcon)" and prev_rid is not None:
                 out.reward_id = prev_rid
             else:
-                out.reward_id = next_custom_reward_id(self._acus_root)
+                out.reward_id = next_custom_reward_id(self._acus_root, self._game_index)
         else:
             if rm == "角色":
                 out.reward_kind = "角色"
@@ -1949,16 +1963,24 @@ class DdsMapCreateDialog(FluentCaptionDialog):
         self.accept()
 
 
-def next_custom_reward_id(acus_root: Path) -> int:
+def next_custom_reward_id(acus_root: Path, idx: GameDataIndex | None = None) -> int:
+    """
+    分配下一个自制 Reward ID（7 段：700000001+）。
+
+    扫描范围必须与 ``resolve_reward_xml`` 一致（ACUS + A001 + 已索引游戏包）：
+    若只在 ACUS 里找，可能分配出与游戏数据中已有 Reward 同 ID 的值，
+    导致 ``ensure_reward_xml`` 撞号跳过写入、地图静默绑定到外部 Reward（issue #16）。
+    """
     max_id = 700000000
-    for p in acus_root.glob("reward/**/Reward.xml"):
-        try:
-            r = ET.parse(p).getroot()
-            rid = _safe_int(r.findtext("name/id") or "")
-            if rid is not None and str(rid).startswith("7"):
-                max_id = max(max_id, rid)
-        except Exception:
-            continue
+    for root in _reward_source_roots(acus_root, idx):
+        for p in root.glob("reward/**/Reward.xml"):
+            try:
+                r = ET.parse(p).getroot()
+                rid = _safe_int(r.findtext("name/id") or "")
+                if rid is not None and str(rid).startswith("7"):
+                    max_id = max(max_id, rid)
+            except Exception:
+                continue
     return max_id + 1
 
 
@@ -1983,19 +2005,39 @@ def reward_dialog_bundle(
         _merged_stage_reward_refs(acus_root, game_index),
         load_system_voice_refs(acus_root, game_index),
         load_map_icon_refs(acus_root, game_index),
-        next_custom_reward_id(acus_root),
+        next_custom_reward_id(acus_root, game_index),
     )
 
 
 def ensure_reward_xml(
     acus_root: Path, cell: CellData, idx: GameDataIndex | None = None
 ) -> None:
+    """
+    确保 ACUS 内存在 cell.reward_id 对应的 Reward.xml。
+
+    - ACUS 内已存在同 ID Reward.xml：跳过（不覆盖已有数据）。
+    - 不存在于 ACUS，但 A001 / 已索引游戏包中已有同 ID Reward：
+      抛 ``ValueError``（ID 与游戏数据冲突），由调用方提示用户换 ID。
+      若静默跳过，地图会绑定到外部 Reward，用户配置的角色/称号等不会生效（issue #16）。
+    """
     if cell.reward_id is None:
         return
     rid = cell.reward_id
-    if resolve_reward_xml(acus_root, rid, idx) is not None:
+    if rid < 0:
         return
-    rdir = acus_root / "reward" / f"reward{rid:09d}"
+    acus_xml = acus_root / "reward" / f"reward{rid:09d}" / "Reward.xml"
+    if acus_xml.exists():
+        return
+    foreign = resolve_reward_xml(acus_root, rid, idx)
+    if foreign is not None:
+        # 路径非 9 位零填充但仍位于 ACUS 内：视为已存在，跳过
+        try:
+            if foreign.resolve().parents[2].resolve() == acus_root.resolve():
+                return
+        except IndexError:
+            pass
+        raise ValueError(f"reward.id {rid} 与游戏数据中的 Reward 冲突，请更换 reward.id")
+    rdir = acus_xml.parent
     rdir.mkdir(parents=True, exist_ok=True)
 
     kind = cell.reward_kind
@@ -3789,7 +3831,7 @@ class MapAddDialog(FluentCaptionDialog):
         def _new_reward() -> None:
             nonlocal selected_reward_id
             rd = RewardCreateDialog(
-                default_id=next_custom_reward_id(self._acus_root),
+                default_id=next_custom_reward_id(self._acus_root, self._game_index),
                 music_refs=self._music_refs,
                 acus_music_refs=self._acus_music_refs,
                 chara_refs=self._chara_refs,
@@ -3801,7 +3843,11 @@ class MapAddDialog(FluentCaptionDialog):
                 parent=dlg,
             )
             if rd.exec() == QDialog.DialogCode.Accepted and rd.result_cell is not None:
-                ensure_reward_xml(self._acus_root, rd.result_cell, self._game_index)
+                try:
+                    ensure_reward_xml(self._acus_root, rd.result_cell, self._game_index)
+                except ValueError as e:
+                    fly_critical(dlg, "创建失败", f"{e}\n（地图仍可使用其他未冲突的 reward.id）")
+                    return
                 self._reward_refs = load_reward_refs(self._acus_root, self._game_index)
                 selected_reward_id = rd.result_cell.reward_id
                 _sync_reward_display()
@@ -3864,13 +3910,17 @@ class MapAddDialog(FluentCaptionDialog):
             self._area_info_meta[area_idx].dds_str = dds_selected_str or "共通0001_CHUNITHM"
 
             points_reward_id = 703000000
-            ensure_points_reward_xml(
-                self._acus_root,
-                reward_id=points_reward_id,
-                reward_name="3000 Points",
-                points=3000,
-                idx=self._game_index,
-            )
+            try:
+                ensure_points_reward_xml(
+                    self._acus_root,
+                    reward_id=points_reward_id,
+                    reward_name="3000 Points",
+                    points=3000,
+                    idx=self._game_index,
+                )
+            except Exception as e:
+                fly_critical(dlg, "错误", f"固定金币奖励 Reward({points_reward_id}) 写入失败：\n{e}")
+                return
 
             by_step: dict[int, CellData] = {
                 total: _maparea_terminator_cell(),
@@ -4101,7 +4151,15 @@ class MapAddDialog(FluentCaptionDialog):
                 rid = c.reward_id
                 assert rid is not None
                 rname = c.reward_name or f"Reward{rid}"
-                ensure_reward_xml(self._acus_root, c, self._game_index)
+                try:
+                    ensure_reward_xml(self._acus_root, c, self._game_index)
+                except ValueError as e:
+                    fly_critical(
+                        self,
+                        "保存失败",
+                        f"{e}\n请在对应格子中改用「手填奖励ID」重新选择一个未冲突的 reward.id 后再保存。",
+                    )
+                    raise
             else:
                 rid = -1
                 rname = "Invalid"

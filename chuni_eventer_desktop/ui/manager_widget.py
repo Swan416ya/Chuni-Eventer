@@ -3,8 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 import shutil
-import time
-import traceback
 import xml.etree.ElementTree as ET
 
 from PyQt6.QtCore import QPoint, QSize, Qt, QModelIndex, QSortFilterProxyModel, QTimer
@@ -82,6 +80,7 @@ from ..acus_scan import (
     scan_maps,
     scan_map_bonuses,
     scan_map_icons,
+    scan_mates,
     scan_music,
     scan_nameplates,
     scan_quests,
@@ -113,6 +112,7 @@ _KIND_DEFS: tuple[tuple[str, str], ...] = (
     ("段位组曲", "RankCourse"),
     ("跑图小人", "MapIcon"),
     ("企鹅装扮", "AvatarAccessory"),
+    ("伴侣", "Mate"),
 )
 
 
@@ -378,6 +378,8 @@ class ManagerWidget(QWidget):
             self.model.setHorizontalHeaderLabels(["ID", "名称", "段位", "曲目摘要", "来源(XML)"])
         elif k == "MapIcon":
             self.model.setHorizontalHeaderLabels(["ID", "名称", "贴图路径", "来源(XML)"])
+        elif k == "Mate":
+            self.model.setHorizontalHeaderLabels(["ID", "名称", "关联角色", "emote文件", "来源(XML)"])
         elif k == "AvatarAccessory":
             self.model.setHorizontalHeaderLabels(["ID", "名称", "category", "来源(XML)"])
         elif k == "Stage":
@@ -461,6 +463,25 @@ class ManagerWidget(QWidget):
             self._items = items
             for it in items:
                 self._append_mapicon_row(it)
+        elif k == "Mate":
+            items = scan_mates(self._acus_root)
+            self._items = items
+            for it in items:
+                chara = it.chara.str if it.chara else "—"
+                emote = it.emote_path or "—"
+                row = self.model.rowCount()
+                self.model.insertRow(row)
+                cols = [
+                    QStandardItem(str(it.name.id)),
+                    QStandardItem(it.name.str),
+                    QStandardItem(chara),
+                    QStandardItem(emote),
+                    QStandardItem(str(it.xml_path.relative_to(self._acus_root))),
+                ]
+                cols[0].setData(it, Qt.ItemDataRole.UserRole)
+                for c in cols:
+                    c.setEditable(False)
+                    self.model.setItem(row, cols.index(c), c)
         elif k == "AvatarAccessory":
             items = scan_avatar_accessories(self._acus_root)
             self._items = []
@@ -1079,43 +1100,28 @@ class ManagerWidget(QWidget):
     def _on_music_stage_change_requested(self, it: object) -> None:
         if not isinstance(it, MusicItem):
             return
-        print(
-            f"[stage-debug] request received ts={time.time():.3f} music_id={it.name.id} xml={it.xml_path} "
-            f"widgetVisible={self.isVisible()} enabled={self.isEnabled()}"
-        )
         cur_id = it.stage.id if it.stage is not None else None
         if self._music_stage_dialog is not None:
-            print("[stage-debug] closing previous stage dialog")
             self._music_stage_dialog.close()
             self._music_stage_dialog.deleteLater()
             self._music_stage_dialog = None
         dlg = MusicStageSelectDialog(acus_root=self._acus_root, current_stage_id=cur_id, parent=self.window())
-        print(f"[stage-debug] dialog created ts={time.time():.3f} current_stage_id={cur_id}")
         self._music_stage_dialog = dlg
         dlg.finished.connect(lambda code, d=dlg, m=it: self._on_music_stage_dialog_finished(code, d, m))
-        print("[stage-debug] dialog open()")
         dlg.open()
 
     def _on_music_stage_dialog_finished(self, code: int, dlg: MusicStageSelectDialog, it: MusicItem) -> None:
-        print(
-            f"[stage-debug] dialog finished ts={time.time():.3f} code={code} "
-            f"accepted={int(QDialog.DialogCode.Accepted)}"
-        )
         if self._music_stage_dialog is dlg:
             self._music_stage_dialog = None
         if code != int(QDialog.DialogCode.Accepted):
-            print("[stage-debug] dialog not accepted, exit")
             dlg.deleteLater()
             return
         sid = dlg.selected_stage_id
         if sid is None:
-            print("[stage-debug] accepted but selected_stage_id is None")
             dlg.deleteLater()
             return
         sstr = dlg.selected_stage_str or f"Stage{sid}"
-        print(f"[stage-debug] selected sid={sid} sstr={sstr!r}")
         try:
-            print(f"[stage-debug] parsing xml {it.xml_path}")
             tree = ET.parse(it.xml_path)
             root = tree.getroot()
             st = root.find("stageName")
@@ -1135,35 +1141,21 @@ class ManagerWidget(QWidget):
             if data_el.text is None:
                 data_el.text = ""
             ET.indent(root)  # type: ignore[attr-defined]
-            print("[stage-debug] writing xml")
             tree.write(it.xml_path, encoding="utf-8", xml_declaration=True)
-            print("[stage-debug] xml write done")
         except Exception as e:
-            print(f"[stage-debug] xml update failed: {e}")
-            print(traceback.format_exc())
             fly_critical(self.window(), "修改背景失败", str(e))
             dlg.deleteLater()
             return
-        print("[stage-debug] calling reload()")
-        t0 = time.time()
         self.reload()
-        print(f"[stage-debug] reload() done in {(time.time() - t0):.3f}s, finalize old dialog")
         try:
             dlg.setModal(False)
             dlg.hide()
         except Exception:
             pass
         dlg.deleteLater()
-        print("[stage-debug] old dialog deleteLater posted")
 
         # NOTE: MessageBox after this flow can lock interaction in some environments.
         # Keep stage update silent (log only) to avoid UI freeze.
-        print(
-            f"[stage-debug] stage update done without popup music_id={it.name.id} sid={sid} sstr={sstr!r}"
-        )
-        QTimer.singleShot(100, lambda: print(f"[stage-debug] heartbeat +100ms ts={time.time():.3f}"))
-        QTimer.singleShot(500, lambda: print(f"[stage-debug] heartbeat +500ms ts={time.time():.3f}"))
-        QTimer.singleShot(1500, lambda: print(f"[stage-debug] heartbeat +1500ms ts={time.time():.3f}"))
 
     def _on_music_release_tag_change_requested(self, it: object) -> None:
         if not isinstance(it, MusicItem):

@@ -472,11 +472,20 @@ def infer_kind_from_xml(xml_path: Path) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def _match_condition(el: "ET.Element", condition: str) -> bool:
+def _match_condition(el: "ET.Element", condition: str, parent_map: dict) -> bool:
     """检查 ``condition`` 如 ``"type=2"`` 是否成立。
 
     对于 Reward.xml 的子物质（RewardSubstanceData），查找其 ``type``
     子元素的文本是否等于指定值。
+
+    标准库 ``xml.etree.ElementTree`` 的 ``Element`` 没有 ``getparent()``
+    （那是 lxml 的 API），因此通过 *parent_map*（``{child: parent}``）向上
+    查找祖先，判断最近的 RewardSubstanceData 的 ``type`` 子元素文本。
+
+    Parameters
+        el:          ``findall(rule.xpath)`` 命中的元素（如 ``trophyName/id``）
+        condition:   形如 ``"type=2"`` 的条件
+        parent_map:  解析时构建的 ``{child_element: parent_element}`` 映射
     """
     # 解析条件： "type=N"
     eq_pos = condition.find("=")
@@ -485,18 +494,15 @@ def _match_condition(el: "ET.Element", condition: str) -> bool:
     tag_name = condition[:eq_pos].strip()
     expected = condition[eq_pos + 1:].strip()
 
-    # 从 el 向上找到最近的包含 type 的子元素的祖先（即 substance 节点本身）
-    # condition 是在 xpath 路径上的判断 —— xpath 形如
-    # ".//RewardSubstanceData/trophy/trophyName/id"
-    # type 就在 TrophyName 的兄弟 / 祖先上
-    # 策略：检查 el 的父元素（即 <trophyName> 的父，即 <trophy> 的父，
-    # 即 RewardSubstanceData）的 type 子元素
-    current = el.getparent() if hasattr(el, "getparent") else el
+    # 从 el 向上找到最近的包含 type 子元素的祖先（即 substance 节点本身）
+    # xpath 形如 ".//RewardSubstanceData/trophy/trophyName/id"
+    # type 就在 trophyName 的兄弟/祖先（RewardSubstanceData）上
+    current = parent_map.get(el)
     while current is not None:
         type_el = current.find(tag_name)
         if type_el is not None and type_el.text:
             return type_el.text.strip() == expected
-        current = current.getparent() if hasattr(current, "getparent") else None
+        current = parent_map.get(current)
     return False
 
 
@@ -551,9 +557,15 @@ def build_reference_graph(
             continue
 
         root = tree.getroot()
-        # Register namespace for .// xpath support
-        # (ElementTree doesn't auto-handle namespaces in .//,
-        #  but Chuni XMLs don't typically use them.)
+        # 标准库 ElementTree 的 Element 无父指针，构建 parent map 供
+        # _match_condition 向上查找祖先（如 RewardSubstanceData/type）。
+        # 仅在该 source_kind 存在带 condition 的规则时才构建，省开销。
+        needs_parent_map = any(r.condition for r in rules)
+        parent_map: dict = {}
+        if needs_parent_map:
+            for parent in root.iter():
+                for child in parent:
+                    parent_map[child] = parent
 
         for rule in rules:
             try:
@@ -568,7 +580,7 @@ def build_reference_graph(
                     continue
 
                 # Evaluate condition (e.g., type=2 for Reward)
-                if rule.condition and not _match_condition(el, rule.condition):
+                if rule.condition and not _match_condition(el, rule.condition, parent_map):
                     continue
 
                 in_package = (rule.target_kind, target_id) in nodes

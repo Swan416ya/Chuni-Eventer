@@ -300,6 +300,19 @@ Ensure-C2sSanitize -projectRoot $Root
 Copy-PenguinToolsBundle $OutTools
 Copy-PenguinToolsBundle $DistToolsRoot
 
+# Bundle FreeMote (PSB 工具链, GIF→Mate 动画编译必需)
+function Copy-FreeMoteBundle([string]$toolsParent) {
+    $src = Join-Path $Root "tools\FreeMote"
+    if (-not (Test-Path (Join-Path $src "PsBuild.exe"))) { return }
+    $dest = Join-Path $toolsParent "FreeMote"
+    if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+    New-Item -ItemType Directory -Path $dest -Force | Out-Null
+    Copy-Item -Path (Join-Path $src "*") -Destination $dest -Recurse -Force
+}
+
+Copy-FreeMoteBundle $OutTools
+Copy-FreeMoteBundle $DistToolsRoot
+
 if ($BundleCompressonator) {
     $ThirdParty = Join-Path $Root "packaging\THIRD_PARTY_COMPRESSONATOR.txt"
     if (Test-Path $ThirdParty) {

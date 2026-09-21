@@ -147,12 +147,27 @@ TOOL_C2S_SANITIZE = ExternalToolSpec(
     help_url=MUA_HELP_URL,
 )
 
+TOOL_FREEMOTE = ExternalToolSpec(
+    id="freemote",
+    name="FreeMote (PSB 工具链)",
+    description="emote PSB 动画编译（GIF→Mate 动画生成必需，PsBuild/PsbDecompile）。",
+    used_for="GIF→Mate 动画编译",
+    optional=True,
+    config_field="freemote_path",
+    default_rel="FreeMote/PsBuild.exe",
+    exe_name="PsBuild.exe",
+    download_url="https://github.com/UlyssesWu/FreeMote/releases/download/v4.7.0/Ulysses-FreeMoteToolkit-v4.7.0.zip",
+    archive_kind="zip",
+    help_url="https://github.com/UlyssesWu/FreeMote",
+)
+
 ALL_TOOLS: tuple[ExternalToolSpec, ...] = (
     TOOL_FFMPEG,
     TOOL_COMPRESSONATOR,
     TOOL_PENGUINTOOLS_CLI,
     TOOL_MUA,
     TOOL_C2S_SANITIZE,
+    TOOL_FREEMOTE,
 )
 
 _BUILTIN_PYTHON = (

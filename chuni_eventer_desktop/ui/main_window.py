@@ -50,6 +50,7 @@ _OTHERS_ROUTE_KIND: dict[str, tuple[str, str]] = {
     "quest": ("Quest", "任务"),
     "reward": ("Reward", "奖励"),
     "mapbonus": ("MapBonus", "加成"),
+    "mate": ("Mate", "伙伴"),
 }
 
 # 装扮分段 routeKey -> (是否已实现列表+编辑, category 1～9, 分段标题)
@@ -306,6 +307,7 @@ class MainWindow(MSFluentWindow):
         self._others_seg = SegmentedWidget(self._page_others)
         self._others_seg.addItem("mapicon", "跑图小人")
         self._others_seg.addItem("sysvoice", "系统语音")
+        self._others_seg.addItem("mate", "伙伴")
         self._others_seg.addItem("rankcourse", "段位组曲")
         self._others_seg.addItem("event", "事件")
         self._others_seg.addItem("quest", "任务")
@@ -744,6 +746,7 @@ class MainWindow(MSFluentWindow):
             "SystemVoice": "搜索系统语音 ID、名称…",
             "RankCourse": "搜索段位组曲 ID、名称、曲目…",
             "AvatarAccessory": "搜索企鹅装扮…",
+            "Mate": "搜索伴侣…",
         }
         self._search.setPlaceholderText(placeholders.get(kind, "搜索当前列表…"))
         self._game_music_browser_btn.setVisible(kind == "Music")
@@ -908,7 +911,11 @@ class MainWindow(MSFluentWindow):
                 parent=self,
             )
             if dlg.exec() == dlg.DialogCode.Accepted and dlg.result_cell is not None:
-                ensure_reward_xml(self._acus_root, dlg.result_cell, gi)
+                try:
+                    ensure_reward_xml(self._acus_root, dlg.result_cell, gi)
+                except ValueError as e:
+                    _fd.fly_critical(self, "创建失败", f"{e}\n（可重新打开并更换一个未冲突的 reward.id）")
+                    return
                 self._on_refresh()
             return
 
@@ -1083,10 +1090,38 @@ class MainWindow(MSFluentWindow):
             dlg = NamePlateAddDialog(acus_root=self._acus_root, tool_path=tool, parent=self)
             if dlg.exec() == dlg.DialogCode.Accepted:
                 self._on_refresh()
+        elif kind == "Mate":
+            from ..mate_psb import find_freemote_dir
+            from .psb_action_dialog import PsbActionDialog
+
+            fr_dir = find_freemote_dir()
+            if fr_dir is None:
+                _fd.fly_warning(
+                    self,
+                    "缺少 FreeMote",
+                    "未找到 FreeMote 工具(tools/FreeMote)。\n"
+                    "请将 FreeMote v4.7.0 工具包(PsBuild.exe 等)放到 tools/FreeMote/ 目录。",
+                )
+                return
+            next_id = 31005
+            for d in self._acus_root.glob("mate/mate*"):
+                try:
+                    next_id = max(next_id, int(d.name.replace("mate", "")) + 1)
+                except ValueError:
+                    continue
+            dlg = PsbActionDialog(
+                acus_root=self._acus_root,
+                freemote_dir=fr_dir,
+                mate_id=next_id,
+                get_tool_path=self._get_tool_path_or_none,
+                parent=self,
+            )
+            if dlg.exec() == dlg.DialogCode.Accepted:
+                self._on_refresh()
         else:
             _fd.fly_warning(
                 self,
                 "未实现",
-                "当前已实现【新增角色】【新增地图】【新增事件】【新增任务】【新增歌曲课题称号】【新增称号】【新增名牌】【新增奖励】【系统语音打包向导】【段位组曲】。"
+                "当前已实现【新增角色】【新增地图】【新增事件】【新增任务】【新增歌曲课题称号】【新增称号】【新增名牌】【新增奖励】【系统语音打包向导】【段位组曲】【新增伴侣】。"
                 "DDSImage 请直接在 ACUS 目录维护或用其它工具。",
             )

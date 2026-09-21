@@ -175,19 +175,14 @@ def scan_package_resources(staging_root: Path) -> list[PackageResource]:
 
     # 也扫描不在上述 dispatch 中的类型（ddsMap, charaWorks 等）
     # 通过递归扫描所有目录中的已知 XML 文件名
+    seen_keys: set[tuple[str, int]] = {(r.kind, r.resource_id) for r in resources}
+    seen_xml_rels: set[Path] = {r.xml_path for r in resources}
     for xml_path in staging.rglob("*.xml"):
         if not _is_known_xml(xml_path):
             continue
         # 跳过已经通过 scan_dispatch 处理过的 XML
         rel = xml_path.relative_to(staging)
-        kind_guess = xml_path.name  # 从文件名推断
-        # 检查是否已经被前面的扫描覆盖
-        if any(
-            r.xml_path == rel and r.kind in ("music", "trophy", "chara", "namePlate",
-                                              "stage", "event", "map", "mapBonus",
-                                              "mapIcon", "systemVoice", "ddsImage")
-            for r in resources
-        ):
+        if rel in seen_xml_rels:
             continue
         # 推断 kind
         kind = _infer_kind_from_xml_path(xml_path.name)
@@ -203,8 +198,9 @@ def scan_package_resources(staging_root: Path) -> list[PackageResource]:
             if rid is None or rid < 0:
                 continue
             # 去重检查已添加的同 kind+id
-            if any(r.kind == kind and r.resource_id == rid for r in resources):
+            if (kind, rid) in seen_keys:
                 continue
+            seen_keys.add((kind, rid))
             resources.append(PackageResource(
                 kind=kind,
                 resource_id=rid,
@@ -213,6 +209,8 @@ def scan_package_resources(staging_root: Path) -> list[PackageResource]:
                 extra={},
             ))
         except Exception:
+            # 坏 XML 在 import_resource_pack 流程的显式 XML 校验阶段统一报错；
+            # 此处扫描仅做资源清单收集，静默跳过解析失败的文件。
             continue
 
     # 包内重复 ID 检测

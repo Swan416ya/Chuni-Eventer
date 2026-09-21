@@ -30,6 +30,16 @@ _tmp_pjsk_test/
 
 # 官方 A001 参考包（体积大，仅本地对照，勿提交）
 A001/
+# 官方 MateA001 参考包（mate/emote 数据样本，体积大，仅本地对照，勿提交）
+MateA001/
+# 本地生成测试产物
+test_out/
+# ATST 测试自制包（mate/emote 等实验产物，勿提交）
+ATST/
+# 官方 AMT0 更新包（mate 等真实数据样本，仅本地对照，勿提交）
+AMT0/
+# mate 调试用的 PSB 下载缓存与实验产物
+_tmp_mate/
 
 # scripts/setup_penguin_tools.ps1 克隆的 PenguinTools 源码（勿提交）
 PenguinTools/
