@@ -1,12 +1,13 @@
 """
-PJSK long audio -> CHUNITHM-style streaming ACB/AWB.
+PJSK 长音频 → CHUNITHM-style streaming ACB/AWB（底层工具）。
 
-烤谱音频：先用 ffmpeg 裁掉 PJSK 长音频前约 **9 秒**，再交给 **PenguinTools.CLI** + **SUS**
-（按谱面 BPM/片头空白小节做二次对齐，与 mgxc 转 c2s 同源逻辑）。
-CLI 不可用时回退为「仅裁 9 秒 + 本地 PyCriCodecsEx 编码」。
-并按 ChuniPingu/PenguinTools MusicConverter (MIT) 同款密钥与表结构打包 HCA + ACB/AWB：
+「烤谱」（PJSK → 中二）现在走 :mod:`chuni_eventer_desktop.pjsk2chuni.pipeline`
+（上游语义转换 + PenguinTools ``option build``），音频偏移由实测前导静音决定；
+本模块只保留其它链路（PGKO / 系统语音 / 舞台等）仍在用的底层件：
 
-https://github.com/ChuniPingu/PenguinTools/blob/main/PenguinTools.Core/Media/MusicConverter.cs
+* :func:`find_ffmpeg` / :func:`ffmpeg_trim_to_chuni_wav`：任意格式 → 48 kHz 立体声 s16 WAV；
+* :func:`build_chuni_music_acb_awb` / :func:`patch_cue_preview_window`：本地打包 HCA + ACB/AWB
+  （按 ChuniPingu/PenguinTools MusicConverter (MIT) 同款密钥与表结构）。
 
 Template ``dummy.acb`` is vendored from PenguinTools (PenguinTools/Resources/dummy.acb).
 """
@@ -23,9 +24,6 @@ from typing import Callable
 
 # Same ulong as PenguinTools.Core.Media.MusicConverter
 CHUNITHM_HCA_KEY = 32931609366120192
-
-# PJSK 长音频片头空白（秒）：ffmpeg -ss 裁掉后再作为 PenguinTools --working-audio 输入
-PJSK_AUDIO_TRIM_LEADING_SEC = 9.0
 
 _DUMMY_REL = Path(__file__).resolve().parent / "data" / "dummy.acb"
 
@@ -48,7 +46,7 @@ def ffmpeg_trim_to_chuni_wav(
     src: Path,
     dst: Path,
     *,
-    trim_leading_sec: float = PJSK_AUDIO_TRIM_LEADING_SEC,
+    trim_leading_sec: float = 0.0,
     on_stderr_line: Callable[[str], None] | None = None,
 ) -> None:
     """Decode any ffmpeg-supported format -> 48 kHz stereo s16le WAV；``trim_leading_sec>0`` 时用 ``-ss`` 跳过片头。"""
@@ -257,246 +255,3 @@ def build_chuni_music_acb_awb(
     awb_out.write_bytes(awb)
     _write_cue_file_xml(out_dir, music_id=music_id)
     return acb_out, awb_out
-
-
-def resolve_pjsk_reference_sus(bundle_root: Path, manifest: dict[str, object]) -> Path | None:
-    """优先用 MASTER/EXPERT 的 SUS 供 PenguinTools 读取 BPM 与片头空白小节。"""
-    root = bundle_root.resolve()
-    slots = manifest.get("slots")
-    if not isinstance(slots, list):
-        return None
-    by_slot: dict[str, dict] = {}
-    for s in slots:
-        if isinstance(s, dict):
-            slot = str(s.get("chuniSlot") or "").strip().upper()
-            if slot:
-                by_slot[slot] = s
-    for slot in ("MASTER", "EXPERT", "ADVANCED", "BASIC", "ULTIMA"):
-        s = by_slot.get(slot)
-        if not s:
-            continue
-        rel = s.get("susFile")
-        if isinstance(rel, str) and rel.strip():
-            p = (root / rel.strip()).resolve()
-            if p.is_file():
-                return p
-    sus_dir = root / "sus"
-    if sus_dir.is_dir():
-        for name in ("master.sus", "expert.sus", "append.sus", "hard.sus", "normal.sus"):
-            p = sus_dir / name
-            if p.is_file():
-                return p.resolve()
-    return None
-
-
-def resolve_pjsk_raw_audio(bundle_root: Path, manifest: dict[str, object]) -> Path:
-    audio = manifest.get("audio")
-    if not isinstance(audio, dict):
-        raise FileNotFoundError("manifest 缺少 audio 段。")
-    rel = audio.get("file")
-    if not isinstance(rel, str) or not rel.strip():
-        raise FileNotFoundError("manifest.audio.file 为空。")
-    p = (bundle_root / rel.strip()).resolve()
-    if not p.is_file():
-        raise FileNotFoundError(f"未找到原始音频：{p}")
-    return p
-
-
-def build_pjsk_audio_cue_via_penguin_tools(
-    *,
-    bundle_root: Path,
-    manifest: dict[str, object],
-    music_id: int,
-    log: Callable[[str], None],
-    acus_root: Path | None = None,
-    cache_root: Path | None = None,
-    preview_start_sec: float = 0.0,
-    preview_stop_sec: float = 30.0,
-) -> Path:
-    """
-    1) ffmpeg 裁掉片头 ``PJSK_AUDIO_TRIM_LEADING_SEC``（默认 9s）→ 48k WAV
-    2) ``PenguinTools.CLI audio convert <sus> <out> --working-audio <wav>``（SUS 负责空白小节对齐）
-    """
-    from .penguin_tools_cli import (
-        convert_audio_with_penguin_tools_cli,
-        cue_bundle_dir_from_audio_payload,
-        relocate_cue_bundle_for_music_id,
-        resolve_penguin_tools_cli,
-    )
-
-    if resolve_penguin_tools_cli() is None:
-        raise RuntimeError("未找到 PenguinTools.CLI")
-
-    sus = resolve_pjsk_reference_sus(bundle_root, manifest)
-    if sus is None:
-        raise FileNotFoundError("未找到 SUS 文件，无法让 PenguinTools 计算片头空白小节。")
-
-    src_audio = resolve_pjsk_raw_audio(bundle_root, manifest)
-    mid = int(music_id)
-    if acus_root is not None:
-        cue_parent = acus_root.resolve() / "cueFile" / f"cueFile{mid:06d}"
-    elif cache_root is not None:
-        cue_parent = cache_root.resolve() / "chuni_cue" / f"cueFile{mid:06d}"
-    else:
-        raise ValueError("需要 acus_root 或 cache_root 之一。")
-    export_base = cue_parent.parent
-    export_base.mkdir(parents=True, exist_ok=True)
-
-    trim_sec = float(PJSK_AUDIO_TRIM_LEADING_SEC)
-    work_wav = bundle_root.resolve() / "audio" / f"_penguin_work_{mid:04d}.wav"
-    log(
-        f"音频：ffmpeg 裁掉前 {trim_sec:g} 秒 → 48k WAV，再交 PenguinTools（SUS={sus.name}）对齐片头空白…"
-    )
-    ffmpeg_trim_to_chuni_wav(src_audio, work_wav, trim_leading_sec=trim_sec)
-
-    scratch = export_base / f"_penguin_audio_{mid:06d}"
-    if scratch.exists():
-        shutil.rmtree(scratch, ignore_errors=True)
-    scratch.mkdir(parents=True, exist_ok=True)
-
-    payload = convert_audio_with_penguin_tools_cli(
-        input_path=sus,
-        output_dir=scratch,
-        working_audio=work_wav,
-    )
-    cue_dir = cue_bundle_dir_from_audio_payload(payload)
-    cue_dir = relocate_cue_bundle_for_music_id(cue_dir, music_id=mid)
-
-    if cue_parent.exists():
-        shutil.rmtree(cue_parent, ignore_errors=True)
-    if cue_dir != cue_parent:
-        shutil.move(str(cue_dir), str(cue_parent))
-    else:
-        cue_parent = cue_dir
-
-    patch_cue_preview_window(
-        cue_parent,
-        music_id=mid,
-        preview_start_sec=preview_start_sec,
-        preview_stop_sec=preview_stop_sec,
-    )
-    log(f"PenguinTools 已写入 cueFile：{cue_parent.name}")
-    return cue_parent
-
-
-def try_pipeline_pjsk_audio_via_penguin(
-    *,
-    bundle_root: Path,
-    manifest: dict[str, object],
-    music_id: int,
-    cache_root: Path,
-    preview_start_sec: float = 0.0,
-    preview_stop_sec: float = 30.0,
-    on_log: Callable[[str], None] | None = None,
-) -> dict[str, object] | None:
-    """下载缓存完成后：用 SUS + PenguinTools 生成 chuni_cue（需已下载至少一份 SUS）。"""
-    log = on_log or (lambda _m: None)
-    sus_path = resolve_pjsk_reference_sus(bundle_root, manifest)
-    if sus_path is None:
-        log("未找到 SUS，跳过 PenguinTools 音频。")
-        return None
-    try:
-        cue_dir = build_pjsk_audio_cue_via_penguin_tools(
-            bundle_root=bundle_root,
-            manifest=manifest,
-            music_id=music_id,
-            cache_root=cache_root,
-            log=log,
-            preview_start_sec=preview_start_sec,
-            preview_stop_sec=preview_stop_sec,
-        )
-    except Exception as e:
-        log(str(e))
-        return None
-
-    mid = int(music_id)
-    acb_p = cue_dir / f"music{mid:04d}.acb"
-    awb_p = cue_dir / f"music{mid:04d}.awb"
-    cue_xml = cue_dir / "CueFile.xml"
-    if not acb_p.is_file() or not awb_p.is_file():
-        return None
-
-    def _rel(p: Path) -> str:
-        return p.resolve().relative_to(cache_root.resolve()).as_posix()
-
-    return {
-        "engine": "penguin_tools_cli",
-        "susPath": _rel(sus_path),
-        "workingWav48k": _rel(bundle_root.resolve() / "audio" / f"_penguin_work_{mid:04d}.wav"),
-        "trimLeadingSec": float(PJSK_AUDIO_TRIM_LEADING_SEC),
-        "cueDirectory": _rel(cue_dir),
-        "cueFileXml": _rel(cue_xml),
-        "acbFile": _rel(acb_p),
-        "awbFile": _rel(awb_p),
-        "previewStartSec": preview_start_sec,
-        "previewStopSec": preview_stop_sec,
-    }
-
-
-def try_pipeline_pjsk_audio_to_chuni(
-    *,
-    src_audio: Path,
-    music_id: int,
-    cache_root: Path,
-    trim_leading_sec: float = PJSK_AUDIO_TRIM_LEADING_SEC,
-    preview_start_sec: float = 0.0,
-    preview_stop_sec: float = 30.0,
-    on_log: Callable[[str], None] | None = None,
-) -> dict[str, object] | None:
-    """
-    Full pipeline: original download -> trimmed WAV -> ACB/AWB under
-    ``cache_root / chuni_cue / cueFile{music_id:06d}``.
-
-    Returns a dict for manifest embedding, or None if PyCriCodecsEx is missing
-    (caller may still keep the raw file only).
-    """
-    log = on_log or (lambda _m: None)
-
-    inter = cache_root / "audio" / f"_chuni_48k_{int(music_id):04d}.wav"
-    try:
-        def _err(line: str) -> None:
-            if "time=" in line or "Duration:" in line:
-                log(line.strip())
-
-        ffmpeg_trim_to_chuni_wav(
-            src_audio,
-            inter,
-            trim_leading_sec=trim_leading_sec,
-            on_stderr_line=_err,
-        )
-    except Exception as e:
-        log(str(e))
-        raise
-
-    cue_dir = cache_root / "chuni_cue" / f"cueFile{int(music_id):06d}"
-    try:
-        acb_p, awb_p = build_chuni_music_acb_awb(
-            wav_48k_stereo_s16_path=inter,
-            music_id=music_id,
-            out_dir=cue_dir,
-            preview_start_sec=preview_start_sec,
-            preview_stop_sec=preview_stop_sec,
-        )
-    except ImportError:
-        return None
-    except RuntimeError as e:
-        if "PyCriCodecsEx" in str(e):
-            return None
-        raise
-
-    cue_xml = cue_dir / "CueFile.xml"
-
-    def _rel(p: Path) -> str:
-        return p.resolve().relative_to(cache_root.resolve()).as_posix()
-
-    return {
-        "trimmedWav48k": _rel(inter),
-        "cueDirectory": _rel(cue_dir),
-        "cueFileXml": _rel(cue_xml),
-        "acbFile": _rel(acb_p),
-        "awbFile": _rel(awb_p),
-        "hcaKeyUlong": CHUNITHM_HCA_KEY,
-        "trimLeadingSec": trim_leading_sec,
-        "previewStartSec": preview_start_sec,
-        "previewStopSec": preview_stop_sec,
-    }

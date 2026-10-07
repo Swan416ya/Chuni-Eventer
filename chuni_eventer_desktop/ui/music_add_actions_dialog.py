@@ -26,7 +26,7 @@ _BTN_W = int(round(_BTN_H * 2.5))
 
 class MusicSheetChannelsDialog(QDialog):
     """
-    乐曲页「新增」：选择自制谱下载渠道（SwanSite / pgko）。
+    乐曲页「新增」：选择自制谱下载渠道（SwanSite / pgko / PJSK 烤谱）。
     """
 
     def __init__(self, *, parent=None) -> None:
@@ -35,7 +35,7 @@ class MusicSheetChannelsDialog(QDialog):
         self.setModal(True)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.resize(420, 280)
+        self.resize(600, 280)
 
         self._action: str | None = None
 
@@ -85,6 +85,14 @@ class MusicSheetChannelsDialog(QDialog):
                 act="pgko",
             )
         )
+        row.addWidget(
+            mk(
+                "pjsk.png",
+                "PJSK 烤谱：从 Project SEKAI 官谱转换为中二谱面",
+                enabled=True,
+                act="pjsk",
+            )
+        )
 
         cly.addWidget(hint)
         cly.addLayout(row)
@@ -115,7 +123,7 @@ class MusicSheetChannelsDialog(QDialog):
         root.setSpacing(12)
         root.addWidget(card, stretch=1)
 
-        min_w = _BTN_W * 2 + 12 * 1 + 48
+        min_w = _BTN_W * 3 + 12 * 2 + 48
         card.setMinimumWidth(min_w)
 
     def showEvent(self, event) -> None:

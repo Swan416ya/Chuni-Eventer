@@ -4,23 +4,25 @@ Install a PJSK cache bundle (pjsk_cache/pjsk_XXXX) into ACUS as official-style m
 Aligns with ChuniPingu/PenguinTools Music.xml / Event.xml (ULT unlock) layout:
 https://github.com/ChuniPingu/PenguinTools/tree/main/PenguinTools.Core/Xml
 
+「PJSK 谱面 → 中二」的实际转换/打包/落位链路在 :mod:`chuni_eventer_desktop.pjsk2chuni.pipeline`；
+本模块只保留两条线都要用的公共件：
+
+* 本地缓存清单（:func:`iter_local_pjsk_bundles` / :func:`chuni_slots_with_c2s` / :func:`chuni_slot_sources`）；
+* id 分配、MusicSort 追加、ULT 解锁事件（:func:`append_music_sort` / :func:`write_ultima_unlock_event`）；
+* PGKO 线仍在用的 :func:`build_music_xml`（PJSK 线现在由 PenguinTools 生成 Music.xml）。
+
 Release tag for 烤谱: releaseTagName id=-2 str=PJSK (fixed).
 """
 from __future__ import annotations
 
 import json
 import re
-import shutil
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
-from . import pjsk_audio_chuni as pjsk_ac
-from .acus_workspace import AcusConfig
-from .dds_convert import DdsToolError, convert_to_bc1_dds
-from .c2s_sanitize import C2sSanitizeError, sanitize_c2s_file
-from .penguin_tools_cli import convert_chart_with_penguin_tools_cli
+from .pjsk2chuni.pipeline import SlotSource
 
 XSI = "http://www.w3.org/2001/XMLSchema-instance"
 XSD = "http://www.w3.org/2001/XMLSchema"
@@ -165,73 +167,6 @@ def _slot_has_chart_source(root: Path, s: dict) -> bool:
     return bool(rel_sus and (root / str(rel_sus)).is_file())
 
 
-def _ensure_c2s_sanitized(
-    path: Path, log: Callable[[str], None], *, cfg: AcusConfig | None = None
-) -> Path:
-    try:
-        out, stats = sanitize_c2s_file(path, in_place=True, cfg=cfg)
-    except C2sSanitizeError as e:
-        raise RuntimeError(str(e)) from e
-    if stats:
-        removed = int(stats.get("removedEdgeLane") or 0) + int(stats.get("removedSlideConflict") or 0)
-        if removed:
-            log(f"c2s-sanitize：{path.name} 已清理 {removed} 处问题音符")
-    return out
-
-
-def _materialize_c2s_for_slot(
-    bundle: PjskLocalBundle,
-    slot: str,
-    s: dict,
-    log: Callable[[str], None],
-    *,
-    cfg: AcusConfig | None = None,
-) -> Path:
-    root = bundle.root
-    rel_c2s = s.get("c2sFile")
-    if rel_c2s:
-        p = (root / str(rel_c2s)).resolve()
-        if p.is_file():
-            return _ensure_c2s_sanitized(p, log, cfg=cfg)
-    rel_sus = s.get("susFile")
-    if not rel_sus:
-        raise ValueError(f"manifest 槽位 {slot} 缺少 susFile / c2sFile。")
-    p_sus = (root / str(rel_sus)).resolve()
-    if not p_sus.is_file():
-        raise FileNotFoundError(f"缺少 SUS：{p_sus}")
-    chuni_dir = root / "chuni"
-    chuni_dir.mkdir(parents=True, exist_ok=True)
-    out = chuni_dir / f"{slot}.c2s"
-    convert_chart_with_penguin_tools_cli(input_path=p_sus, output_path=out)
-    log(f"已通过 PenguinTools.CLI 生成 {out.relative_to(root)}")
-    return _ensure_c2s_sanitized(out, log, cfg=cfg)
-
-
-def _build_slot_map(
-    bundle: PjskLocalBundle,
-    log: Callable[[str], None],
-    *,
-    cfg: AcusConfig | None = None,
-) -> dict[str, Path]:
-    root = bundle.root
-    slots = bundle.manifest.get("slots")
-    out: dict[str, Path] = {}
-    if not isinstance(slots, list):
-        return out
-    for s in slots:
-        if not isinstance(s, dict):
-            continue
-        slot = str(s.get("chuniSlot") or "").strip().upper()
-        if not slot or not _slot_has_chart_source(root, s):
-            continue
-        out[slot] = _materialize_c2s_for_slot(bundle, slot, s, log, cfg=cfg)
-    return out
-
-
-def _has_ultima(slot_map: dict[str, Path]) -> bool:
-    return "ULTIMA" in slot_map
-
-
 def chuni_slots_with_c2s(bundle: PjskLocalBundle) -> list[str]:
     """Slots that have SUS or c2s on disk (UI / install prep), display order BASIC … ULTIMA."""
     root = bundle.root
@@ -248,55 +183,82 @@ def chuni_slots_with_c2s(bundle: PjskLocalBundle) -> list[str]:
     return [x for x in order if x in have]
 
 
-def _resolve_wav_for_acb(bundle: PjskLocalBundle, log: Callable[[str], None]) -> Path:
+def chuni_slot_sources(bundle: PjskLocalBundle) -> list[SlotSource]:
+    """缓存清单 → 可转换的 (槽位, SUS 路径) 列表。"""
     root = bundle.root
-    audio = bundle.manifest.get("audio")
-    desired_trim = float(pjsk_ac.PJSK_AUDIO_TRIM_LEADING_SEC)
-    chuni_wav_rel: str | None = None
-    ch_sub: dict | None = None
-    if isinstance(audio, dict):
-        ch = audio.get("chuni")
-        if isinstance(ch, dict):
-            ch_sub = ch
-            w = ch.get("trimmedWav48k")
-            if isinstance(w, str) and w.strip():
-                chuni_wav_rel = w.strip()
-    meta_trim_ok = False
-    if ch_sub is not None:
-        mt = ch_sub.get("trimLeadingSec")
+    out: list[SlotSource] = []
+    slots = bundle.manifest.get("slots")
+    if not isinstance(slots, list):
+        return out
+    by_slot: dict[str, SlotSource] = {}
+    for s in slots:
+        if not isinstance(s, dict):
+            continue
+        slot = str(s.get("chuniSlot") or "").strip().upper()
+        rel = s.get("susFile")
+        if not slot or not isinstance(rel, str) or not rel.strip():
+            continue
+        p = (root / rel.strip()).resolve()
+        if p.is_file():
+            by_slot[slot] = SlotSource(slot=slot, sus_path=p)
+    for slot in ("BASIC", "ADVANCED", "EXPERT", "MASTER", "ULTIMA"):
+        if slot in by_slot:
+            out.append(by_slot[slot])
+    return out
+
+
+def bundle_play_levels(bundle: PjskLocalBundle) -> dict[str, int]:
+    """清单里记录的 PJSK 难度等级：``{槽位: 1..38}``（老缓存可能为空）。"""
+    out: dict[str, int] = {}
+    slots = bundle.manifest.get("slots")
+    if not isinstance(slots, list):
+        return out
+    for s in slots:
+        if not isinstance(s, dict):
+            continue
+        slot = str(s.get("chuniSlot") or "").strip().upper()
         try:
-            if mt is not None:
-                meta_trim_ok = abs(float(mt) - desired_trim) < 1e-9
+            lv = int(s.get("pjskPlayLevel"))  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            continue
+        if slot and lv > 0:
+            out[slot] = lv
+    return out
+
+
+def backfill_bundle_play_levels(
+    bundle: PjskLocalBundle,
+    levels_by_difficulty: dict[str, int],
+) -> bool:
+    """把查到的 PJSK 等级（``{难度名: 等级}``）补进 manifest.json；有改动返回 True。"""
+    slots = bundle.manifest.get("slots")
+    if not isinstance(slots, list) or not levels_by_difficulty:
+        return False
+    changed = False
+    for s in slots:
+        if not isinstance(s, dict):
+            continue
+        diff = str(s.get("pjskDifficulty") or "").strip().lower()
+        lv = levels_by_difficulty.get(diff)
+        if lv is None or lv <= 0:
+            continue
+        try:
+            if int(s.get("pjskPlayLevel") or 0) == int(lv):
+                continue
         except (TypeError, ValueError):
             pass
-    if chuni_wav_rel:
-        wpath = (root / chuni_wav_rel).resolve()
-        if wpath.is_file() and meta_trim_ok:
-            return wpath
-        if wpath.is_file() and not meta_trim_ok:
-            log("缓存的 48k WAV 与当前策略不一致（将尽量从原文件重编码）。")
-    if isinstance(audio, dict):
-        rel = audio.get("file")
-        if isinstance(rel, str) and rel.strip():
-            src = (root / rel.strip()).resolve()
-            if src.is_file():
-                dst = root / "audio" / f"_acus_install_48k_{bundle.pjsk_music_id:04d}.wav"
-                pjsk_ac.ffmpeg_trim_to_chuni_wav(
-                    src,
-                    dst,
-                    trim_leading_sec=desired_trim,
-                    on_stderr_line=lambda line: None,
-                )
-                log("已用 ffmpeg 从原始音频生成 48 kHz WAV。")
-                return dst.resolve()
-    if chuni_wav_rel:
-        wpath = (root / chuni_wav_rel).resolve()
-        if wpath.is_file():
-            log("无原始 audio.file，仍使用已缓存的 trimmed WAV。")
-            return wpath
-    raise FileNotFoundError(
-        f"未找到可用音频（需要 manifest 中 chuni.trimmedWav48k 或 audio.file）：{root}"
-    )
+        s["pjskPlayLevel"] = int(lv)
+        changed = True
+    if not changed:
+        return False
+    path = bundle.root / "manifest.json"
+    try:
+        path.write_text(
+            json.dumps(bundle.manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except OSError:
+        return False
+    return True
 
 
 def append_music_sort(acus_root: Path, music_id: int) -> None:
@@ -490,154 +452,3 @@ def build_music_xml(
         ET.SubElement(fd, "defaultBpm").text = "0"
 
     return ET.ElementTree(root)
-
-
-@dataclass
-class PjskAcusInstallOptions:
-    chuni_music_id: int
-    title: str
-    artist: str
-    sort_name: str
-    stage_id: int
-    stage_str: str
-    genre_id: int = -1
-    genre_str: str = "Invalid"
-    # BASIC / ADVANCED / EXPERT / MASTER / ULTIMA -> (level, levelDecimal)
-    fumen_levels: dict[str, tuple[int, int]] | None = None
-    preview_start_sec: float = 0.0
-    preview_stop_sec: float = 30.0
-    create_ultima_event: bool = True
-    ultima_event_id: int | None = None
-
-    def levels_map(self) -> dict[str, tuple[int, int]]:
-        d = self.fumen_levels or {}
-        return {k: (int(v[0]), int(v[1])) for k, v in d.items()}
-
-
-def install_pjsk_bundle_to_acus(
-    acus_root: Path,
-    bundle: PjskLocalBundle,
-    opts: PjskAcusInstallOptions,
-    *,
-    tool_path: Path | None,
-    log: Callable[[str], None],
-    on_progress: Callable[[str, float], None] | None = None,
-) -> None:
-    def _prog(msg: str, t: float) -> None:
-        if on_progress:
-            on_progress(msg, max(0.0, min(1.0, t)))
-
-    acus_root = acus_root.resolve()
-    mid = int(opts.chuni_music_id)
-    mdir = acus_root / "music" / f"music{mid:04d}"
-    if mdir.exists():
-        raise FileExistsError(f"已存在乐曲目录：{mdir}")
-
-    cfg = AcusConfig.load()
-    slot_map = _build_slot_map(bundle, log, cfg=cfg)
-    if not slot_map:
-        raise ValueError(
-            "manifest 中没有任何可用谱面（请确认 sus/ 下已有 SUS，或 chuni/ 下已有 c2s）。"
-        )
-    if not any(slot_map.get(s) for s in ("BASIC", "ADVANCED", "EXPERT", "MASTER")):
-        raise ValueError("至少需要 Basic～Master 中一张谱面才能写入 Music.xml。")
-
-    jacket_png = bundle.root / "封面.png"
-    if not jacket_png.is_file():
-        raise FileNotFoundError(f"缺少封面：{jacket_png}")
-
-    copy_list = [c for c in ("BASIC", "ADVANCED", "EXPERT", "MASTER", "ULTIMA") if c in slot_map]
-    n_copy = len(copy_list)
-    need_ult_ev = bool(_has_ultima(slot_map) and opts.create_ultima_event)
-    # prepare + jacket + copies + Music.xml + wav + acb + sort + optional ULT event
-    total_steps = 2 + n_copy + 1 + 2 + 1 + (1 if need_ult_ev else 0)
-    step_i = 0
-
-    def bump(msg: str) -> None:
-        nonlocal step_i
-        step_i += 1
-        _prog(msg, step_i / max(1, total_steps))
-
-    levels_by_type = opts.levels_map()
-
-    mdir.mkdir(parents=True, exist_ok=True)
-    bump("准备目录…")
-    jacket_name = f"CHU_UI_Jacket_{mid:04d}.dds"
-    jacket_path = mdir / jacket_name
-    try:
-        convert_to_bc1_dds(tool_path=tool_path, input_image=jacket_png, output_dds=jacket_path)
-    except DdsToolError:
-        raise
-    log(f"已生成封面 DDS：{jacket_name}")
-    bump("封面已转为 DDS…")
-
-    for chuni in copy_list:
-        src = slot_map[chuni]
-        idx = next(i for i, (_, ts) in enumerate(_FUMEN_ORDER) if ts == chuni)
-        dst = mdir / f"{mid:04d}_{idx:02d}.c2s"
-        shutil.copy2(src, dst)
-        log(f"已复制谱面 → {dst.name}")
-        bump(f"已复制谱面 {chuni}…")
-
-    tree = build_music_xml(
-        chuni_id=mid,
-        title=opts.title,
-        artist=opts.artist,
-        sort_name=opts.sort_name,
-        stage_id=opts.stage_id,
-        stage_str=opts.stage_str,
-        genre_id=opts.genre_id,
-        genre_str=opts.genre_str,
-        jacket_rel=jacket_name,
-        slot_map=slot_map,
-        levels_by_type=levels_by_type,
-    )
-    music_xml = mdir / "Music.xml"
-    ET.indent(tree.getroot(), space="  ")  # type: ignore[attr-defined]
-    tree.write(music_xml, encoding="utf-8", xml_declaration=True)
-    log(f"已写入 {music_xml.relative_to(acus_root)}")
-    bump("已写入 Music.xml…")
-
-    bump("正在生成音频（裁 9 秒 → PenguinTools + SUS）…")
-    try:
-        cue_parent = pjsk_ac.build_pjsk_audio_cue_via_penguin_tools(
-            bundle_root=bundle.root,
-            manifest=bundle.manifest,
-            music_id=mid,
-            acus_root=acus_root,
-            log=log,
-            preview_start_sec=opts.preview_start_sec,
-            preview_stop_sec=opts.preview_stop_sec,
-        )
-    except Exception as e:
-        log(f"PenguinTools 音频失败，回退 ffmpeg 裁 9 秒 + 本地编码：{e}")
-        wav = _resolve_wav_for_acb(bundle, log)
-        cue_parent = acus_root / "cueFile" / f"cueFile{mid:06d}"
-        cue_parent.mkdir(parents=True, exist_ok=True)
-        pjsk_ac.build_chuni_music_acb_awb(
-            wav_48k_stereo_s16_path=wav,
-            music_id=mid,
-            out_dir=cue_parent,
-            preview_start_sec=opts.preview_start_sec,
-            preview_stop_sec=opts.preview_stop_sec,
-        )
-    log(f"已写入音频：{cue_parent.relative_to(acus_root)}")
-    bump("音频 ACB/AWB 已完成…")
-
-    append_music_sort(acus_root, mid)
-    bump("已更新 MusicSort（若存在）…")
-
-    if need_ult_ev:
-        eid = opts.ultima_event_id
-        if eid is None:
-            eid = next_custom_event_id(acus_root, start=70000)
-        write_ultima_unlock_event(
-            acus_root,
-            event_id=int(eid),
-            music_id=mid,
-            music_title=opts.title,
-        )
-        log(f"已写入 ULT 解锁事件 event{int(eid):08d}")
-        bump("已写入 ULT 解锁事件…")
-
-    _prog("完成", 1.0)

@@ -12,7 +12,6 @@ from ..acus_workspace import AcusConfig, app_cache_dir
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_message
 from .game_data_settings_panel import GameDataSettingsPanel
-from .pjsk_hub_dialog import PjskHubDialog
 
 _settings_log_logger: logging.Logger | None = None
 
@@ -41,7 +40,7 @@ SettingsPanel = GameDataSettingsPanel
 
 
 class SettingsExperimentalPanel(QWidget):
-    """实验性功能（烤谱、PGKO UGC 直转等）。"""
+    """实验性功能（PGKO UGC 直转、挡板贴图等）。"""
 
     def __init__(
         self,
@@ -61,23 +60,6 @@ class SettingsExperimentalPanel(QWidget):
         )
         exp_hint.setWordWrap(True)
         exp_hint.setStyleSheet("color:#6B7280;font-size:13px;")
-
-        pjsk_card = CardWidget(self)
-        pjsk_layout = QVBoxLayout(pjsk_card)
-        pjsk_layout.setContentsMargins(16, 16, 16, 16)
-        pjsk_layout.setSpacing(12)
-        pjsk_layout.addWidget(BodyLabel("烤谱（Project SEKAI · 实验）", self))
-        pjsk_hint = BodyLabel(
-            "本功能仅供图一乐：谱面与音频均走 PenguinTools（音频先裁片头约 9 秒，再按 SUS 对齐空白小节），"
-            "c2s 另经 c2s-sanitize 清理；仍可能出现装饰长条或音画细微偏差。\n"
-            "需要可玩的自制谱，请在歌曲页点击「新增」→ 选择 SwanSite，下载已精修谱面并导入。"
-        )
-        pjsk_hint.setWordWrap(True)
-        pjsk_hint.setStyleSheet("color:#b45309;font-size:13px;")
-        pjsk_layout.addWidget(pjsk_hint)
-        pjsk_open = PushButton("打开烤谱下载与本地缓存…", self)
-        pjsk_open.clicked.connect(self._open_pjsk_hub)
-        pjsk_layout.addWidget(pjsk_open)
 
         pgko_card = CardWidget(self)
         pgko_layout = QVBoxLayout(pgko_card)
@@ -116,18 +98,9 @@ class SettingsExperimentalPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 8)
         layout.setSpacing(16)
         layout.addWidget(exp_hint)
-        layout.addWidget(pjsk_card)
         layout.addWidget(pgko_card)
         layout.addWidget(wall_card)
         layout.setContentsMargins(0, 0, 0, 16)
-
-    def _open_pjsk_hub(self) -> None:
-        hub = PjskHubDialog(
-            acus_root=self._acus_root,
-            get_tool_path=self._get_tool_path,
-            parent=self.window(),
-        )
-        hub.exec()
 
     def _open_field_wall(self) -> None:
         from .field_wall_add_dialog import FieldWallAddDialog

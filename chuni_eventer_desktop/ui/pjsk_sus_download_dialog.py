@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, QPoint, QThread, QTimer, pyqtSignal, Qt
+from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal, Qt
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -34,7 +34,6 @@ from .fluent_dialogs import fly_critical, fly_message, fly_warning
 from .qthread_lifecycle import await_qthreads, defer_finalize_qthread, qthread_running_safe
 from .fluent_table import apply_fluent_sheet_table
 from .pjsk_vocal_pick_dialog import PjskVocalPickDialog
-from .sus_c2s_debug_dialog import SusC2sDebugDialog
 
 
 class _LoadCatalogThread(QThread):
@@ -62,6 +61,7 @@ class _PjskCacheThread(QThread):
         acus_root: Path,
         row: PjskMusicRow,
         available_diffs: set[str],
+        play_levels: dict[str, int] | None,
         vocal_assetbundle: str | None,
         vocal_caption: str | None,
         parent=None,
@@ -70,6 +70,7 @@ class _PjskCacheThread(QThread):
         self._acus_root = acus_root
         self._row = row
         self._available_diffs = available_diffs
+        self._play_levels = play_levels
         self._vocal_ab = vocal_assetbundle
         self._vocal_cap = vocal_caption
 
@@ -90,6 +91,7 @@ class _PjskCacheThread(QThread):
                 progress=_prog,
                 vocal_assetbundle=self._vocal_ab,
                 vocal_caption=self._vocal_cap,
+                play_levels=self._play_levels,
             )
             root = pjsk_song_cache_dir(self._acus_root, self._row.music_id)
             self.ok.emit(str(root.resolve()))
@@ -98,7 +100,7 @@ class _PjskCacheThread(QThread):
 
 
 class PjskSusDownloadDialog(FluentCaptionDialog):
-    """PJSK：缓存封面、曲绘与固定难度 SUS，后续由 PenguinTools.CLI 负责转 c2s。"""
+    """PJSK：缓存封面、曲绘与各难度 SUS；转谱在「PJSK 谱面 → 中二」里进行。"""
 
     def __init__(
         self,
@@ -108,7 +110,7 @@ class PjskSusDownloadDialog(FluentCaptionDialog):
         on_installed: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(parent=parent)
-        self.setWindowTitle("从 Project SEKAI 缓存资源（实验性）")
+        self.setWindowTitle("从 Project SEKAI 缓存资源")
         self.setModal(True)
         self.resize(780, 540)
         self._acus_root = acus_root.resolve()
@@ -116,15 +118,13 @@ class PjskSusDownloadDialog(FluentCaptionDialog):
         self._diff_index: dict[int, list[PjskDifficultyRow]] = {}
         self._load_thread: _LoadCatalogThread | None = None
         self._cache_thread: _PjskCacheThread | None = None
-        self._sus_c2s_debug_win: SusC2sDebugDialog | None = None
         self._on_installed = on_installed
 
         card = CardWidget(self)
 
         warn = BodyLabel(
-            "SUS→c2s 使用 PenguinTools.CLI，转写 ACUS 时会自动执行 c2s-sanitize。"
-            "本窗口只缓存 SUS/封面/音频；生成 chuni/*.c2s 在「转写到 ACUS」时进行。"
-            "转换后仍可能出现装饰长条转码问题或音频对不上的问题。"
+            "本窗口只负责把 PJSK 官谱 SUS、封面与音频缓存到本地；"
+            "转成中二谱面请在「乐曲页 → 新增 → PJSK 烤谱」里执行。"
         )
         warn.setWordWrap(True)
         warn.setStyleSheet("color: #b45309; font-size: 13px;")
@@ -134,7 +134,7 @@ class PjskSusDownloadDialog(FluentCaptionDialog):
             "将自动下载：封面.png、曲绘.png（与封面同源或第二镜像），"
             "谱面 normal / hard / expert / master / append（曲目上存在的才会下载；无 append 则无 ULTIMA 对应 sus），"
             "以及完整音频：若该曲在 PJSK 有多个 musicVocals 版本，下载前会弹出列表供选择；仅 1 个版本时自动选用。"
-            "原始音频为 flac/wav/mp3（视镜像）；若本机已装 ffmpeg 与 PyCriCodecsEx，将尝试自动生成修剪后的 48k WAV 与中二用 ACB/AWB。"
+            "原始音频为 flac/wav/mp3（视镜像）。"
             f"保存目录与 ACUS 同级：{(_cache_root / 'pjsk_曲目ID').as_posix()}"
         )
         hint.setWordWrap(True)
@@ -154,8 +154,6 @@ class PjskSusDownloadDialog(FluentCaptionDialog):
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.doubleClicked.connect(lambda _i: self._on_download())
-        self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self._table.customContextMenuRequested.connect(self._on_table_context_menu)
 
         self._status = BodyLabel("正在加载曲目列表…", card)
         self._status.setWordWrap(True)
@@ -198,23 +196,6 @@ class PjskSusDownloadDialog(FluentCaptionDialog):
         lay.addLayout(btns)
 
         QTimer.singleShot(0, self._on_reload)
-
-    def _on_table_context_menu(self, pos: QPoint) -> None:
-        idx = self._table.indexAt(pos)
-        if not idx.isValid() or idx.column() != 0:
-            return
-        self._open_sus_c2s_debug()
-
-    def _open_sus_c2s_debug(self) -> None:
-        dlg = SusC2sDebugDialog(
-            acus_root=self._acus_root,
-            selected_music_id_fn=self._selected_music_id,
-            parent=self,
-        )
-        dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-        dlg.show()
-        dlg.raise_()
-        dlg.activateWindow()
 
     def _on_reload(self) -> None:
         if self._pjsk_load_thread_busy():
@@ -335,6 +316,11 @@ class PjskSusDownloadDialog(FluentCaptionDialog):
             )
         diffs = self._diff_index.get(mid, [])
         avail = {d.music_difficulty.strip().lower() for d in diffs}
+        play_levels = {
+            d.music_difficulty.strip().lower(): int(d.play_level)
+            for d in diffs
+            if d.music_difficulty.strip() and int(d.play_level) > 0
+        }
         if self._pjsk_cache_thread_busy():
             return
 
@@ -373,6 +359,7 @@ class PjskSusDownloadDialog(FluentCaptionDialog):
             acus_root=self._acus_root,
             row=row,
             available_diffs=avail,
+            play_levels=play_levels,
             vocal_assetbundle=vocal_ab,
             vocal_caption=vocal_cap,
             parent=None,

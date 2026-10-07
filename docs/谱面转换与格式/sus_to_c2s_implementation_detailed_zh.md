@@ -1,5 +1,10 @@
 # SUS → c2s 转谱实现说明（与代码 `sus_to_c2s.py` 对照）
 
+> ⚠️ **已废弃（2026-10-07）**：`chuni_eventer_desktop/sus_to_c2s.py` 已删除，PJSK→中二不再走自研 SUS→c2s。
+> 现行链路见 [`../pjsk_to_chuni_zh.md`](../pjsk_to_chuni_zh.md)：上游 `pjsk2chuni` 语义转换（收录于
+> `chuni_eventer_desktop/pjsk2chuni/core.py`）+ PenguinTools `option build`。
+> 本文仅作历史留档（其中描述的自研实现也已在更早的改动中被替换为 PenguinTools 委托）。
+
 本文档说明 **本仓库当前** 从 Project SEKAI 系 **SUS** 文本生成 **CHUNITHM 文本谱 `.c2s`** 的**真实实现逻辑**，以及每条谱面事件在输出文件里**具体长什么样**。  
 
 **重要结论（请先读）**：该实现是 **实验性子集转换**，与官谱 / [PenguinTools](https://github.com/ChuniPingu/PenguinTools) 经由 MRGC 等中间格式的管线 **不在同一完成度**。许多 SUS 语义被忽略或过度简化，生成结果在真机上常表现为 **时间/滑条/流速** 与预期不符，因此不宜称为「可依赖的转谱器」。下文在 **§10** 归纳与官谱的差距。

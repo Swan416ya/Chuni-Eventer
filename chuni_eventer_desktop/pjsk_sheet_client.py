@@ -5,6 +5,15 @@
 谱面文件从 pjsek.ai CDN 拉取，失败则尝试 sekai.best（.txt）。
 
 参考：https://github.com/Qrael/PjskSUSPatcher
+
+两层数据源的可用性互相独立：
+
+* **资源层**（SUS / 封面 / 长音频）：``assets.pjsek.ai`` 与 ``storage.sekai.best``；
+* **曲目数据库层**（musics / musicDifficulties / musicVocals / 角色）：
+  ``api.pjsek.ai`` 与 ``sekai-world.github.io/sekai-master-db-diff``
+  —— 该仓库正是 sekai.best / Sekai Viewer 的数据源。直连在部分网络下不可达
+  （实测：api.pjsek.ai 503，github.io / raw.githubusercontent 被断连），
+  因此这里按序回退 GitHub 代理与 CDN 镜像，并把结果缓存到 ``.cache/pjsk_master/``。
 """
 
 from __future__ import annotations
@@ -12,6 +21,8 @@ from __future__ import annotations
 import json
 import re
 import ssl
+import threading
+import time
 import urllib.error
 import urllib.request
 from collections import defaultdict
@@ -20,13 +31,39 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-# 不在界面暴露；与 SusPatcher.js 一致
-PJSK_SEKAI_MASTER_JSON_BASE = "https://sekai-world.github.io/sekai-master-db-diff"
+from .acus_workspace import app_cache_dir
+
+# 曲目数据库：官方 API（最快，但可能整体 503）与静态 JSON 镜像
 PJSK_API_DB_BASE = "https://api.pjsek.ai/database/master"
+PJSK_SEKAI_MASTER_JSON_BASE = "https://sekai-world.github.io/sekai-master-db-diff"
+PJSK_MASTER_DB_RAW = "https://raw.githubusercontent.com/Sekai-World/sekai-master-db-diff/main"
+
+# 静态 JSON 镜像候选（按序尝试；首个成功的会被记住）。
+# 直接写 GitHub Pages / raw 在前，国内网络常常直接断连（每次白等一个超时），
+# 故优先走实测可用的代理与 CDN。
+PJSK_MASTER_JSON_MIRRORS: tuple[str, ...] = (
+    "https://gcore.jsdelivr.net/gh/Sekai-World/sekai-master-db-diff@main",
+    f"https://gh-proxy.com/{PJSK_MASTER_DB_RAW}",
+    f"https://ghproxy.net/{PJSK_MASTER_DB_RAW}",
+    "https://cdn.jsdelivr.net/gh/Sekai-World/sekai-master-db-diff@main",
+    PJSK_SEKAI_MASTER_JSON_BASE,
+    PJSK_MASTER_DB_RAW,
+)
+
 ASSET_PJSEKAI = "https://assets.pjsek.ai/file/pjsekai-assets"
 ASSET_SEKAIBEST = "https://storage.sekai.best/sekai-jp-assets"
 
 _USER_AGENT = "Chuni-Eventer/1.0"
+
+# 曲目数据库本地缓存：网络全挂时仍能用最近一次的数据（转谱定数、下载目录都依赖它）
+_MASTER_CACHE_TTL_SEC = 12 * 3600.0
+_MASTER_JSON_TIMEOUT_SEC = 25.0
+_master_base_lock = threading.Lock()
+_master_base_ok: str | None = None
+
+
+def pjsk_master_cache_dir() -> Path:
+    return app_cache_dir() / "pjsk_master"
 
 
 def pjsk_cache_root(acus_root: Path) -> Path:
@@ -70,6 +107,83 @@ def _http_get_bytes(url: str, timeout: float = 90.0) -> bytes:
     ctx = ssl.create_default_context()
     with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
         return resp.read()
+
+
+# --------------------------------------------------------------------------- 曲目数据库
+
+
+def _ordered_master_json_bases() -> tuple[str, ...]:
+    """把上次成功的镜像排到最前，避免每次都从不可达的域名开始等超时。"""
+    with _master_base_lock:
+        preferred = _master_base_ok
+    if preferred and preferred in PJSK_MASTER_JSON_MIRRORS:
+        return (preferred,) + tuple(b for b in PJSK_MASTER_JSON_MIRRORS if b != preferred)
+    return PJSK_MASTER_JSON_MIRRORS
+
+
+def _remember_master_json_base(base: str) -> None:
+    global _master_base_ok
+    with _master_base_lock:
+        _master_base_ok = base
+
+
+def _master_cache_path(name: str) -> Path:
+    file_name = name if name.endswith(".json") else f"{name}.json"
+    return pjsk_master_cache_dir() / file_name
+
+
+def _read_master_cache(name: str, *, max_age_sec: float | None) -> Any | None:
+    path = _master_cache_path(name)
+    try:
+        if not path.is_file():
+            return None
+        if max_age_sec is not None and (time.time() - path.stat().st_mtime) > max_age_sec:
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _write_master_cache(name: str, data: Any) -> None:
+    path = _master_cache_path(name)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def load_sekai_master_json(name: str, *, timeout: float | None = None) -> Any:
+    """读取 sekai-master-db-diff 的 ``<name>.json``（sekai.best / Sekai Viewer 的数据源）。
+
+    顺序：本地缓存（12h 内直接用）→ 各镜像逐个尝试 → 过期缓存兜底。
+    全部失败时抛 :class:`RuntimeError`（附每个镜像的失败原因）。
+    """
+    file_name = name if name.endswith(".json") else f"{name}.json"
+    fresh = _read_master_cache(file_name, max_age_sec=_MASTER_CACHE_TTL_SEC)
+    if fresh is not None:
+        return fresh
+
+    wait = float(_MASTER_JSON_TIMEOUT_SEC if timeout is None else timeout)
+    errors: list[str] = []
+    for base in _ordered_master_json_bases():
+        url = f"{base.rstrip('/')}/{file_name}"
+        try:
+            data = _http_get_json(url, timeout=wait)
+        except Exception as e:  # noqa: BLE001 — 逐个镜像降级
+            errors.append(f"{base.rsplit('/', 1)[-1] or base}: {type(e).__name__}")
+            continue
+        _remember_master_json_base(base)
+        _write_master_cache(file_name, data)
+        return data
+
+    stale = _read_master_cache(file_name, max_age_sec=None)
+    if stale is not None:
+        return stale
+    raise RuntimeError(
+        f"无法获取 PJSK 曲目数据库 {file_name}（已尝试 {len(_ordered_master_json_bases())} 个镜像）："
+        + "; ".join(errors)
+    )
 
 
 def _http_get_bytes_chunked(
@@ -216,7 +330,7 @@ def _game_characters_by_id_map() -> dict[int, dict[str, Any]]:
         return _game_characters_by_id
     rows = _try_api_data_list(f"{PJSK_API_DB_BASE}/gameCharacters?$limit=500")
     if rows is None:
-        raw = _http_get_json(f"{PJSK_SEKAI_MASTER_JSON_BASE}/gameCharacters.json", timeout=120.0)
+        raw = load_sekai_master_json("gameCharacters.json")
         rows = raw if isinstance(raw, list) else []
     m: dict[int, dict[str, Any]] = {}
     for row in rows:
@@ -236,7 +350,7 @@ def _outside_characters_by_id_map() -> dict[int, dict[str, Any]]:
         return _outside_characters_by_id
     rows = _try_api_data_list(f"{PJSK_API_DB_BASE}/outsideCharacters?$limit=500")
     if rows is None:
-        raw = _http_get_json(f"{PJSK_SEKAI_MASTER_JSON_BASE}/outsideCharacters.json", timeout=120.0)
+        raw = load_sekai_master_json("outsideCharacters.json")
         rows = raw if isinstance(raw, list) else []
     m: dict[int, dict[str, Any]] = {}
     for row in rows:
@@ -355,8 +469,7 @@ _music_vocals_json_cache: list[dict[str, Any]] | None = None
 def _all_music_vocals_from_sekai_json() -> list[dict[str, Any]]:
     global _music_vocals_json_cache
     if _music_vocals_json_cache is None:
-        url = f"{PJSK_SEKAI_MASTER_JSON_BASE}/musicVocals.json"
-        rows = _http_get_json(url, timeout=120.0)
+        rows = load_sekai_master_json("musicVocals.json")
         _music_vocals_json_cache = rows if isinstance(rows, list) else []
     return _music_vocals_json_cache
 
@@ -490,8 +603,7 @@ def load_musics_catalog() -> list[PjskMusicRow]:
     api_rows = _try_musics_from_api()
     if api_rows is not None:
         return _musics_from_sekai_json(api_rows)
-    url = f"{PJSK_SEKAI_MASTER_JSON_BASE}/musics.json"
-    rows = _http_get_json(url)
+    rows = load_sekai_master_json("musics.json")
     if not isinstance(rows, list):
         raise ValueError("musics.json 格式异常：应为数组。")
     return _musics_from_sekai_json(rows)
@@ -539,8 +651,7 @@ def load_difficulties_index() -> dict[int, list[PjskDifficultyRow]]:
     api_rows = _try_difficulties_from_api()
     if api_rows is not None:
         return _difficulties_index(api_rows)
-    url = f"{PJSK_SEKAI_MASTER_JSON_BASE}/musicDifficulties.json"
-    rows = _http_get_json(url)
+    rows = load_sekai_master_json("musicDifficulties.json")
     if not isinstance(rows, list):
         raise ValueError("musicDifficulties.json 格式异常：应为数组。")
     return _difficulties_index(rows)
@@ -572,17 +683,17 @@ def save_pjsk_bundle_to_cache(
     progress: Callable[[str, float | None], None] | None = None,
     vocal_assetbundle: str | None = None,
     vocal_caption: str | None = None,
+    play_levels: dict[str, int] | None = None,
 ) -> Path:
-    """下载封面、曲绘、可选完整音频与固定 PJSK 难度的 SUS 到 pjsk_cache/。
-    SUS→c2s 在「转写 ACUS」时执行，不在此处生成 chuni/*.c2s。
+    """只负责下载：封面、曲绘、可选完整音频与固定 PJSK 难度的 SUS 到 pjsk_cache/。
 
-    完整音频：与 PjskSUSPatcher 一致，来自 `musicVocals` 的 `assetbundleName` 与 long 音频 URL。
-    若已安装 ffmpeg 与 PyCriCodecsEx，会在同目录下额外生成 48 kHz WAV 与中二用 ACB/AWB，
-    以及 ``chuni_cue/cueFileXXXXXX/`` 下的 ``musicXXXX.acb`` / ``.awb``（逻辑对齐
-    [PenguinTools MusicConverter](https://github.com/ChuniPingu/PenguinTools/blob/main/PenguinTools.Core/Media/MusicConverter.cs)）。
+    这里**不做任何转谱/转音频**——转换与打包统一走
+    :mod:`chuni_eventer_desktop.pjsk2chuni.pipeline`（乐曲页「新增 → PJSK 烤谱」）。
+
+    ``play_levels``：``{pjsk 难度: 等级}``（1..38），存进 manifest 的 ``pjskPlayLevel``，
+    供转谱对话框按「1..38 → 中二 1..15.5」的等比映射给默认定数。
     """
-    from . import pjsk_audio_chuni as pjsk_ac
-    from . import sus_to_c2s as s2c
+    from .pjsk2chuni import pipeline as pjsk_pipeline
 
     def p(msg: str, ratio: float | None = None) -> None:
         if progress:
@@ -629,13 +740,14 @@ def save_pjsk_bundle_to_cache(
             "format": ext,
         }
         audio_manifest["chuniPipelineNote"] = (
-            "谱面下载完成后将尝试 PenguinTools.CLI + SUS 生成 ACB/AWB（与 mgxc 音频对齐逻辑一致）。"
+            "转谱与音频打包在「乐曲页 → 新增 → PJSK 烤谱」中执行"
+            "（上游 pjsk2chuni 语义转换 + PenguinTools option build）。"
         )
 
-    for pj in s2c.PJSK_CHUNI_DOWNLOAD_ORDER:
+    for pj in pjsk_pipeline.PJSK_CHUNI_DOWNLOAD_ORDER:
         if pj not in av:
             continue
-        slot = s2c.chuni_slot_name_for_pjsk(pj)
+        slot = pjsk_pipeline.chuni_slot_name_for_pjsk(pj)
         if slot is None:
             continue
         p(f"下载谱面 {pj} …", None)
@@ -647,21 +759,27 @@ def save_pjsk_bundle_to_cache(
                 continue
             raise
         (sus_dir / f"{pj}.sus").write_text(text, encoding="utf-8")
-        manifest_slots.append(
-            {
-                "pjskDifficulty": pj,
-                "chuniSlot": slot,
-                "susFile": f"sus/{pj}.sus",
-            }
-        )
+        slot_entry: dict[str, object] = {
+            "pjskDifficulty": pj,
+            "chuniSlot": slot,
+            "susFile": f"sus/{pj}.sus",
+        }
+        pl = (play_levels or {}).get(pj)
+        try:
+            if pl is not None:
+                slot_entry["pjskPlayLevel"] = int(pl)
+        except (TypeError, ValueError):
+            pass
+        manifest_slots.append(slot_entry)
 
     readme = (
         "本目录为 PJSK 资源缓存（与 ACUS 同级的 pjsk_cache 下，不在 ACUS 内）。\n"
-        "完成 SUS→中二 c2s 并整理为游戏所需结构后，再复制进 ACUS；在此之前请勿把本目录当 ACUS 使用。\n"
+        "转谱/打包请用软件内「乐曲页 → 新增 → PJSK 烤谱」，不要手工把本目录当 ACUS 使用。\n"
         "- sus/ ：原始 SUS（normal / hard / expert / master / append，按曲目实际存在项下载）。\n"
-        "- audio/ ：若选择了人声版本，则为完整曲长音频（flac/wav/mp3，视镜像而定）；"
-        "环境齐全时先裁片头约 9 秒，再由 PenguinTools + SUS 在 chuni_cue/ 生成 ACB·AWB。\n"
-        "- chuni/ ：转写进 ACUS 时由程序调用 PenguinTools.CLI 从 SUS 生成 c2s 后写入。\n"
+        "  manifest 里的 pjskPlayLevel 是该难度的 PJSK 等级（1..38），转谱时按等比映射给默认定数。\n"
+        "- audio/ ：若选择了人声版本，则为完整曲长音频（flac/wav/mp3，视镜像而定）；\n"
+        "  转谱时才由软件解码为 48k WAV、实测前导静音并交给 PenguinTools 生成 ACB·AWB。\n"
+        "- chuni_build/ ：转谱时生成的 UMIGURI 工程目录（有 options.json/*.ugc 等，可事后排查）。\n"
         "- 与 CHUNITHM 槽位对应：normal→BASIC(Easy)，hard→ADVANCED，expert→EXPERT，"
         "master→MASTER；有 append 时→ULTIMA，无 append 则无 ULTIMA 对应文件。\n"
         "详见 manifest.json。\n"
@@ -676,33 +794,8 @@ def save_pjsk_bundle_to_cache(
         "cacheRoot": str(base),
         "outsideAcus": True,
         "slots": manifest_slots,
-        "c2sConversionImplemented": True,
     }
     if audio_manifest is not None:
-        if manifest_slots:
-            p("生成中二用音频（PenguinTools + SUS，若环境齐全）…", None)
-            try:
-                draft_manifest: dict[str, object] = {
-                    "slots": manifest_slots,
-                    "audio": audio_manifest,
-                }
-                chuni_extra = pjsk_ac.try_pipeline_pjsk_audio_via_penguin(
-                    bundle_root=root,
-                    manifest=draft_manifest,
-                    music_id=music_id,
-                    cache_root=root,
-                    on_log=lambda m: p(m, None),
-                )
-            except Exception as ex:
-                chuni_extra = None
-                p(f"中二音频管线跳过：{ex}", None)
-            if chuni_extra:
-                audio_manifest["chuni"] = chuni_extra
-            elif "chuniPipelineNote" not in audio_manifest:
-                audio_manifest["chuniPipelineNote"] = (
-                    "需要 PenguinTools.CLI、ffmpeg（PATH）与 PyCriCodecsEx；"
-                    "写入 ACUS 时仍会尝试生成音频。"
-                )
         manifest["audio"] = audio_manifest
     (root / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2),

@@ -923,6 +923,7 @@ class MainWindow(MSFluentWindow):
             from ..sheet_install import install_zip_to_acus, peek_root_readme_from_archive
             from .music_add_actions_dialog import MusicSheetChannelsDialog
             from .pgko_sheet_download_dialog import PgkoSheetDownloadDialog
+            from .pjsk_hub_dialog import PjskHubDialog
             from .swan_sheet_download_dialog import SwanSheetDownloadDialog
 
             pick = MusicSheetChannelsDialog(parent=self)
@@ -934,6 +935,9 @@ class MainWindow(MSFluentWindow):
                 QTimer.singleShot(0, self._on_refresh)
             elif act == "pgko":
                 PgkoSheetDownloadDialog(parent=self).exec()
+                QTimer.singleShot(0, self._on_refresh)
+            elif act == "pjsk":
+                PjskHubDialog(acus_root=self._acus_root, parent=self).exec()
                 QTimer.singleShot(0, self._on_refresh)
             elif act == "local_zip":
                 path, _ = QFileDialog.getOpenFileName(

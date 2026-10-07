@@ -1,5 +1,9 @@
 # SUS（含 PJSK 导出）→ CHUNITHM c2s：键型映射草案（待你修订）
 
+> ⚠️ **已废弃（2026-10-07）**：PJSK→中二不再使用该自研映射草案。现行链路见
+> [`../pjsk_to_chuni_zh.md`](../pjsk_to_chuni_zh.md)（上游 `pjsk2chuni` 的标记音符裁定表 + PenguinTools）。
+> 本文仅作历史留档。
+
 > **用途**：约定「SUS 里出现的一类音符 → c2s 里写哪一类事件」以及 **PJSK 12 轨 → 中二 16 轨中的中间 12 轨**，供实现 `sus_to_c2s` 时对照。  
 > **不包含**：小节/tick 与 BPM 换算细节（见 `sus_c2s_format_zh.md`）。  
 > **规格依据**：SUS 以 [kb10uy / SUS v2.7 Gist](https://gist.github.com/kb10uy/c171c175ba913dc40a73c6ce69da9859) 为准；c2s 事件名以社区示意图 + `A001/music/music2896/2896_04.c2s` 为准。

@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -411,6 +412,87 @@ def relocate_cue_bundle_for_music_id(cue_dir: Path, *, music_id: int) -> Path:
     if cue_dir != target and cue_dir.is_dir():
         shutil.rmtree(cue_dir, ignore_errors=True)
     return target
+
+
+def cli_diagnostic_messages(payload: dict[str, Any], *, severity: str) -> list[str]:
+    """取出 CLI 结果里某一严重级别（error/warning/…）的诊断文本。"""
+    want = severity.strip().lower()
+    out: list[str] = []
+    for item in payload.get("diagnostics") or []:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("severity") or "").strip().lower() != want:
+            continue
+        text = _format_cli_message(item.get("message"))
+        path = str(item.get("path") or "").strip()
+        if path and text:
+            text = f"{text}（{path}）"
+        elif path:
+            text = path
+        if text:
+            out.append(text)
+    return out
+
+
+def build_option_with_penguin_tools_cli(
+    *,
+    input_dir: Path,
+    output_dir: Path,
+    option_name: str | None = None,
+    genre_id: int | None = None,
+    release_tag_id: int | None = None,
+    release_tag_name: str | None = None,
+    main_difficulties: Sequence[str] | None = None,
+    hca_key: int | None = None,
+    ignore_cache: bool = False,
+    extra_args: Sequence[str] | None = None,
+    cfg: object | None = None,
+) -> dict[str, Any]:
+    """``option build``：把 UMIGURI 工程目录（options.json + 谱面 + 音频 + 封面）打成完整 CHUNITHM 包。
+
+    输出布局（``<output_dir>/<optionName>/`` 下）：``music/music<id>/{*_0X.c2s, Music.xml, CHU_UI_Jacket_<id>.dds}``、
+    ``cueFile/cueFile00<id>/{CueFile.xml, music<id>.acb, music<id>.awb}``。
+
+    ``release_tag_id``/``release_tag_name`` 必须配合 ``--custom-release-tag-xml`` 才会生效（CLI 的已知行为）。
+
+    ⚠️ ``option build`` 的**单项失败（音频/封面转不出来等）仍会以 success=true 退出**，
+    只体现在 diagnostic 里；因此这里默认在发现 error 级诊断时抛错，避免"打包成功但没有音频"。
+    """
+    input_dir = Path(input_dir).resolve()
+    output_dir = Path(output_dir).resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    args = ["option", "build", str(input_dir), str(output_dir), "--no-progress"]
+    if option_name:
+        args += ["--option-name", str(option_name)]
+    if genre_id is not None:
+        args += ["--selected-genre-id", str(int(genre_id))]
+    if release_tag_id is not None:
+        args += ["--custom-release-tag-xml", "--custom-release-tag-id", str(int(release_tag_id))]
+        args += ["--custom-release-tag-title-name", str(release_tag_name or "")]
+    for item in main_difficulties or ():
+        args += ["--main-difficulty", str(item)]
+    if hca_key is not None:
+        args += ["--hca-key", str(int(hca_key))]
+    if ignore_cache:
+        args += ["--ignore-cache"]
+    if extra_args:
+        args += [str(a) for a in extra_args]
+    try:
+        payload = _run_penguin_tools_cli(args, cfg=cfg)
+    except RuntimeError as e:
+        if "未返回可解析的 JSON" in str(e):
+            raise RuntimeError(
+                f"{e}\n\n提示：若当前 PenguinTools.CLI 版本过旧，可能不支持 `option build`；"
+                "请在「设置 → 外部工具」中更新后重试。"
+            ) from e
+        raise
+    errors = cli_diagnostic_messages(payload, severity="error")
+    if errors:
+        raise RuntimeError(
+            "PenguinTools option build 报告了错误（该命令即使单项失败也会返回 success）：\n- "
+            + "\n- ".join(errors[:10])
+        )
+    return payload
 
 
 def convert_jacket_with_penguin_tools_cli(
