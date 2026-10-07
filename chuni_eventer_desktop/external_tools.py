@@ -88,7 +88,9 @@ TOOL_COMPRESSONATOR = ExternalToolSpec(
 )
 
 # API 不可用时回退到该 tag 的 Release 资源（须与上游命名一致）。
-_PENGUIN_TOOLS_CLI_FALLBACK_TAG = "v2.0.0"
+# 注意：GitHub 只有 v2.3.11 与 v2.4.0 两个 Release，旧的 v2.0.0 资源**不存在**（404），
+# 故兜底 tag 固定为当前最新且支持 `option build` 的版本。
+_PENGUIN_TOOLS_CLI_FALLBACK_TAG = "v2.4.0"
 
 TOOL_PENGUINTOOLS_CLI = ExternalToolSpec(
     id="penguin_tools_cli",
@@ -480,14 +482,22 @@ def _install_exe_from_zip(
         shutil.copy2(found, dest_exe)
 
         if spec.id == "penguin_tools_cli":
-            # AOT.zip：exe + assets/。
+            # AOT.zip：exe + assets/ + 根目录原生依赖。
+            # v2.4.0 起封面转换依赖根目录的 libvips-42.dll，只复制 exe + assets/ 会导致
+            # `option build` 静默丢掉封面 DDS（CLI 仍返回 success），故整包复制（丢弃 .pdb）。
             src_dir = found.parent
-            assets_src = src_dir / "assets"
-            assets_dst = dest_exe.parent / "assets"
-            if assets_dst.exists():
-                shutil.rmtree(assets_dst)
-            if assets_src.is_dir():
-                shutil.copytree(assets_src, assets_dst)
+            dest_dir = dest_exe.parent
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            for item in src_dir.iterdir():
+                if item.name.lower() == spec.exe_name.lower() or item.suffix.lower() == ".pdb":
+                    continue
+                target = dest_dir / item.name
+                if item.is_dir():
+                    if target.exists():
+                        shutil.rmtree(target)
+                    shutil.copytree(item, target)
+                elif item.is_file():
+                    shutil.copy2(item, target)
             _assert_penguin_tools_cli_runtime(dest_exe)
             return
 
@@ -520,20 +530,34 @@ def _extract_zip_into_dir(
 
 
 def _assert_penguin_tools_cli_runtime(dest_exe: Path) -> None:
-    """校验 Native AOT CLI 旁是否具备完整 runtime assets。"""
+    """校验 Native AOT CLI 旁是否具备可用的 runtime assets。
+
+    上游媒体后端换过一代，两种布局都算完整：
+
+    * **2.4.0+**：``assets/assets.json`` + ``assets/ffmpeg/ffmpeg.exe``（音频）+ ``assets/texconv/texconv.exe``（封面）；
+    * **2.3.x 及本仓库自建包**：``assets/assets.json`` + ``assets/cri/PenguinTools.CRI.exe`` + ``assets/mua/mua_{wav,img}.exe``。
+
+    因此只硬性要求 ``assets.json``，媒体后端按"任一可用"判断——否则自动下载到的
+    v2.4.0 会被误判为"运行时资源不完整"而装不上。
+    """
     root = dest_exe.parent
-    required = [
-        root / "assets" / "assets.json",
+    assets_json = root / "assets" / "assets.json"
+    legacy = [
         root / "assets" / "cri" / "PenguinTools.CRI.exe",
         root / "assets" / "mua" / "mua_wav.exe",
         root / "assets" / "mua" / "mua_img.exe",
     ]
-    missing = [str(p) for p in required if not p.is_file()]
-    if missing:
-        raise RuntimeError(
-            "PenguinTools.CLI 运行时资源不完整（需要 assets.json / CRI / mua）：\n"
-            + "\n".join(f"- {p}" for p in missing)
-        )
+    modern = [
+        root / "assets" / "ffmpeg" / "ffmpeg.exe",
+        root / "assets" / "texconv" / "texconv.exe",
+    ]
+    if assets_json.is_file() and (all(p.is_file() for p in legacy) or all(p.is_file() for p in modern)):
+        return
+    missing = [str(p) for p in [assets_json, *legacy, *modern] if not p.is_file()]
+    raise RuntimeError(
+        "PenguinTools.CLI 运行时资源不完整（需要 assets/assets.json，以及 "
+        "ffmpeg+texconv 或 cri+mua 其中一套媒体后端）：\n" + "\n".join(f"- {p}" for p in missing)
+    )
 
 
 def _install_direct_exe(

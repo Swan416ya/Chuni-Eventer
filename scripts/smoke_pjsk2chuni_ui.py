@@ -170,6 +170,53 @@ def main() -> int:
     check(sc._ordered_master_json_bases()[0] == probe, "上次成功的镜像会被优先使用")
     sc._remember_master_json_base("")  # 复位，避免影响后续真实调用
 
+    print("\n== PenguinTools.CLI 运行时资产校验（两代布局）")
+    import tempfile
+
+    from chuni_eventer_desktop import external_tools as ext
+
+    def _layout(root: Path, *, cri: bool, mua: bool, ffmpeg: bool, texconv: bool) -> Path:
+        root.mkdir(parents=True, exist_ok=True)
+        exe = root / "PenguinTools.CLI.exe"
+        exe.write_bytes(b"MZ")
+        assets = root / "assets"
+        assets.mkdir(exist_ok=True)
+        (assets / "assets.json").write_text("{}", encoding="utf-8")
+        for rel, present in (
+            ("assets/cri/PenguinTools.CRI.exe", cri),
+            ("assets/mua/mua_wav.exe", mua),
+            ("assets/mua/mua_img.exe", mua),
+            ("assets/ffmpeg/ffmpeg.exe", ffmpeg),
+            ("assets/texconv/texconv.exe", texconv),
+        ):
+            if present:
+                p = root / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_bytes(b"MZ")
+        return exe
+
+    tmp = Path(tempfile.mkdtemp(prefix="pjsk_cli_layout_"))
+    try:
+        for label, exe in (
+            ("2.3.x（cri+mua）", _layout(tmp / "legacy", cri=True, mua=True, ffmpeg=False, texconv=False)),
+            ("2.4.0+（ffmpeg+texconv）", _layout(tmp / "modern", cri=False, mua=False, ffmpeg=True, texconv=True)),
+        ):
+            try:
+                ext._assert_penguin_tools_cli_runtime(exe)
+                check(True, f"{label} 布局通过校验")
+            except RuntimeError as e:  # noqa: BLE001
+                check(False, f"{label} 布局被误判：{e}")
+        broken = _layout(tmp / "broken", cri=False, mua=False, ffmpeg=False, texconv=False)
+        try:
+            ext._assert_penguin_tools_cli_runtime(broken)
+            check(False, "残缺布局应报错但通过了")
+        except RuntimeError:
+            check(True, "残缺布局正确报错")
+    finally:
+        import shutil as _shutil
+
+        _shutil.rmtree(tmp, ignore_errors=True)
+
     print("\n== 实验性设置面板")
     from PyQt6.QtWidgets import QLabel
 
