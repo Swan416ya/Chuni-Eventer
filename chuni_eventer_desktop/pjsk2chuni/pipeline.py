@@ -334,6 +334,8 @@ class BuildRequest:
     creator: str = "chunieventer"
     # 槽位 → 定数（如 12.6）；缺省槽位不参与
     levels: dict[str, float] = field(default_factory=dict)
+    # 长音频开头静音长度（秒）= pjsk musics.json 的 fillerSec（**权威值**；缺省才退回实测）
+    filler_sec: float | None = None
     preview_start_sec: float = 0.0
     preview_stop_sec: float = 30.0
     work_dir: Path | None = None
@@ -354,8 +356,10 @@ class BuildResult:
     cue_dir: Path
     slots: dict[str, SlotResult]
     audio_wav: Path
-    # 从音频实测到的前导静音（秒）与写进 @BGMOFS 的手动偏移（本侧先裁掉前导静音，故为 0）
-    measured_leading_silence_sec: float = 0.0
+    # 裁片头实际用的秒数（fillerSec 优先）与写进 @BGMOFS 的手动偏移（本侧先裁片头，故为 0）
+    trim_leading_sec: float = 0.0
+    trim_source: str = ""
+    measured_leading_silence_sec: float | None = None
     manual_offset_sec: float = 0.0
     warnings: list[str] = field(default_factory=list)
     option_scan: dict | None = None
@@ -429,18 +433,36 @@ def build_option_package(
         log(msg)
 
     # ---- 音频对齐 ----
-    # 先量真实前导静音（= pjsk fillerSec），再由本侧裁掉它，然后只让 SOFFSET 生效：
-    #   @BGMOFS = 0，SOFFSET=TRUE ⇒ PenguinTools 真实偏移 = +1 小节（正数 → mua adelay 插入空白小节）。
-    # 为什么不用上游的 @BGMOFS = -前导静音：部分 mua_wav 版本（如 2.3.3 资源）会把
-    # `-o -7.19` 里的负号当成选项而报错，导致音频静默转换失败（CLI 仍返回 success）。
-    # 两种做法在时间轴上等价，且这里同样是正偏移 → mua 一定会跑 loudnorm（游戏要求响度归一）。
+    # 延迟值来自**元数据**：pjsk `musics.json` 的 `fillerSec`（长音频开头静音长度，游戏/官方谱面
+    # 就是用它把谱面与音频对齐）。本侧按它裁掉片头，然后只让 SOFFSET 生效：
+    #   @BGMOFS = 0，SOFFSET=TRUE ⇒ PenguinTools 真实偏移 = +1 小节（正数 → ffmpeg adelay / mua adelay）。
+    # 两点原因：
+    #   1) 实测前导静音不可靠——音频开头常有淡入/混响尾巴，阈值法会多算；实测 328/409 两曲
+    #      比 fillerSec 多出约 1.0s（9.03 vs 8.05、9.66 vs 8.30），照实测裁会整体错位 1 秒；
+    #   2) 上游 @BGMOFS = -fillerSec 的负偏移在部分 mua_wav 版本（如 2.3.3 资源）会被当成选项报错，
+    #      导致音频静默转换失败（CLI 仍返回 success）；改成「本侧先裁 + 正偏移」两种 CLI 都能跑，
+    #      时间轴与上游完全等价，且正偏移一定会触发 loudnorm（游戏要求响度归一）。
     bump("准备 48k 音频…")
-    full_wav = prepare_48k_wav(req.audio_src, work / f"pjsk_{mid:04d}_48k.wav", log=log)
-    trim = core.measure_leading_silence(full_wav)
-    if trim is None:
-        warnings.append("无法测量音频前导静音（非 16bit WAV / 读取失败 / 全程静音），按无前导静音处理。")
-        trim = 0.0
-    trim = max(0.0, float(trim))
+    trim_source = ""
+    measured: float | None = None
+    trim = 0.0
+    if req.filler_sec is not None:
+        try:
+            trim = max(0.0, float(req.filler_sec))
+            trim_source = "fillerSec（musics.json）"
+        except (TypeError, ValueError):
+            trim = 0.0
+    if not trim_source:
+        full_wav = prepare_48k_wav(req.audio_src, work / f"pjsk_{mid:04d}_48k.wav", log=log)
+        measured = core.measure_leading_silence(full_wav)
+        if measured is None:
+            warnings.append(
+                "缓存清单没有 fillerSec，且未能测量前导静音（非 16bit WAV / 读取失败 / 全程静音），"
+                "按无前导静音处理——结果可能整体偏移。"
+            )
+            measured = 0.0
+        trim = max(0.0, float(measured))
+        trim_source = "实测前导静音（缓存清单无 fillerSec）"
     if trim > 1e-4:
         audio_wav = prepare_48k_wav(
             req.audio_src,
@@ -449,11 +471,12 @@ def build_option_package(
             log=log,
         )
     else:
-        audio_wav = full_wav
+        audio_wav = prepare_48k_wav(req.audio_src, work / f"pjsk_{mid:04d}_48k.wav", log=log)
     manual_offset = 0.0
     log(
-        f"前导静音 {trim:.3f}s（fillerSec）→ 已裁掉；@BGMOFS {manual_offset:.5f}"
+        f"片头对齐：{trim_source} = {trim:.3f}s → 已裁掉；@BGMOFS {manual_offset:.5f}"
         f" + SOFFSET（+1 小节）交给 PenguinTools"
+        + (f"（实测 {measured:.3f}s，仅作参考）" if measured is not None else "")
     )
     bump("已对齐音频…")
 
@@ -551,7 +574,9 @@ def build_option_package(
         cue_dir=cue_dir,
         slots=slot_results,
         audio_wav=audio_wav,
-        measured_leading_silence_sec=trim,
+        trim_leading_sec=trim,
+        trim_source=trim_source,
+        measured_leading_silence_sec=measured,
         manual_offset_sec=manual_offset,
         warnings=warnings,
     )

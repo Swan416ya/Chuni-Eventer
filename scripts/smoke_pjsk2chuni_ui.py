@@ -170,6 +170,54 @@ def main() -> int:
     check(sc._ordered_master_json_bases()[0] == probe, "上次成功的镜像会被优先使用")
     sc._remember_master_json_base("")  # 复位，避免影响后续真实调用
 
+    print("\n== fillerSec（音频延迟元数据）链路")
+    from chuni_eventer_desktop.pjsk_acus_install import (
+        backfill_bundle_filler_sec,
+        bundle_filler_sec,
+    )
+    from chuni_eventer_desktop.pjsk_sheet_client import _musics_from_sekai_json
+
+    rows = _musics_from_sekai_json(
+        [{"id": 4242, "title": "t", "composer": "c", "assetbundleName": "ab", "fillerSec": 8.0508}]
+    )
+    check(rows and abs(float(rows[0].filler_sec) - 8.0508) < 1e-9, f"musics.json → PjskMusicRow.filler_sec={rows[0].filler_sec if rows else None}")
+    rows2 = _musics_from_sekai_json([{"id": 4243, "title": "t", "composer": "c"}])
+    check(rows2 and rows2[0].filler_sec is None, "缺 fillerSec 时解析为 None")
+
+    if bundles:
+        import json as _json
+        import shutil as _shutil
+        import tempfile as _tempfile
+
+        tmpf = Path(_tempfile.mkdtemp(prefix="pjsk_filler_"))
+        try:
+            d = tmpf / "pjsk_4242"
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "manifest.json").write_text(
+                _json.dumps({"musicId": 4242, "slots": []}), encoding="utf-8"
+            )
+            b = PjskLocalBundle(
+                pjsk_music_id=4242,
+                root=d,
+                manifest=_json.loads((d / "manifest.json").read_text(encoding="utf-8")),
+            )
+            check(bundle_filler_sec(b) is None, "回填前 fillerSec 为空")
+            check(backfill_bundle_filler_sec(b, 8.0508), "回填写入返回 True")
+            check(abs(float(bundle_filler_sec(b)) - 8.0508) < 1e-9, "回填后可从 manifest 读回")
+            check(not backfill_bundle_filler_sec(b, 8.0508), "重复回填不再变更")
+            check(not backfill_bundle_filler_sec(b, None), "None 不写入")
+        finally:
+            _shutil.rmtree(tmpf, ignore_errors=True)
+
+    if bundles:
+        b0 = bundles[0]
+        from chuni_eventer_desktop.pjsk_acus_install import bundle_filler_sec as _bfs
+
+        check(
+            isinstance(_bfs(b0), float),
+            f"已有缓存带 fillerSec：{b0.pjsk_music_id} → {_bfs(b0)}",
+        )
+
     print("\n== PenguinTools.CLI 运行时资产校验（两代布局）")
     import tempfile
 

@@ -92,6 +92,7 @@ class _PjskCacheThread(QThread):
                 vocal_assetbundle=self._vocal_ab,
                 vocal_caption=self._vocal_cap,
                 play_levels=self._play_levels,
+                filler_sec=self._row.filler_sec,
             )
             root = pjsk_song_cache_dir(self._acus_root, self._row.music_id)
             self.ok.emit(str(root.resolve()))

@@ -292,6 +292,8 @@ class PjskMusicRow:
     title: str
     composer: str
     assetbundle_name: str
+    # musics.json 的 fillerSec：长音频开头静音长度（秒），游戏用它把谱面与音频对齐
+    filler_sec: float | None = None
 
 
 @dataclass(frozen=True)
@@ -575,12 +577,20 @@ def _musics_from_sekai_json(rows: list[dict[str, Any]]) -> list[PjskMusicRow]:
         title = (row.get("title") or "").strip()
         composer = (row.get("composer") or "").strip()
         ab = (row.get("assetbundleName") or row.get("assetbundle_name") or "").strip()
+        filler: float | None = None
+        try:
+            raw = row.get("fillerSec")
+            if raw is not None:
+                filler = float(raw)
+        except (TypeError, ValueError):
+            filler = None
         out.append(
             PjskMusicRow(
                 music_id=mid,
                 title=title,
                 composer=composer,
                 assetbundle_name=ab,
+                filler_sec=filler,
             )
         )
     out.sort(key=lambda r: (r.title.lower(), r.music_id))
@@ -684,6 +694,7 @@ def save_pjsk_bundle_to_cache(
     vocal_assetbundle: str | None = None,
     vocal_caption: str | None = None,
     play_levels: dict[str, int] | None = None,
+    filler_sec: float | None = None,
 ) -> Path:
     """只负责下载：封面、曲绘、可选完整音频与固定 PJSK 难度的 SUS 到 pjsk_cache/。
 
@@ -692,6 +703,9 @@ def save_pjsk_bundle_to_cache(
 
     ``play_levels``：``{pjsk 难度: 等级}``（1..38），存进 manifest 的 ``pjskPlayLevel``，
     供转谱对话框按「1..38 → 中二 1..15.5」的等比映射给默认定数。
+
+    ``filler_sec``：``musics.json`` 的 `fillerSec`，长音频开头静音长度；
+    存进 manifest 的 ``fillerSec``，转谱时按它裁片头（**权威值，不靠测量**）。
     """
     from .pjsk2chuni import pipeline as pjsk_pipeline
 
@@ -795,6 +809,8 @@ def save_pjsk_bundle_to_cache(
         "outsideAcus": True,
         "slots": manifest_slots,
     }
+    if filler_sec is not None:
+        manifest["fillerSec"] = float(filler_sec)
     if audio_manifest is not None:
         manifest["audio"] = audio_manifest
     (root / "manifest.json").write_text(

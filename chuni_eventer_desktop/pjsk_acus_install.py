@@ -226,6 +226,42 @@ def bundle_play_levels(bundle: PjskLocalBundle) -> dict[str, int]:
     return out
 
 
+def bundle_filler_sec(bundle: PjskLocalBundle) -> float | None:
+    """清单里记录的 ``fillerSec``（长音频开头静音长度，秒）；老缓存可能没有。"""
+    try:
+        raw = bundle.manifest.get("fillerSec")
+        return float(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _write_bundle_manifest(bundle: PjskLocalBundle) -> bool:
+    try:
+        (bundle.root / "manifest.json").write_text(
+            json.dumps(bundle.manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        return True
+    except OSError:
+        return False
+
+
+def backfill_bundle_filler_sec(bundle: PjskLocalBundle, filler_sec: float | None) -> bool:
+    """把 ``fillerSec`` 补进 manifest.json；有改动返回 True。"""
+    if filler_sec is None:
+        return False
+    try:
+        want = float(filler_sec)
+    except (TypeError, ValueError):
+        return False
+    if want < 0:
+        return False
+    current = bundle_filler_sec(bundle)
+    if current is not None and abs(current - want) < 1e-6:
+        return False
+    bundle.manifest["fillerSec"] = want
+    return _write_bundle_manifest(bundle)
+
+
 def backfill_bundle_play_levels(
     bundle: PjskLocalBundle,
     levels_by_difficulty: dict[str, int],
@@ -251,14 +287,7 @@ def backfill_bundle_play_levels(
         changed = True
     if not changed:
         return False
-    path = bundle.root / "manifest.json"
-    try:
-        path.write_text(
-            json.dumps(bundle.manifest, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-    except OSError:
-        return False
-    return True
+    return _write_bundle_manifest(bundle)
 
 
 def append_music_sort(acus_root: Path, music_id: int) -> None:

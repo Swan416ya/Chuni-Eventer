@@ -24,13 +24,14 @@
 再由 `const_to_level_pair()` 拆成 Music.xml 的 `(level, levelDecimal)`（12.6 → 12 / 60）。
 实现：`pjsk2chuni/pipeline.py` 的 `pjsk_level_to_chuni_const()` / `const_to_level_pair()`。
 
-PJSK 等级（`playLevel`）来源：
+PJSK 侧元数据（等级 `playLevel`、音频延迟 `fillerSec`）来源：
 
-- **下载时写入**：`save_pjsk_bundle_to_cache(..., play_levels=...)` 把每个难度的等级存进
-  `pjsk_cache/pjsk_XXXX/manifest.json` 的 `slots[].pjskPlayLevel`（下载对话框本来就要拉难度索引，零额外代价）。
-- **老缓存回填**：`PjskHubDialog` 显示时若发现某缓存缺等级，会在后台拉一次难度索引，
-  用 `backfill_bundle_play_levels()` 补写 manifest（离线 / 镜像不可用则静默跳过）。
-- **兜底**：仍无等级时用 4 / 8.6 / 12.6 / 14.6 / 15，界面提示"未记录 PJSK 等级"，可手工改。
+- **下载时写入**：`save_pjsk_bundle_to_cache(..., play_levels=..., filler_sec=...)` 把每个难度的等级存进
+  `slots[].pjskPlayLevel`、把音频延迟存进 `fillerSec`（下载对话框本来就要拉曲目/难度索引，零额外代价）。
+- **老缓存回填**：`PjskHubDialog` 显示时若发现某缓存缺等级或 `fillerSec`，会在后台拉一次索引，
+  用 `backfill_bundle_play_levels()` / `backfill_bundle_filler_sec()` 补写 manifest（离线 / 镜像不可用则静默跳过）。
+- **兜底**：等级仍缺失时用 4 / 8.6 / 12.6 / 14.6 / 15（界面会提示"未记录 PJSK 等级"，可手工改）；
+  `fillerSec` 缺失时退回实测前导静音（见 §3）。
 
 > 官方 PJSK 官谱的 SUS 里 `#PLAYLEVEL` 是空串（元数据被清空），所以等级只能来自曲目数据库。
 
@@ -67,8 +68,8 @@ cdn.jsdelivr.net/gh/...@main / sekai-world.github.io / raw.githubusercontent.com
 | `chuni_eventer_desktop/pjsk2chuni/core.py` | **上游 `pjsk2chuni.py` 原样收录**（SUS 解析、标记音符分类、曲线烘焙、UGC 写出）。文件头有 SHA256 与同步日期；**请勿就地改转谱逻辑**，要改先改上游再整体复制。 |
 | `chuni_eventer_desktop/pjsk2chuni/pipeline.py` | 本软件接线：UGC 头部元数据补丁、**PJSK 等级→定数映射**、音频对齐、`options.json` + `option build`、规范化、写入 ACUS。 |
 | `chuni_eventer_desktop/penguin_tools_cli.py` | `build_option_with_penguin_tools_cli()`：`option build` 封装（含 **诊断检查**，见 §4）。 |
-| `chuni_eventer_desktop/pjsk_acus_install.py` | 只留公共件：缓存清单 / `pjskPlayLevel` 读写回填、id 分配、MusicSort、ULT 解锁事件（+ PGKO 仍在用的 `build_music_xml`）。 |
-| `chuni_eventer_desktop/pjsk_sheet_client.py` | **只下载**：封面/曲绘/音频/SUS + 写入 `pjskPlayLevel` → `pjsk_cache/`；曲目数据库走镜像链 + `.cache/pjsk_master/` 本地缓存（见 §1.2）。不再预生成 c2s 或 ACB/AWB。 |
+| `chuni_eventer_desktop/pjsk_acus_install.py` | 只留公共件：缓存清单 / `pjskPlayLevel` 与 `fillerSec` 读写回填、id 分配、MusicSort、ULT 解锁事件（+ PGKO 仍在用的 `build_music_xml`）。 |
+| `chuni_eventer_desktop/pjsk_sheet_client.py` | **只下载**：封面/曲绘/音频/SUS + 写入 `pjskPlayLevel` / `fillerSec` → `pjsk_cache/`；曲目数据库走镜像链 + `.cache/pjsk_master/` 本地缓存（见 §1.2）。不再预生成 c2s 或 ACB/AWB。 |
 | `chuni_eventer_desktop/pjsk_audio_chuni.py` | 只留底层件：ffmpeg 解码 48k WAV、本地 HCA/ACB/AWB 打包（PGKO、系统语音等仍在用）。 |
 | `scripts/verify_pjsk2chuni_pipeline.py` | 端到端验证（见 §5）。 |
 | `scripts/smoke_pjsk2chuni_ui.py` | 离屏 UI 冒烟测试。 |
@@ -82,15 +83,32 @@ cdn.jsdelivr.net/gh/...@main / sekai-world.github.io / raw.githubusercontent.com
 
 新实现（`pipeline.build_option_package`）：
 
-1. `ffmpeg` 解码为 48 kHz 立体声 s16 WAV（不裁切）；
-2. `core.measure_leading_silence()` 采样级实测前导静音 `T`（= pjsk `fillerSec`，阈值 −44 dBFS，10 ms 窗）；
-3. 本侧按 `T` 裁掉片头，UGC 写 **`@BGMOFS 0.00000` + `@FLAG SOFFSET TRUE`**；
-   PenguinTools 的真实偏移 `real = manual + 1 小节`（正数）→ `mua_wav normalize -o` 用 `adelay` 补回一小节，
-   同时完成游戏所需的 loudness 归一。
+1. **延迟值来自元数据**：pjsk `musics.json` 的 `fillerSec`（长音频开头静音长度，游戏/官谱就是拿它把谱面与音频对齐）。
+   下载时写进缓存清单（`manifest.json` 的 `fillerSec`），老缓存打开「新增 → PJSK」时自动回填（与 §1.1 同一套机制）；
+2. `ffmpeg` 按该值裁掉片头，得到 48 kHz 立体声 s16 WAV；
+3. UGC 写 **`@BGMOFS 0.00000` + `@FLAG SOFFSET TRUE`**；PenguinTools 的真实偏移 `real = manual + 1 小节`（正数）
+   → 用 `adelay` 补回一小节，同时完成游戏所需的 loudness 归一。
 
-> **为什么不照抄上游的 `@BGMOFS = -T`**：部分 `mua_wav` 版本（如 PenguinTools 2.3.3 资源）把 `-o -7.19` 的负号当选项而报错，
-> 音频会静默转换失败（CLI 仍返回 `success:true`）。两条路径在时间轴上等价，正偏移更稳。
-> 验证方式：ACB 时长应 ≈（裁切后音频时长 + 1 小节），`scripts/verify_pjsk2chuni_pipeline.py` 会实测比较。
+**为什么必须读元数据、不能靠实测前导静音**（本目录三首实测对比）：
+
+| 歌曲 | `fillerSec`（元数据） | `measure_leading_silence()`（阈值 −44 dBFS） | 差 |
+|---|---|---|---|
+| 88☆彡 (0224) | 9.000 | 9.002 | +0.002 |
+| 星界ちゃんと… (0328) | **8.051** | 9.034 | **+0.984** |
+| 25時の情熱 (0409) | **8.302** | 9.664 | **+1.362** |
+
+音频开头常有淡入/混响尾巴，阈值法会把"第一个超过 −44 dBFS 的采样"当成开头，比真实 filler 晚将近 1 秒，
+照实测裁会让这些曲子整体错位约 1 秒。上游 `measure_leading_silence()` 的注释虽写着它等于 `fillerSec`，
+但那只在兔洞 7067 上验证过，并不普遍成立。
+
+> 只有缓存清单里**确实没有** `fillerSec`（离线且从未拉过曲目数据库）时，才退回 `core.measure_leading_silence()` 实测，
+> 并在结果里标明来源（`BuildResult.trim_source`）。
+
+> **为什么不照抄上游的 `@BGMOFS = -fillerSec`**：部分 `mua_wav` 版本（如 PenguinTools 2.3.3 资源）把 `-o -7.19`
+> 的负号当选项而报错，音频会静默转换失败（CLI 仍返回 `success:true`）；懒人包内置的正是这一代 CLI。
+> 「本侧先裁 + 正偏移」与上游时间轴完全等价，且两代 CLI 都能跑。
+> 验证方式：ACB 时长应 ≈（裁切后音频时长 + 1 小节），`scripts/verify_pjsk2chuni_pipeline.py` 会实测比较，
+> 并断言实际裁切量等于 `fillerSec`。
 
 ## 4. PenguinTools `option build` 的两条硬约束
 

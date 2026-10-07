@@ -11,8 +11,10 @@
   Slide 曲线用 Margrete Interpolator 烘焙，Skip / Friction / Guide / Flick 分别落到中二的 TAP / CHR / HOLD / SLIDE / AIR，
   `#TIL00` 变速时间轴转成 SLP 保留——**打不中的装饰音符不会再变成判定音符**。
 - **音频不再对不上**：旧版把片头固定裁掉 9 秒，遇到 filler 不是 9 秒的曲子必然整体错位。
-  现在先用 ffmpeg 解码，再**实测前导静音**自动对齐（`@BGMOFS` + `@FLAG SOFFSET`），
-  并由 PenguinTools 完成响度归一与 ACB/AWB 封装。实测例：某曲前导静音 9.66 秒，旧逻辑会差 0.66 秒。
+  现在按 **pjsk 官方的 `musics.json.fillerSec`**（长音频开头静音长度，游戏就是拿它对谱）裁片头，
+  再交 PenguinTools 完成响度归一与 ACB/AWB 封装。
+  实测对比：某曲 `fillerSec` = 8.05 秒，而"探测第一个非静音采样"会量到 9.03 秒（差近 1 秒）——
+  靠实测的旧做法会让这类曲子整体偏 1 秒，所以延迟值一律以元数据为准（元数据缺失时才退回实测）。
 - **定数自动换算**：各难度默认定数 = PJSK 等级（1～38）等比映射到中二 1～15.5：
 
   ```
@@ -40,7 +42,7 @@
 
 ### 修复：PJSK 曲目数据库取不到
 
-- 曲目列表 / 难度等级 / 人声版本依赖 `api.pjsek.ai`（可能整体 503）与 GitHub 直连（部分网络不可达）。
+- 曲目列表 / 难度等级 / 音频延迟（`fillerSec`）/ 人声版本依赖 `api.pjsek.ai`（可能整体 503）与 GitHub 直连（部分网络不可达）。
   现在这两个源不可用时会回退到镜像（`gh-proxy.com` / `ghproxy.net` / `gcore.jsdelivr.net`），
   并把结果缓存到 `.cache/pjsk_master/`：12 小时内直接读缓存，网络全断也能用最近一次的数据。
 - 谱面 / 封面 / 长音频的资源链路不变（`assets.pjsek.ai`、`storage.sekai.best`）。

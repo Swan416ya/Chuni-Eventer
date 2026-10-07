@@ -33,7 +33,9 @@ from ..pjsk_acus_install import (
     DEFAULT_STAGE_ID,
     DEFAULT_STAGE_STR,
     PjskLocalBundle,
+    backfill_bundle_filler_sec,
     backfill_bundle_play_levels,
+    bundle_filler_sec,
     bundle_play_levels,
     chuni_slot_sources,
     chuni_slots_with_c2s,
@@ -42,7 +44,7 @@ from ..pjsk_acus_install import (
 )
 from ..penguin_tools_cli import resolve_penguin_tools_cli
 from ..pjsk_audio_chuni import find_ffmpeg
-from ..pjsk_sheet_client import load_difficulties_index, pjsk_cache_root
+from ..pjsk_sheet_client import load_difficulties_index, load_musics_catalog, pjsk_cache_root
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
 from .fluent_table import apply_fluent_sheet_table
@@ -68,15 +70,15 @@ _FALLBACK_LEVELS: dict[str, tuple[int, int]] = {
 
 
 class _LevelIndexThread(QThread):
-    """补全老缓存的 PJSK 等级（1..38）：拉一次曲目难度索引。"""
+    """补全老缓存的 PJSK 等级与 fillerSec：拉一次曲目/难度索引。"""
 
-    ok = pyqtSignal(object)
+    ok = pyqtSignal(object, object)
 
     def run(self) -> None:
         try:
-            self.ok.emit(load_difficulties_index())
+            self.ok.emit(load_difficulties_index(), load_musics_catalog())
         except Exception:  # noqa: BLE001 — 离线/镜像不可用时静默降级
-            self.ok.emit({})
+            self.ok.emit({}, [])
 
 
 class _ConvertThread(QThread):
@@ -309,6 +311,7 @@ class PjskConvertToAcusDialog(FluentCaptionDialog):
             levels=levels,
             jacket_png=jacket,
             audio_src=audio_path,
+            filler_sec=bundle_filler_sec(self._bundle),
             stage_id=int(self._stage_id.value()),
             stage_str=self._stage_str.text().strip() or DEFAULT_STAGE_STR,
         )
@@ -488,10 +491,12 @@ class PjskHubDialog(FluentCaptionDialog):
             self._maybe_lookup_levels()
 
     def _maybe_lookup_levels(self) -> None:
-        """老缓存没有 PJSK 等级 → 后台拉一次难度索引补进 manifest（离线则静默跳过）。"""
+        """老缓存缺 PJSK 等级 / fillerSec → 后台拉一次索引补进 manifest（离线则静默跳过）。"""
         if qthread_running_safe(self._level_thread):
             return
-        if not any(not bundle_play_levels(b) for b in self._bundles):
+        if not any(
+            not bundle_play_levels(b) or bundle_filler_sec(b) is None for b in self._bundles
+        ):
             return
         th = _LevelIndexThread(parent=None)
         self._level_thread = th
@@ -499,11 +504,18 @@ class PjskHubDialog(FluentCaptionDialog):
         th.finished.connect(self._on_level_thread_done)
         th.start()
 
-    def _on_level_index(self, index: object) -> None:
-        if not isinstance(index, dict):
-            return
+    def _on_level_index(self, index: object, musics: object) -> None:
+        filler_by_id: dict[int, float] = {}
+        if isinstance(musics, list):
+            for row in musics:
+                if getattr(row, "filler_sec", None) is not None:
+                    filler_by_id[int(row.music_id)] = float(row.filler_sec)
         changed = False
         for b in self._bundles:
+            if backfill_bundle_filler_sec(b, filler_by_id.get(b.pjsk_music_id)):
+                changed = True
+            if not isinstance(index, dict):
+                continue
             rows = index.get(b.pjsk_music_id) or []
             levels = {
                 r.music_difficulty.strip().lower(): int(r.play_level)

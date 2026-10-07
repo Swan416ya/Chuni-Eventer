@@ -203,9 +203,20 @@ def main(argv=None) -> int:
     print("\n== 1) 与上游转换器等价（谱面正文逐字节比较）")
     ref_dir = out_root / "reference"
     wav = pipeline.prepare_48k_wav(audio_src, work / f"pjsk_{args.music_id:04d}_48k.wav")
-    trim = measure_leading_silence(wav)
-    trim = 0.0 if trim is None else float(trim)
-    print(f"   前导静音={trim:.4f}s → 本侧裁掉，@BGMOFS=0 + SOFFSET(+1 小节)")
+    measured = measure_leading_silence(wav)
+    _raw_filler = manifest.get("fillerSec")
+    try:
+        filler_sec: float | None = float(_raw_filler) if _raw_filler is not None else None
+    except (TypeError, ValueError):
+        filler_sec = None
+    if filler_sec is None:
+        trim = 0.0 if measured is None else float(measured)
+        print(f"   缓存无 fillerSec → 退回实测 {trim:.4f}s（@BGMOFS=0 + SOFFSET）")
+    else:
+        trim = filler_sec
+        extra = "" if measured is None else f"（实测 {measured:.3f}s，差 {measured - filler_sec:+.3f}s）"
+        print(f"   元数据 fillerSec={filler_sec:.3f}s → 按元数据裁片头；@BGMOFS=0 + SOFFSET{extra}")
+        check(True, f"清单带 fillerSec={filler_sec:.3f}s（权威延迟值）")
     if trim > 1e-4:
         trimmed = pipeline.prepare_48k_wav(
             audio_src, work / f"pjsk_{args.music_id:04d}_48k_trim{trim:.3f}.wav", trim_leading_sec=trim
@@ -281,6 +292,7 @@ def main(argv=None) -> int:
         jacket_png=bundle / "封面.png",
         audio_src=audio_src,
         work_dir=work,
+        filler_sec=filler_sec,
         stage_id=8,
         stage_str="レーベル 共通0008_新イエローリング",
     )
@@ -292,6 +304,10 @@ def main(argv=None) -> int:
         fail(f"option build 失败：{e}")
         return _report()
     ok(f"package_root={result.package_root}")
+    check(
+        abs(result.trim_leading_sec - trim) < 1e-6,
+        f"裁片头用的是 {'fillerSec 元数据' if filler_sec is not None else '实测值'}：{result.trim_leading_sec:.3f}s（{result.trim_source}）",
+    )
     c2s = sorted(result.music_dir.glob("*.c2s"))
     check(len(c2s) >= 1, f"c2s 数量={len(c2s)}")
     for f in c2s:
