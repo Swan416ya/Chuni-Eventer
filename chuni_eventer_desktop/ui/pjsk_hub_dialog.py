@@ -247,7 +247,6 @@ class PjskConvertToAcusDialog(FluentCaptionDialog):
         self._prog_bar = ProgressBar(self)
         self._prog_bar.setRange(0, 1000)
         self._prog_bar.setValue(0)
-        self._prog_bar.setTextVisible(True)
         self._prog_bar.hide()
 
         ok = PrimaryPushButton("转换并写入 ACUS", self)
@@ -356,7 +355,8 @@ class PjskConvertToAcusDialog(FluentCaptionDialog):
         th.start()
 
     def _on_thread_progress(self, msg: str, ratio: float) -> None:
-        self._prog_label.setText(msg)
+        # qfluentwidgets 的 ProgressBar 不渲染百分比文字，这里并进说明标签
+        self._prog_label.setText(f"{msg}（{ratio * 100:.0f}%）" if ratio >= 0 else msg)
         if ratio < 0:
             return
         self._prog_bar.setRange(0, 1000)

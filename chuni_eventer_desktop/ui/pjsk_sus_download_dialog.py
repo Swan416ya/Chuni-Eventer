@@ -165,12 +165,11 @@ class PjskSusDownloadDialog(FluentCaptionDialog):
         self._status = BodyLabel("正在加载曲目列表…", card)
         self._status.setWordWrap(True)
 
+        # qfluentwidgets 的 ProgressBar 只画进度条、不渲染 setFormat 文本，
+        # 所以百分比改到状态标签上显示。
         self._dl_progress = ProgressBar(card)
         self._dl_progress.setRange(0, 100)
         self._dl_progress.setValue(0)
-        self._dl_progress.setTextVisible(True)
-        self._dl_progress.setFormat("")
-        self._dl_progress.setFixedHeight(22)
 
         cly = QVBoxLayout(card)
         cly.setContentsMargins(16, 16, 16, 16)
@@ -379,25 +378,22 @@ class PjskSusDownloadDialog(FluentCaptionDialog):
         th.start()
 
     def _on_cache_progress(self, text: str, ratio: float) -> None:
-        self._status.setText(text)
         if ratio < 0:
+            self._status.setText(text)
             self._dl_progress.setRange(0, 0)
-            self._dl_progress.setFormat("")
-        else:
-            self._dl_progress.setRange(0, 1000)
-            self._dl_progress.setValue(min(1000, int(ratio * 1000)))
-            self._dl_progress.setFormat(f"{ratio * 100:.1f}%")
+            return
+        self._status.setText(f"{text}（{ratio * 100:.1f}%）")
+        self._dl_progress.setRange(0, 1000)
+        self._dl_progress.setValue(min(1000, int(ratio * 1000)))
 
     def _reset_cache_progress_bar(self) -> None:
         self._dl_progress.setRange(0, 100)
         self._dl_progress.setValue(0)
-        self._dl_progress.setFormat("")
 
     def _on_cache_ok(self, path: str) -> None:
         self._status.setText("已写入缓存。")
         self._dl_progress.setRange(0, 100)
         self._dl_progress.setValue(100)
-        self._dl_progress.setFormat("100%")
         fly_message(self, "完成", f"已缓存到：\n{path}")
         if self._on_installed:
             self._on_installed()
