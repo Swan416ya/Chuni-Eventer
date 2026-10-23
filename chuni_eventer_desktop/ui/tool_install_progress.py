@@ -7,7 +7,7 @@ from collections.abc import Callable
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QCloseEvent
-from PyQt6.QtWidgets import QHBoxLayout, QSizePolicy, QVBoxLayout
+from PyQt6.QtWidgets import QApplication, QHBoxLayout, QSizePolicy, QVBoxLayout
 
 from qfluentwidgets import (
     BodyLabel,
@@ -171,9 +171,13 @@ def dismiss_tool_install_progress(dlg: ToolInstallProgressDialog | None) -> None
         dlg._allow_close = True
         dlg.setWindowModality(Qt.WindowModality.NonModal)
         dlg.close()
+        dlg.deleteLater()
     except RuntimeError:
         # 已随 WA_DeleteOnClose 销毁（重复 dismiss，或用户先点了「取消」）
         return
+    # 与 safe_dismiss_modal_progress_dialog 保持一致：立刻把隐形模态层排空，
+    # 否则紧接着的 fly_* 提示可能点不动（历史上「点击只有系统提示音」的成因）。
+    QApplication.processEvents()
 
 
 def dismiss_tool_install_progress_any(dlg) -> None:
