@@ -8,13 +8,12 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
-    QLabel,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
 )
 
-from qfluentwidgets import BodyLabel, CardWidget, ComboBox as FluentComboBox, LineEdit, PrimaryPushButton, PushButton
+from qfluentwidgets import BodyLabel, CaptionLabel, CardWidget, ComboBox as FluentComboBox, LineEdit, PrimaryPushButton, PushButton
 
 from ..game_data_index import (
     GameDataIndex,
@@ -118,7 +117,7 @@ class MusicPickerDialog(FluentCaptionDialog):
             self,
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet("color:#6B7280;")
+        hint.setTextColor("#6B7280", "#9CA3AF")
 
         self._filter_tag = FluentComboBox(self)
         self._filter_tag.addItem("全部版本", None, None)
@@ -130,9 +129,9 @@ class MusicPickerDialog(FluentCaptionDialog):
 
         fl = QHBoxLayout()
         fl.setSpacing(8)
-        fl.addWidget(QLabel("版本"))
+        fl.addWidget(CaptionLabel("版本", self))
         fl.addWidget(self._filter_tag, stretch=1)
-        fl.addWidget(QLabel("流派"))
+        fl.addWidget(CaptionLabel("流派", self))
         fl.addWidget(self._filter_genre, stretch=1)
         fl.addWidget(self._search, stretch=2)
 

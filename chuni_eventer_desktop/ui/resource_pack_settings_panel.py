@@ -9,7 +9,6 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 
 from PyQt6.QtCore import QObject, QThread, Qt, pyqtSignal
-from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -25,12 +24,10 @@ from qfluentwidgets import (
     BodyLabel,
     CaptionLabel,
     CardWidget,
-    FluentIcon,
     IndeterminateProgressBar,
     LineEdit,
     PrimaryPushButton,
     PushButton,
-    setCustomStyleSheet,
     SubtitleLabel,
 )
 
@@ -167,7 +164,7 @@ class _PlanWorker(QObject):
                 acus_root=self._acus_root,
             )
             self.finished.emit(conflict_report, plan, graph, staging_root)
-        except Exception as e:
+        except Exception:
             self.failed.emit(traceback.format_exc())
 
 
@@ -206,7 +203,7 @@ class _ApplyWorker(QObject):
                 acus_root=self._acus_root,
             )
             self.finished.emit(result)
-        except Exception as e:
+        except Exception:
             self.failed.emit(traceback.format_exc())
         finally:
             # 无论成功失败都清理暂存区
@@ -258,26 +255,7 @@ class _ResourceTable(QWidget):
         hh.setDefaultSectionSize(80)
         hh.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
 
-        # 明暗主题颜色适配 (Fluent QSS 下 QTableWidgetItem 需要 setForeground/setBackground)
-        _light_conflict_bg = "rgba(255, 220, 220, 0.5)"
-        _light_conflict_fg = "#dc2626"
-        _dark_conflict_bg = "rgba(255, 80, 80, 0.15)"
-        _dark_conflict_fg = "#fca5a5"
-        _light_clean_fg = "#15803d"
-        _dark_clean_fg = "#4ade80"
-        _light_warn_fg = "#a16207"
-        _dark_warn_fg = "#facc15"
-
-        qss = f"""
-        QTableWidget#ResourcePackImportTable {{
-            alternate-background-color: {_light_conflict_bg};
-        }}
-        """
-        setCustomStyleSheet(
-            self._table,
-            qss,
-            qss.replace(_light_conflict_bg, _dark_conflict_bg),
-        )
+        # 冲突/干净资源分别由单元格前景色标记，行背景交给 Fluent 表格样式
 
         lay.addWidget(self._table, stretch=1)
         self._populate(rows)
@@ -355,7 +333,7 @@ class ResourcePackSettingsPanel(QWidget):
             "导入他人分享的资源压缩包，自动处理 ID 冲突",
             self,
         )
-        hint.setStyleSheet("color: #6b7280; font-size: 11px;")
+        hint.setTextColor("#6B7280", "#9CA3AF")
         root.addWidget(hint)
 
         # === 导入工作区卡片（占据剩余全部空间）===
@@ -379,8 +357,8 @@ class ResourcePackSettingsPanel(QWidget):
         card_lay.addLayout(path_row)
 
         # 统计信息行
-        self._stats_label = BodyLabel("", import_card)
-        self._stats_label.setStyleSheet("color: #6b7280; font-size: 12px;")
+        self._stats_label = CaptionLabel("", import_card)
+        self._stats_label.setTextColor("#6B7280", "#9CA3AF")
         card_lay.addWidget(self._stats_label)
 
         # QStackedWidget: 5 页
@@ -395,7 +373,7 @@ class ResourcePackSettingsPanel(QWidget):
             page0,
         )
         p0_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        p0_hint.setStyleSheet("font-size: 14px; color: #6b7280;")
+        p0_hint.setTextColor("#6B7280", "#9CA3AF")
         p0_lay.addWidget(p0_hint, alignment=Qt.AlignmentFlag.AlignCenter)
         self._stack.addWidget(page0)
 
@@ -433,9 +411,9 @@ class ResourcePackSettingsPanel(QWidget):
         p4_lay = QVBoxLayout(page4)
         p4_lay.setContentsMargins(16, 16, 16, 16)
         self._result_label = SubtitleLabel("导入完成", page4)
-        self._result_detail = BodyLabel("", page4)
+        self._result_detail = CaptionLabel("", page4)
         self._result_detail.setWordWrap(True)
-        self._result_detail.setStyleSheet("color: #374151; font-size: 12px;")
+        self._result_detail.setTextColor("#374151", "#D1D5DB")
         p4_lay.addWidget(self._result_label)
         p4_lay.addWidget(self._result_detail)
         p4_lay.addStretch(1)
@@ -629,11 +607,11 @@ class ResourcePackSettingsPanel(QWidget):
             if result.warnings:
                 parts.append(f"警告: {len(result.warnings)} 条")
             self._result_label.setText("导入成功")
-            self._result_label.setStyleSheet("color: #15803d;")
+            self._result_label.setTextColor("#15803d", "#4ade80")
             self._result_detail.setText("\n".join(parts))
         else:
             self._result_label.setText("导入失败")
-            self._result_label.setStyleSheet("color: #dc2626;")
+            self._result_label.setTextColor("#dc2626", "#fca5a5")
             parts: list[str] = []
             if result.errors:
                 parts.append("错误:")

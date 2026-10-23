@@ -7,14 +7,13 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
-    QLabel,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
-from qfluentwidgets import BodyLabel, CardWidget, LineEdit, PrimaryPushButton, PushButton
+from qfluentwidgets import BodyLabel, CaptionLabel, CardWidget, LineEdit, PrimaryPushButton, PushButton
 
 from ..game_data_index import enumerate_game_data_roots
 from ..system_voice_pack import (
@@ -29,8 +28,9 @@ from ..system_voice_pack import (
     validate_voice_folder,
 )
 from .fluent_dialogs import fly_critical, fly_message
-from .fluent_table import apply_fluent_sheet_table, sheet_list_hint_muted_colors
+from .fluent_table import apply_fluent_sheet_table
 from .qthread_lifecycle import await_qthreads, finalize_qthread
+from .rich_hint import hint_row
 from .sysvoice_preview_dialog import SysvoicePreviewDialog
 
 
@@ -100,16 +100,15 @@ class SystemVoicePackPage(QWidget):
 
         desc_map = load_doc_descriptions()
 
-        title = BodyLabel(
+        title = hint_row(
+            "准备 42 条音频，按逻辑序号命名（1～24、35～52）。",
             "请准备恰好 42 条音频，文件名与逻辑序号一致：1～24、35～52（扩展名 mp3/wav/flac 等）。"
             " ID 自动避让 ACUS 与已配置游戏目录内已有资源；Cue 目录为 cueFile(10000+ID)；"
             "预览 DDS 与官方一致为 CHU_UI_SystemVoice_ + 8 位数字 id。",
             self,
         )
-        title.setWordWrap(True)
-        title.setTextColor("#374151", "#D1D5DB")
 
-        self._id_label = QLabel(self)
+        self._id_label = CaptionLabel(self)
         self._folder_edit = LineEdit(self)
         self._folder_edit.setPlaceholderText("选择含 42 条音频的文件夹…")
         self._name_edit = LineEdit(self)
@@ -136,16 +135,15 @@ class SystemVoicePackPage(QWidget):
         self._pack_btn = PrimaryPushButton("转码并写入 ACUS", self)
         self._pack_btn.clicked.connect(self._on_pack)
 
-        self._status = QLabel("", self)
+        self._status = BodyLabel("", self)
         self._status.setWordWrap(True)
 
-        table_tip = BodyLabel(
+        table_tip = hint_row(
+            "左列是建议文件名，实际任选一种音频扩展名即可。",
             "共 42 条：左列为建议文件名（示例形如 50.mp4/50.wav，实际任选 mp3、wav、flac 等一种扩展名即可）；"
             "右列为对照表说明。",
             self,
         )
-        table_tip.setWordWrap(True)
-        sheet_list_hint_muted_colors(table_tip)
 
         self._table = QTableWidget(self)
         self._table.setColumnCount(2)
@@ -175,7 +173,7 @@ class SystemVoicePackPage(QWidget):
         top_row.addWidget(browse)
 
         name_row = QHBoxLayout()
-        name_row.addWidget(QLabel("显示名", self))
+        name_row.addWidget(BodyLabel("显示名", self))
         name_row.addWidget(self._name_edit, stretch=1)
         name_row.addWidget(refresh_id)
 
@@ -188,7 +186,7 @@ class SystemVoicePackPage(QWidget):
         cv.addLayout(top_row)
         cv.addLayout(name_row)
         pv_row = QHBoxLayout()
-        pv_row.addWidget(QLabel("预览图", self))
+        pv_row.addWidget(BodyLabel("预览图", self))
         pv_row.addWidget(self._preview_edit, stretch=1)
         pv_row.addWidget(browse_prev)
         pv_row.addWidget(prev_btn)

@@ -8,13 +8,12 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
-    QLabel,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
 )
 
-from qfluentwidgets import BodyLabel, CardWidget, ComboBox as FluentComboBox, LineEdit, PrimaryPushButton, PushButton
+from qfluentwidgets import CaptionLabel, CardWidget, ComboBox as FluentComboBox, LineEdit, PrimaryPushButton, PushButton
 
 from ..game_data_assets import resolve_catalog_xml_path, set_default_have_in_xml
 from ..game_data_index import (
@@ -39,6 +38,7 @@ from .game_data_detail_dialog import (
     open_chara_image_dialog,
     open_row_image_dialog,
 )
+from .rich_hint import hint_row
 
 GameDataKind = Literal["music", "chara", "nameplate", "trophy", "system_voice", "map_icon", "stage"]
 
@@ -48,6 +48,7 @@ _KIND_META: dict[GameDataKind, dict[str, Any]] = {
     "music": {
         "title": "游戏乐曲",
         "hint": "双击行查看曲绘与导出音频。可按版本 ID、流派筛选。勾选「强制解锁」会写回 Music.xml 的 defaultHave。",
+        "hint_short": "双击行查看曲绘与导出音频；可按版本、流派筛选。",
         "columns": ["ID", "曲名", "艺术家", "流派", "发布日", "版本", "数据包"],
         "catalog_attr": "music_catalog",
         "scan": scan_game_music_catalog,
@@ -66,6 +67,7 @@ _KIND_META: dict[GameDataKind, dict[str, Any]] = {
     "nameplate": {
         "title": "游戏名牌",
         "hint": "双击行预览名牌贴图 DDS，并可导出 PNG。可按版本 ID 筛选。勾选「强制解锁」会写回 NamePlate.xml 的 defaultHave。",
+        "hint_short": "双击行预览名牌贴图并可导出 PNG；可按版本筛选。",
         "columns": ["ID", "名称", "版本", "数据包"],
         "catalog_attr": "nameplate_catalog",
         "scan": scan_game_nameplate_catalog,
@@ -75,6 +77,7 @@ _KIND_META: dict[GameDataKind, dict[str, Any]] = {
     "trophy": {
         "title": "游戏称号",
         "hint": "双击行预览称号贴图 DDS，并可导出 PNG。可按稀有度筛选。勾选「强制解锁」会写回 Trophy.xml 的 defaultHave。",
+        "hint_short": "双击行预览称号贴图并可导出 PNG；可按稀有度筛选。",
         "columns": ["ID", "名称", "稀有度", "说明", "数据包"],
         "catalog_attr": "trophy_catalog",
         "scan": scan_game_trophy_catalog,
@@ -143,9 +146,9 @@ class GameDataBrowseDialog(FluentCaptionDialog):
         self.setModal(True)
         self.resize(1000, 580)
 
-        hint = BodyLabel(str(meta["hint"]), self)
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color:#6B7280;")
+        hint_text = str(meta["hint"])
+        hint_short = str(meta.get("hint_short") or hint_text)
+        hint = hint_row(hint_short, hint_text if hint_short != hint_text else None, self)
 
         self._filter_tag = FluentComboBox(self)
         self._filter_tag.addItem("全部版本", None, "")
@@ -164,11 +167,11 @@ class GameDataBrowseDialog(FluentCaptionDialog):
 
         fl = QHBoxLayout()
         fl.setSpacing(8)
-        self._lbl_tag = QLabel("版本")
-        self._lbl_genre = QLabel("流派")
-        self._lbl_works = QLabel("作品")
-        self._lbl_rare = QLabel("稀有度")
-        self._lbl_source = QLabel("数据包")
+        self._lbl_tag = CaptionLabel("版本", self)
+        self._lbl_genre = CaptionLabel("流派", self)
+        self._lbl_works = CaptionLabel("作品", self)
+        self._lbl_rare = CaptionLabel("稀有度", self)
+        self._lbl_source = CaptionLabel("数据包", self)
         fl.addWidget(self._lbl_tag)
         fl.addWidget(self._filter_tag, stretch=1)
         fl.addWidget(self._lbl_genre)

@@ -14,7 +14,6 @@ from PyQt6.QtWidgets import (
 )
 
 from qfluentwidgets import (
-    BodyLabel,
     CaptionLabel,
     CardWidget,
     PrimaryPushButton,
@@ -44,14 +43,18 @@ from ..game_data_assets import resolve_row_image_dds
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
 from .game_data_browse_dialog import GameDataBrowseDialog
+from .rich_hint import hint_row
 
 _PAGE_MARGINS = (0, 0, 0, 8)
 
 
 def _preview_frame_style() -> str:
-    b = "#3A3A3A" if isDarkTheme() else "#D1D5DB"
-    bg = "#2D2D2D" if isDarkTheme() else "#F9FAFB"
-    return f"QLabel {{ border: 1px solid {b}; border-radius: 8px; background: {bg}; }}"
+    dark = isDarkTheme()
+    b = "#3A3A3A" if dark else "#D1D5DB"
+    bg = "#2D2D2D" if dark else "#F9FAFB"
+    # 占位文字（无预览图/预览失败）跟随主题，避免深色下黑字贴深底
+    fg = "#9CA3AF" if dark else "#6B7280"
+    return f"QLabel {{ border: 1px solid {b}; border-radius: 8px; background: {bg}; color: {fg}; }}"
 
 
 def _make_select_button(parent, *, title: str) -> PrimaryPushButton:
@@ -142,14 +145,13 @@ class SavePatchPanel(QWidget):
         btns.addStretch(1)
         btns.addWidget(apply_btn)
 
-        hint = BodyLabel(
+        hint = hint_row(
+            "只改存档里的展示类字段，原文件不会被覆盖。",
             "另存为会写入：名牌、主/副称号、系统语音 voiceId、mapIconId、背景 stageId、企鹅数量（userItemList）。"
             " 其它字段不动；原文件不会被覆盖。"
             " 若目标服校验持有物，请自行保证资源已解锁。",
             self,
         )
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color: #CA8A04;")
 
         tabs_card = CardWidget(self)
         tc_lay = QVBoxLayout(tabs_card)
@@ -328,12 +330,11 @@ class SavePatchPanel(QWidget):
         lay.setContentsMargins(8, 8, 8, 8)
         lay.setSpacing(10)
 
-        self.tr_limit_hint = BodyLabel(
+        self.tr_limit_hint = hint_row(
+            "本工具只离线改导出存档；目标服若校验持有物需自行解锁。",
             "提示：本工具仅离线修改导出 JSON。若目标环境校验持有物，请自行保证账号已解锁对应称号/语音/跑图小人/背景等资源。",
             self,
         )
-        self.tr_limit_hint.setWordWrap(True)
-        self.tr_limit_hint.setStyleSheet("color: #CA8A04;")
 
         self.tr_main_holder = _SelectionHolder()
         self.tr_sub1_holder = _SelectionHolder()
@@ -679,13 +680,13 @@ class SavePatchPanel(QWidget):
         lay = QVBoxLayout(page)
         lay.setContentsMargins(8, 8, 8, 8)
         lay.setSpacing(10)
-        pg_hint = BodyLabel(
+        pg_hint = hint_row(
+            "数量对应存档中的企鹅持有数；改完点底部「另存为」写入。",
             "对应导出存档 userItemList：itemKind=5，itemId 8000 金企鹅 / 8010 小企鹅 / 8020 企鹅之魂 / 8030 彩色企鹅，"
             "isValid 固定为 true，stock 为数量（含 0）。"
             " 修改后须点击底部「另存为」写入新 JSON，不会改动原文件。",
             self,
         )
-        pg_hint.setWordWrap(True)
         lay.addWidget(pg_hint)
         pg_form = QFormLayout()
         self._penguin_spins: list[SpinBox] = []

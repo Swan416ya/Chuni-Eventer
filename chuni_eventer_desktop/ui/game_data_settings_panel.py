@@ -15,6 +15,7 @@ from ..game_data_index import GameDataIndex, load_cached_game_index
 from .fluent_dialogs import fly_critical, fly_warning
 from .game_data_browse_dialog import GameDataBrowseDialog, GameDataKind
 from .nav_icons import SVG_CHARA, SVG_MUSIC, SVG_NAMEPLATE, SVG_TROPHY, nav_qicon
+from .rich_hint import hint_row
 
 _log = logging.getLogger("chuni.settings_dialog")
 
@@ -90,12 +91,12 @@ class GameDataSettingsPanel(QWidget):
         dir_lay.setContentsMargins(16, 16, 16, 16)
         dir_lay.setSpacing(12)
         dir_lay.addWidget(BodyLabel("游戏数据目录", self))
-        dir_hint = BodyLabel(
+        dir_hint = CaptionLabel(
             "请选择包含 bin 和 data 两个文件夹的最上层文件夹。",
             self,
         )
         dir_hint.setWordWrap(True)
-        dir_hint.setStyleSheet("color:#6B7280;font-size:13px;")
+        dir_hint.setTextColor("#6B7280", "#9CA3AF")
         dir_lay.addWidget(dir_hint)
 
         self.game_root = LineEdit(self)
@@ -120,9 +121,9 @@ class GameDataSettingsPanel(QWidget):
         browse_lay.setContentsMargins(16, 16, 16, 16)
         browse_lay.setSpacing(12)
         browse_lay.addWidget(BodyLabel("浏览游戏数据", self))
-        self._summary = BodyLabel("", self)
+        self._summary = CaptionLabel("", self)
         self._summary.setWordWrap(True)
-        self._summary.setStyleSheet("color:#6B7280;font-size:13px;")
+        self._summary.setTextColor("#6B7280", "#9CA3AF")
         browse_lay.addWidget(self._summary)
 
         row = QHBoxLayout()
@@ -144,12 +145,11 @@ class GameDataSettingsPanel(QWidget):
             row.addWidget(tile, 1)
         browse_lay.addLayout(row)
         layout.addWidget(browse_card)
-        tools_hint = BodyLabel(
+        tools_hint = hint_row(
+            "预览与导出 OGG 依赖外部工具，未安装时会提示。",
             "预览曲绘/立绘需 quicktex 或 compressonatorcli；导出 OGG 需 PyCriCodecsEx 与 ffmpeg。",
             self,
         )
-        tools_hint.setWordWrap(True)
-        tools_hint.setStyleSheet("color:#6B7280;font-size:13px;")
         layout.addWidget(tools_hint)
         layout.setContentsMargins(0, 0, 0, 16)
 

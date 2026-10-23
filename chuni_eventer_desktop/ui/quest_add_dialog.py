@@ -32,6 +32,7 @@ from .event_add_dialog import next_custom_event_id
 from .fluent_dialogs import fly_critical
 from .map_add_dialog import RewardRef, load_chara_refs, load_nameplate_refs, load_trophy_refs
 from .name_glyph_preview import wrap_name_input_with_preview
+from .rich_hint import hint_row
 
 
 def _safe_int(text: str) -> int | None:
@@ -192,15 +193,15 @@ class QuestAddDialog(FluentCaptionDialog):
         info_lay.setContentsMargins(16, 14, 16, 14)
         info_lay.setSpacing(10)
         info_lay.addWidget(BodyLabel("任务信息", self))
-        hint = BodyLabel(self)
-        hint.setWordWrap(True)
-        hint.setText(
-            "统计角色勾选「Chara.xml」中的 name/id；与官方任务里一长串剧情用 ID 不同，"
-            "若你使用的数据包要求其它 ID，生成后可手改 Quest.xml。\n"
-            "奖励 ID：称号 70000000+称号ID；名牌 30000000+名牌ID；角色 50000000+角色/形象ID。"
+        info_lay.addWidget(
+            hint_row(
+                "勾选的角色会写进任务条件；奖励 ID 由程序自动换算。",
+                "统计角色勾选「Chara.xml」中的 name/id；与官方任务里一长串剧情用 ID 不同，"
+                "若你使用的数据包要求其它 ID，生成后可手改 Quest.xml。\n"
+                "奖励 ID：称号 70000000+称号ID；名牌 30000000+名牌ID；角色 50000000+角色/形象ID。",
+                info_card,
+            )
         )
-        hint.setTextColor("#6B7280", "#9CA3AF")
-        info_lay.addWidget(hint)
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         form.addRow("任务 ID", self._id_edit)

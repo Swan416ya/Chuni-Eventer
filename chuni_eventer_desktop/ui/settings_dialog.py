@@ -6,12 +6,19 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
-from qfluentwidgets import BodyLabel, CardWidget, CheckBox, PrimaryPushButton, PushButton
+from qfluentwidgets import (
+    BodyLabel,
+    CaptionLabel,
+    CardWidget,
+    CheckBox,
+    PrimaryPushButton,
+    PushButton,
+)
 
 from ..acus_workspace import AcusConfig, app_cache_dir
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
-from .fluent_dialogs import fly_message
 from .game_data_settings_panel import GameDataSettingsPanel
+from .rich_hint import hint_row
 
 _settings_log_logger: logging.Logger | None = None
 
@@ -55,11 +62,11 @@ class SettingsExperimentalPanel(QWidget):
         self._acus_root = acus_root.resolve()
         self._get_tool_path = get_tool_path
 
-        exp_hint = BodyLabel(
+        exp_hint = CaptionLabel(
             "以下功能不稳定或仅供体验，可能随时调整或移除。正式制谱请优先使用歌曲页的 SwanSite 导入。"
         )
         exp_hint.setWordWrap(True)
-        exp_hint.setStyleSheet("color:#6B7280;font-size:13px;")
+        exp_hint.setTextColor("#6B7280", "#9CA3AF")
 
         pgko_card = CardWidget(self)
         pgko_layout = QVBoxLayout(pgko_card)
@@ -71,7 +78,7 @@ class SettingsExperimentalPanel(QWidget):
             "UGC 直转仅作为实验功能在 UGC 引导页中可见。"
         )
         pgko_hint.setWordWrap(True)
-        pgko_hint.setStyleSheet("color:#b45309;font-size:13px;")
+        pgko_hint.setTextColor("#b45309", "#fbbf24")
         pgko_layout.addWidget(pgko_hint)
         self.pgko_exp_checkbox = CheckBox("启用实验性 UGC 直转入口", self)
         self.pgko_exp_checkbox.setChecked(bool(getattr(cfg, "enable_pgko_ugc_experimental", False)))
@@ -82,13 +89,13 @@ class SettingsExperimentalPanel(QWidget):
         wall_layout.setContentsMargins(16, 16, 16, 16)
         wall_layout.setSpacing(12)
         wall_layout.addWidget(BodyLabel("默认挡板贴图替换（ddsFieldWall0001）", self))
-        wall_hint = BodyLabel(
+        wall_hint = hint_row(
+            "上传图片替换游戏内默认挡板贴图；建议 4:3，可反复替换。",
             "上传一张图片替换游戏内的默认挡板贴图。图片会自动规整为 640×480 并转 BC3 DDS，"
             "写入 ACUS 的 ddsFieldWall/ddsFieldWall0001/，游戏加载时优先读取 ACUS 版本从而覆盖 A000 原版。\n"
-            "建议使用 4:3 比例的图片以获得最佳效果；可反复替换。"
+            "建议使用 4:3 比例的图片以获得最佳效果；可反复替换。",
+            self,
         )
-        wall_hint.setWordWrap(True)
-        wall_hint.setStyleSheet("color:#6B7280;font-size:13px;")
         wall_layout.addWidget(wall_hint)
         wall_open = PushButton("选择图片替换默认挡板…", self)
         wall_open.clicked.connect(self._open_field_wall)

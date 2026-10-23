@@ -22,6 +22,7 @@ from ..dds_convert import DdsToolError, ingest_to_bc1_dds
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message
 from .name_glyph_preview import wrap_name_input_with_preview
+from .rich_hint import hint_row
 
 
 PROMO_WIDTH = 1152
@@ -95,15 +96,15 @@ class EventAddDialog(FluentCaptionDialog):
         main_lay.setContentsMargins(16, 14, 16, 14)
         main_lay.setSpacing(10)
         main_lay.addWidget(BodyLabel("宣传事件", self))
-        hint = BodyLabel(self)
-        hint.setWordWrap(True)
-        hint.setText(
-            "宣传图要求：1152 × 648 像素。\n"
-            "可上传图片（将转 BC1 DDS）或直接上传 DDS（必须 BC1/DXT1）。\n"
-            "事件结构与官方「Collaboration 告知」一致：substances/type=1，informationDispType=3。"
+        main_lay.addWidget(
+            hint_row(
+                "宣传图需 1152×648；事件结构按官方「告知」格式写入。",
+                "宣传图要求：1152 × 648 像素。\n"
+                "可上传图片（将转 BC1 DDS）或直接上传 DDS（必须 BC1/DXT1）。\n"
+                "事件结构与官方「Collaboration 告知」一致：substances/type=1，informationDispType=3。",
+                main_card,
+            )
         )
-        hint.setTextColor("#6B7280", "#9CA3AF")
-        main_lay.addWidget(hint)
 
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)

@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
 
 from qfluentwidgets import (
     BodyLabel,
+    CaptionLabel,
     CardWidget,
     CheckBox,
     ComboBox as FluentComboBox,
@@ -50,6 +51,7 @@ from .fluent_dialogs import (
     safe_dismiss_modal_progress_dialog,
 )
 from .fluent_table import apply_fluent_sheet_table
+from .rich_hint import hint_row
 
 from ..dds_convert import DdsToolError, ingest_to_bc1_dds
 from ..game_data_index import (
@@ -607,10 +609,10 @@ class CellEditDialog(FluentCaptionDialog):
         for m in music_refs:
             self.music_pick.addItem(f"{m.id} | {m.name}", None, m.id)
 
-        self.warn_reward = QLabel("")
-        self.warn_reward.setStyleSheet("color:#DC2626;")
-        self.warn_music = QLabel("")
-        self.warn_music.setStyleSheet("color:#DC2626;")
+        self.warn_reward = BodyLabel("")
+        self.warn_reward.setTextColor("#DC2626", "#F87171")
+        self.warn_music = BodyLabel("")
+        self.warn_music.setTextColor("#DC2626", "#F87171")
 
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
@@ -641,8 +643,8 @@ class CellEditDialog(FluentCaptionDialog):
         layout.setContentsMargins(*fluent_caption_content_margins())
         layout.setSpacing(12)
         layout.addLayout(form)
-        glyph_warn = QLabel("提示：所有名称字段请尽量使用日语字库内字符；超出字库的汉字在游戏内可能无法显示。")
-        glyph_warn.setStyleSheet("color:#B45309;")
+        glyph_warn = CaptionLabel("提示：所有名称字段请尽量使用日语字库内字符；超出字库的汉字在游戏内可能无法显示。")
+        glyph_warn.setTextColor("#B45309", "#FBBF24")
         layout.addWidget(glyph_warn)
         layout.addLayout(btns)
 
@@ -1033,8 +1035,8 @@ class AreaExtrasDialog(FluentCaptionDialog):
         lay.setContentsMargins(*fluent_caption_content_margins())
         lay.setSpacing(12)
         lay.addLayout(form)
-        glyph_warn = QLabel("提示：reward 名称/乐曲名称请尽量使用日语字库内字符；超出字库的汉字在游戏内可能无法显示。")
-        glyph_warn.setStyleSheet("color:#B45309;")
+        glyph_warn = CaptionLabel("提示：reward 名称/乐曲名称请尽量使用日语字库内字符；超出字库的汉字在游戏内可能无法显示。")
+        glyph_warn.setTextColor("#B45309", "#FBBF24")
         lay.addWidget(glyph_warn)
         lay.addLayout(btns)
 
@@ -1129,14 +1131,19 @@ class AreaPageMetaDialog(FluentCaptionDialog):
         self._dds_refs = dds_refs
         self._show_dds = show_dds
 
-        hint = QLabel(
-            "ddsMapName：地图格背景贴图，与 **Map.xml → MapDataAreaInfo** 绑定（每格可不同）。\n"
-            "对应资源在 ACUS/ddsMap/ddsMapXXXXXXXX/DDSMap.xml；此处填其 name.id / name.str。"
+        hint = hint_row(
+            "地图格背景贴图，每格可单独指定。"
             if show_dds
-            else "pageIndex / indexInPage：地图分页九宫格位置；gauge / isHard 等写入 Map.xml 的 MapDataAreaInfo。"
+            else "地图格在分页九宫格里的位置。",
+            (
+                "ddsMapName：地图格背景贴图，与 Map.xml → MapDataAreaInfo 绑定（每格可不同）。\n"
+                "对应资源在 ACUS/ddsMap/ddsMapXXXXXXXX/DDSMap.xml；此处填其 name.id / name.str。"
+                if show_dds
+                else "pageIndex / indexInPage：地图分页九宫格位置；"
+                "gauge / isHard 等写入 Map.xml 的 MapDataAreaInfo。"
+            ),
+            self,
         )
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color:#374151; font-size: 12px;")
 
         self.page_index = LineEdit(self)
         self.page_index.setText(str(meta.page_index))
@@ -1838,13 +1845,16 @@ class DdsMapCreateDialog(FluentCaptionDialog):
         hl.addWidget(br)
         hl.addWidget(crop_btn)
 
-        hint = QLabel(
-            f"贴图将自动缩放并裁切为 **{MAP_DDS_WIDTH}×{MAP_DDS_HEIGHT}** 像素（与游戏地图格背景常见规格一致），再编码为 BC1 DDS。\n"
-            "若直接上传 `.dds` 则不会重编码，会直接写入（必须是 BC1/DXT1）。\n"
-            f"ID 自动分配为 **7xxxxxxx**，与官方小包 id 错开。"
+        hint = hint_row(
+            f"贴图会自动缩放裁切为 {MAP_DDS_WIDTH}×{MAP_DDS_HEIGHT}，再转 BC1 DDS。",
+            (
+                f"贴图将自动缩放并裁切为 {MAP_DDS_WIDTH}×{MAP_DDS_HEIGHT} 像素"
+                "（与游戏地图格背景常见规格一致），再编码为 BC1 DDS。\n"
+                "若直接上传 .dds 则不会重编码，会直接写入（必须是 BC1/DXT1）。\n"
+                "ID 自动分配为 7xxxxxxx，与官方小包 id 错开。"
+            ),
+            self,
         )
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color:#374151; font-size: 12px;")
 
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)

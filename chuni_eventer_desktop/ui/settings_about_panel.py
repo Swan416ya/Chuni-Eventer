@@ -7,7 +7,7 @@ from PyQt6.QtGui import QColor, QDesktopServices, QMouseEvent, QPainter, QPixmap
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import QLabel, QHBoxLayout, QVBoxLayout, QWidget
 
-from qfluentwidgets import BodyLabel, SubtitleLabel, isDarkTheme
+from qfluentwidgets import BodyLabel, CaptionLabel, SubtitleLabel, isDarkTheme
 
 from ..github_release import (
     LatestReleaseInfo,
@@ -106,9 +106,8 @@ class _AboutLinkTile(QWidget):
         logo.setPixmap(icon)
         logo.setFixedHeight(_LINK_LOGO_H + 4)
 
-        self._caption = BodyLabel(caption, self)
+        self._caption = CaptionLabel(caption, self)
         self._caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._caption.setStyleSheet("font-size:12px;")
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(4, 0, 4, 0)
@@ -152,7 +151,7 @@ class SettingsAboutPanel(QWidget):
 
         self._version_lbl = BodyLabel(f"v{APP_VERSION}（正在检查…）", self)
         self._version_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._version_lbl.setStyleSheet("font-size:14px;color:#6B7280;")
+        self._version_lbl.setTextColor("#6B7280", "#9CA3AF")
 
         links_row = QHBoxLayout()
         links_row.setSpacing(20)
@@ -257,21 +256,21 @@ class SettingsAboutPanel(QWidget):
         self._version_state = state
         if state == "checking":
             self._version_lbl.setText(f"v{APP_VERSION}（正在检查…）")
-            self._version_lbl.setStyleSheet("font-size:14px;color:#6B7280;")
+            self._version_lbl.setTextColor("#6B7280", "#9CA3AF")
             self._version_lbl.setCursor(Qt.CursorShape.ArrowCursor)
         elif state == "latest":
             self._version_lbl.setText(f"v{APP_VERSION}（已是最新）")
-            self._version_lbl.setStyleSheet("font-size:14px;")
+            self._version_lbl.setTextColor()
             self._version_lbl.setCursor(Qt.CursorShape.ArrowCursor)
         elif state == "outdated":
             self._version_lbl.setText(f"v{APP_VERSION}（点击更新）")
-            self._version_lbl.setStyleSheet("font-size:14px;color:#CA8A04;")
+            self._version_lbl.setTextColor("#CA8A04", "#FACC15")
             self._version_lbl.setCursor(Qt.CursorShape.PointingHandCursor)
         elif state == "dev":
             self._version_lbl.setText(f"v{APP_VERSION}（开发构建）")
-            self._version_lbl.setStyleSheet("font-size:14px;color:#6B7280;")
+            self._version_lbl.setTextColor("#6B7280", "#9CA3AF")
             self._version_lbl.setCursor(Qt.CursorShape.ArrowCursor)
         else:
             self._version_lbl.setText(f"v{APP_VERSION}（无法检查更新）")
-            self._version_lbl.setStyleSheet("font-size:14px;color:#9CA3AF;")
+            self._version_lbl.setTextColor("#9CA3AF", "#D1D5DB")
             self._version_lbl.setCursor(Qt.CursorShape.ArrowCursor)

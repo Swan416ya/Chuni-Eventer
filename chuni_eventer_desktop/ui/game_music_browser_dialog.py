@@ -6,13 +6,12 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
-    QLabel,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
 )
 
-from qfluentwidgets import BodyLabel, CardWidget, ComboBox as FluentComboBox, LineEdit, PrimaryPushButton, PushButton
+from qfluentwidgets import CaptionLabel, CardWidget, ComboBox as FluentComboBox, LineEdit, PrimaryPushButton, PushButton
 
 from ..game_data_assets import resolve_catalog_xml_path, set_default_have_in_xml
 from ..game_data_index import (
@@ -26,6 +25,7 @@ from ..game_data_index import (
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_table import apply_fluent_sheet_table, set_default_have_cell
 from .fluent_dialogs import fly_critical, fly_warning
+from .rich_hint import hint_row
 
 
 class GameMusicBrowserDialog(FluentCaptionDialog):
@@ -47,13 +47,13 @@ class GameMusicBrowserDialog(FluentCaptionDialog):
         self._rows: list[dict] = []
         self._populating_table = False
 
-        hint = BodyLabel(
+        hint = hint_row(
+            "列表来自游戏目录下所有已扫描数据包；为空请重新扫描索引。",
             "数据来自游戏目录下所有已扫描数据包（如 data/a000/opt/*、bin/option/A*）。"
             "若列表为空或不全，请在【设置】中配置游戏根目录并点击「重新扫描游戏索引」。"
             "勾选「强制解锁」会写回 Music.xml 的 defaultHave。",
             self,
         )
-        hint.setWordWrap(True)
 
         self._filter_tag = FluentComboBox(self)
         self._filter_tag.addItem("全部版本", None, None)
@@ -65,9 +65,9 @@ class GameMusicBrowserDialog(FluentCaptionDialog):
 
         fl = QHBoxLayout()
         fl.setSpacing(8)
-        fl.addWidget(QLabel("版本 ID"))
+        fl.addWidget(CaptionLabel("版本 ID", self))
         fl.addWidget(self._filter_tag, stretch=1)
-        fl.addWidget(QLabel("流派"))
+        fl.addWidget(CaptionLabel("流派", self))
         fl.addWidget(self._filter_genre, stretch=1)
         fl.addWidget(self._search, stretch=2)
 

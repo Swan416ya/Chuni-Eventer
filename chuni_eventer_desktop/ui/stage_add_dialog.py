@@ -12,6 +12,7 @@ from ..dds_convert import DdsToolError
 from ..stage_from_image import StageAfbToolError, StageCreateOptions, create_stage_from_image
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message
+from .rich_hint import hint_row
 
 
 def _safe_int(text: str) -> int | None:
@@ -104,22 +105,23 @@ class StageAddDialog(FluentCaptionDialog):
         form.addRow("判定线颜色", self.line_combo)
         cly.addLayout(form)
 
-        hint = BodyLabel(
-            "规则：输入背景图必须是 1920x1080；\n"
-            "1) AFB 生成会直接使用原始 1920x1080 图走外部 convert_stage 工具链；\n"
-            "2) 背景图会按 960x540 + 顶部 450 裁切覆盖 + 轨道半透明图叠加后，再转 BC3 DDS。"
+        cly.addWidget(
+            hint_row(
+                "输入 1920×1080 背景图，自动生成 Stage 与预览。",
+                "规则：输入背景图必须是 1920x1080；\n"
+                "1) AFB 生成会直接使用原始 1920x1080 图走外部 convert_stage 工具链；\n"
+                "2) 背景图会按 960x540 + 顶部 450 裁切覆盖 + 轨道半透明图叠加后，再转 BC3 DDS。",
+                card,
+            )
         )
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color:#6b7280;")
-        cly.addWidget(hint)
         self._preview_hint = BodyLabel("预览：选择背景图后会叠加 Stage Layout 引导图")
-        self._preview_hint.setStyleSheet("color:#6b7280;")
+        self._preview_hint.setTextColor("#6B7280", "#9CA3AF")
         cly.addWidget(self._preview_hint)
         self._preview_label = BodyLabel("")
         self._preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._preview_label.setMinimumSize(480, 270)
         self._preview_label.setStyleSheet(
-            "background:#0b1220;border:1px solid rgba(148,163,184,0.35);border-radius:8px;"
+            "border:1px solid rgba(148,163,184,0.35);border-radius:8px;"
         )
         cly.addWidget(self._preview_label)
 

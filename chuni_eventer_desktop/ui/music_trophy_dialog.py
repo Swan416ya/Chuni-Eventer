@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout
+from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout
 
 from qfluentwidgets import BodyLabel, ComboBox as FluentComboBox, PrimaryPushButton, PushButton
 
@@ -16,6 +16,7 @@ from ..music_trophy_xml import (
 )
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
+from .rich_hint import hint_row
 
 
 class MusicTrophyDialog(FluentCaptionDialog):
@@ -39,9 +40,12 @@ class MusicTrophyDialog(FluentCaptionDialog):
 
         self._combo = FluentComboBox(self)
         self._combo.setMinimumWidth(420)
-        self._hint = BodyLabel(self)
-        self._hint.setWordWrap(True)
-        self._hint.setTextColor("#6B7280", "#9CA3AF")
+        self._hint = hint_row(
+            "按官方条件写法生成对应难度的课题称号。",
+            "条件写法对齐官方：Expert/Master 为条件 type 1（指定难度通关）+ type 3（ALL JUSTICE）；"
+            "Ultima 为 type 10 + musicData。无 Ultima 谱面的曲目不会启用 Ultima 按钮。",
+            self,
+        )
 
         self._reload_combo(preselect)
 
@@ -70,7 +74,7 @@ class MusicTrophyDialog(FluentCaptionDialog):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(*fluent_caption_content_margins())
         lay.setSpacing(12)
-        lay.addWidget(QLabel("选择乐曲"))
+        lay.addWidget(BodyLabel("选择乐曲", self))
         lay.addWidget(self._combo)
         lay.addWidget(self._hint)
         lay.addLayout(row1)
@@ -94,10 +98,6 @@ class MusicTrophyDialog(FluentCaptionDialog):
                 sel_idx = i
         if items:
             self._combo.setCurrentIndex(sel_idx)
-        self._hint.setText(
-            "条件写法对齐官方：Expert/Master 为条件 type 1（指定难度通关）+ type 3（ALL JUSTICE）；"
-            "Ultima 为 type 10 + musicData。无 Ultima 谱面的曲目不会启用 Ultima 按钮。"
-        )
 
     def _sync_ultima_btn(self) -> None:
         m = self._current_music()
