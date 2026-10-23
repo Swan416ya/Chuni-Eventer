@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 from pathlib import Path
 
-from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QFont, QPainter, QPen, QPixmap, QLinearGradient
+from PyQt6.QtCore import QPointF, QRectF, Qt, QThread, pyqtSignal
+from PyQt6.QtGui import QBrush, QColor, QCloseEvent, QFont, QPainter, QPen, QPixmap, QLinearGradient
 from PyQt6.QtWidgets import (
     QFileDialog,
     QFormLayout,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
+    QSizePolicy,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -24,11 +28,17 @@ from qfluentwidgets import (
     LineEdit,
     PrimaryPushButton,
     PushButton,
+    SegmentedWidget,
     SpinBox,
 )
 
 from ..acus_scan import scan_charas, scan_system_voices
-from ..dds_convert import DdsToolError, ingest_to_bc3_dds
+from ..dds_convert import ingest_to_bc3_dds
+from ..gif_mate import (
+    GifMateCreateRequest,
+    create_gif_mate,
+    find_gif_mate_template,
+)
 from ..psb_action_assigner import (
     PsbActionAssigner,
     PsbActionData,
@@ -45,6 +55,24 @@ from .mate_preview_dialog import MatePreviewDialog
 # ---------------------------------------------------------------------------
 
 LOLICOUNT_API_BASE = "https://lolicount.top"
+
+
+class _TaskWorker(QThread):
+    """Run a long conversion without blocking the modal window's event loop."""
+
+    done = pyqtSignal(object)
+    failed = pyqtSignal(str)
+    progress = pyqtSignal(str)
+
+    def __init__(self, task, parent=None) -> None:
+        super().__init__(parent)
+        self._task = task
+
+    def run(self) -> None:  # noqa: D102
+        try:
+            self.done.emit(self._task(self.progress.emit))
+        except Exception as exc:  # noqa: BLE001
+            self.failed.emit(f"{type(exc).__name__}: {exc}")
 
 
 class _LolicountClient:
@@ -105,6 +133,7 @@ class MatePositionPreview(QWidget):
         self._pos_x = 1
         self._pos_y = -50
         self._scale = 6000
+        self._source_height = 1080
         self._dragging = False
         self._drag_offset = QPointF()
         self.setMinimumSize(480, 270)
@@ -130,9 +159,14 @@ class MatePositionPreview(QWidget):
             self._chara = None
         self.update()
 
+    def set_source_height(self, height: int) -> None:
+        """Set source texture height so the game-scale preview stays calibrated."""
+        self._source_height = max(1, height)
+        self.update()
+
     def chara_rect(self) -> QRectF:
         """角色在 1920x1080 逻辑坐标里的矩形。"""
-        h = self._scale * _CHARA_H_PER_SCALE
+        h = self._scale * _CHARA_H_PER_SCALE * self._source_height / 1080
         bottom = _LOGICAL_H + self._pos_y
         cx = _CHARA_BASE_X + self._pos_x * _CHARA_X_PER_POS
         if self._chara is not None and not self._chara.isNull():
@@ -286,35 +320,52 @@ class MatePositionPreview(QWidget):
 
 
 class PsbActionDialog(FluentCaptionDialog):
-    """PSB → mate 全流程对话框。"""
+    """Create a Mate from a GIF or an existing PSB model."""
 
     def __init__(self, *, acus_root: Path, freemote_dir: Path, mate_id: int,
                  chara_id: int = 80000, get_tool_path=None, parent=None) -> None:
         super().__init__(parent=parent)
-        self.setWindowTitle("新增伴侣（PSB 导入）")
+        self.setWindowTitle("新增伴侣")
         self.setModal(True)
-        self.resize(1240, 820)
+        self.resize(980, 650)
 
         self._acus_root = acus_root
         self._freemote_dir = freemote_dir
         self._mate_id = mate_id
         self._assigner = PsbActionAssigner(freemote_dir)
         self._psb_data: PsbActionData | None = None
-        self._work_dir: Path | None = None
         self._psb_path: Path | None = None
         self._get_tool_path = get_tool_path
         self._preview_png: Path | None = None
         self._fetch_thread = None
+        self._build_thread = None
 
         # ---- 控件 ----
         self.psb_path_edit = LineEdit(self)
         self.psb_path_edit.setPlaceholderText("选择本地 PSB 文件")
+        self.gif_path_edit = LineEdit(self)
+        self.gif_path_edit.setPlaceholderText("选择一张动态 GIF")
+        self.gif_template_edit = LineEdit(self)
+        self.gif_template_edit.setReadOnly(True)
+        template = find_gif_mate_template(self._acus_root)
+        if template:
+            self.gif_template_edit.setText(str(template))
+        else:
+            self.gif_template_edit.setPlaceholderText("ACUS 中没有可复用的 Mate，请手动选择 emtbytes")
+        self.gif_fps_spin = SpinBox(self)
+        self.gif_fps_spin.setRange(1, 30)
+        self.gif_fps_spin.setValue(10)
+        self.gif_height_combo = FluentComboBox(self)
+        for height in (256, 320, 384, 512):
+            self.gif_height_combo.addItem(f"{height} px", userData=height)
+        self.gif_height_combo.setCurrentIndex(2)
         self.name_edit = LineEdit(self)
         self.name_edit.setPlaceholderText("伴侣显示名，例如 アズキ")
         self.mate_id_edit = SpinBox(self)
         self.mate_id_edit.setRange(1, 999999)
         self.mate_id_edit.setValue(mate_id)
         self.chara_combo = FluentComboBox(self)
+        self.chara_combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self._reload_charas(prefer_id=chara_id)
         chara_row = QWidget(self)
         ch_h = QHBoxLayout(chara_row)
@@ -332,7 +383,7 @@ class PsbActionDialog(FluentCaptionDialog):
         self.pos_y_spin.setRange(-1000, 500)
         self.pos_y_spin.setValue(-50)
         self.scale_spin = SpinBox(self)
-        self.scale_spin.setRange(1000, 20000)
+        self.scale_spin.setRange(1000, 40000)
         self.scale_spin.setValue(6000)
 
         self.preview = MatePositionPreview(self)
@@ -380,7 +431,58 @@ class PsbActionDialog(FluentCaptionDialog):
         src_lay = QVBoxLayout(src_card)
         src_lay.setContentsMargins(16, 12, 16, 12)
         src_lay.setSpacing(8)
-        src_lay.addWidget(BodyLabel("① PSB 来源", self))
+        src_lay.addWidget(BodyLabel("① 选择素材", self))
+        self._source_segment = SegmentedWidget(self)
+        self._source_segment.addItem("gif", "GIF 动画")
+        self._source_segment.addItem("psb", "PSB 模型")
+        self._source_segment.setCurrentItem("gif")
+        src_lay.addWidget(self._source_segment)
+
+        self._source_stack = QStackedWidget(self)
+
+        gif_panel = QWidget(self)
+        gif_lay = QVBoxLayout(gif_panel)
+        gif_lay.setContentsMargins(0, 4, 0, 0)
+        gif_lay.setSpacing(8)
+        gif_row = QWidget(gif_panel)
+        gif_h = QHBoxLayout(gif_row)
+        gif_h.setContentsMargins(0, 0, 0, 0)
+        gif_h.setSpacing(8)
+        gif_h.addWidget(self.gif_path_edit, stretch=1)
+        gif_browse = PushButton("选择 GIF…", gif_panel)
+        gif_browse.clicked.connect(self._browse_gif)
+        gif_h.addWidget(gif_browse)
+        gif_lay.addWidget(gif_row)
+        template_row = QWidget(gif_panel)
+        template_h = QHBoxLayout(template_row)
+        template_h.setContentsMargins(0, 0, 0, 0)
+        template_h.setSpacing(8)
+        template_h.addWidget(QLabel("动画模板", gif_panel))
+        template_h.addWidget(self.gif_template_edit, stretch=1)
+        template_browse = PushButton("更换…", gif_panel)
+        template_browse.clicked.connect(self._browse_gif_template)
+        template_h.addWidget(template_browse)
+        gif_lay.addWidget(template_row)
+        gif_options = QHBoxLayout()
+        gif_options.addWidget(QLabel("采样帧率", gif_panel))
+        gif_options.addWidget(self.gif_fps_spin)
+        gif_options.addSpacing(16)
+        gif_options.addWidget(QLabel("角色清晰度", gif_panel))
+        gif_options.addWidget(self.gif_height_combo)
+        gif_options.addStretch(1)
+        gif_lay.addLayout(gif_options)
+        gif_tip = CaptionLabel(
+            "请选择透明背景 GIF；系统会自动裁边、生成图标，并把全部 18 个动作映射为循环（最多 120 帧）。",
+            gif_panel,
+        )
+        gif_tip.setWordWrap(True)
+        gif_lay.addWidget(gif_tip)
+        self._source_stack.addWidget(gif_panel)
+
+        psb_panel = QWidget(self)
+        psb_lay = QVBoxLayout(psb_panel)
+        psb_lay.setContentsMargins(0, 4, 0, 0)
+        psb_lay.setSpacing(8)
         psb_row = QWidget(self)
         pr_h = QHBoxLayout(psb_row)
         pr_h.setContentsMargins(0, 0, 0, 0)
@@ -392,12 +494,13 @@ class PsbActionDialog(FluentCaptionDialog):
         load_btn = PrimaryPushButton("解析", self)
         load_btn.clicked.connect(self._load_psb)
         pr_h.addWidget(load_btn)
-        src_lay.addWidget(psb_row)
+        psb_lay.addWidget(psb_row)
         url_row = QWidget(self)
         ur_h = QHBoxLayout(url_row)
         ur_h.setContentsMargins(0, 0, 0, 0)
         ur_h.setSpacing(8)
         self.model_combo = FluentComboBox(self)
+        self.model_combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self.model_combo.addItem("（点击「获取列表」从 lolicount 拉取在线模型）", userData="")
         ur_h.addWidget(self.model_combo, stretch=1)
         refresh_btn = PushButton("获取列表", self)
@@ -406,37 +509,64 @@ class PsbActionDialog(FluentCaptionDialog):
         dl_btn = PushButton("下载并解析", self)
         dl_btn.clicked.connect(self._download_online)
         ur_h.addWidget(dl_btn)
-        src_lay.addWidget(url_row)
-        self.voice_combo = FluentComboBox(self)
-        self._reload_voices()
-        info_form = QFormLayout()
-        info_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        info_form.addRow("伴侣显示名", self.name_edit)
-        info_form.addRow("Mate ID", self.mate_id_edit)
-        info_form.addRow("关联角色 Chara", chara_row)
-        info_form.addRow("系统语音 SystemVoice", self.voice_combo)
-        src_lay.addLayout(info_form)
-        src_lay.addWidget(CaptionLabel(
-            "伴侣在游戏内的名字/立绘来自关联角色：可选现有角色，或点「新建…」先建一个角色再回来选。", self))
-        src_lay.addWidget(CaptionLabel(
-            "系统语音决定语音包（无语音模型选「不绑定」即可，官方イクシア同款填法）；不提供在此新增。", self))
-        src_lay.addWidget(CaptionLabel(
-            "解析后自动列出模型内全部动作（主/差分），并按官方模板预分配；可手动调整每个槽。", self))
-        layout.addWidget(src_card)
+        psb_lay.addWidget(url_row)
+        psb_tip = CaptionLabel(
+            "解析后才显示位置预览和动作匹配；可使用本地模型，也可从在线仓库获取。",
+            psb_panel,
+        )
+        psb_tip.setWordWrap(True)
+        psb_lay.addWidget(psb_tip)
+        self._source_stack.addWidget(psb_panel)
+        src_lay.addWidget(self._source_stack)
 
-        mid = QHBoxLayout()
+        info_card = CardWidget(self)
+        info_lay = QVBoxLayout(info_card)
+        info_lay.setContentsMargins(16, 12, 16, 12)
+        info_lay.setSpacing(8)
+        info_lay.addWidget(BodyLabel("② 伴侣信息", self))
+        self.voice_combo = FluentComboBox(self)
+        self.voice_combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self._reload_voices()
+        info_grid = QGridLayout()
+        info_grid.setHorizontalSpacing(10)
+        info_grid.setVerticalSpacing(8)
+        info_grid.addWidget(QLabel("伴侣显示名", self), 0, 0)
+        info_grid.addWidget(self.name_edit, 0, 1)
+        info_grid.addWidget(QLabel("Mate ID", self), 0, 2)
+        info_grid.addWidget(self.mate_id_edit, 0, 3)
+        info_grid.addWidget(QLabel("关联角色", self), 1, 0)
+        info_grid.addWidget(chara_row, 1, 1)
+        info_grid.addWidget(QLabel("系统语音", self), 1, 2)
+        info_grid.addWidget(self.voice_combo, 1, 3)
+        info_grid.setColumnStretch(1, 3)
+        info_grid.setColumnStretch(3, 2)
+        info_lay.addLayout(info_grid)
+        info_lay.addWidget(CaptionLabel(
+            "伴侣在游戏内的名字/立绘来自关联角色：可选现有角色，或点「新建…」先建一个角色再回来选。", self))
+        layout.addWidget(src_card)
+        self._source_card = src_card
+        layout.addWidget(info_card)
+
+        self._details_host = QWidget(self)
+        mid = QHBoxLayout(self._details_host)
+        mid.setContentsMargins(0, 0, 0, 0)
         # 左: 预览
         prev_card = CardWidget(self)
         pv_lay = QVBoxLayout(prev_card)
         pv_lay.setContentsMargins(16, 12, 16, 12)
         pv_lay.setSpacing(8)
-        pv_lay.addWidget(BodyLabel("② 位置预览（拖动角色调整，或用右侧数值）", self))
+        detail_head = QHBoxLayout()
+        detail_head.addWidget(BodyLabel("③ 位置与动作（拖动角色即可调整）", self), stretch=1)
+        edit_source_btn = PushButton("更换素材", self)
+        edit_source_btn.clicked.connect(self._show_source_editor)
+        detail_head.addWidget(edit_source_btn)
+        pv_lay.addLayout(detail_head)
         self.preview.positionChanged.connect(self._on_preview_drag)
         pv_lay.addWidget(self.preview, stretch=1)
         bg_row = QHBoxLayout()
-        preview_btn = PushButton("生成预览图…", self)
-        preview_btn.clicked.connect(self._make_preview_icon)
-        bg_row.addWidget(preview_btn)
+        self._preview_btn = PushButton("生成图标…", self)
+        self._preview_btn.clicked.connect(self._make_preview_icon)
+        bg_row.addWidget(self._preview_btn)
         self._preview_status = CaptionLabel("图标：未生成（生成伴侣时若无预览图则跳过图标）", self)
         bg_row.addWidget(self._preview_status, stretch=1)
         bg_btn = PushButton("加载游戏截图做背景…", self)
@@ -456,26 +586,94 @@ class PsbActionDialog(FluentCaptionDialog):
 
         mid.addWidget(prev_card, stretch=3)
         mid.addWidget(core_host, stretch=2)
-        layout.addLayout(mid, stretch=1)
+        self._core_host = core_host
+        layout.addWidget(self._details_host, stretch=1)
 
         btns = QHBoxLayout()
         self._status = CaptionLabel("", self)
         btns.addWidget(self._status, stretch=1)
-        cancel = PushButton("取消", self)
-        cancel.clicked.connect(self.reject)
-        gen = PrimaryPushButton("生成并写入 ACUS", self)
-        gen.clicked.connect(self._generate)
-        btns.addWidget(cancel)
-        btns.addWidget(gen)
+        self._cancel_btn = PushButton("取消", self)
+        self._cancel_btn.clicked.connect(self.reject)
+        self._generate_btn = PrimaryPushButton("从 GIF 生成并写入 ACUS", self)
+        self._generate_btn.clicked.connect(self._generate)
+        btns.addWidget(self._cancel_btn)
+        btns.addWidget(self._generate_btn)
         layout.addLayout(btns)
 
         self._bind_slots()
+        self._source_segment.currentItemChanged.connect(self._on_source_mode_changed)
+        self.gif_height_combo.currentIndexChanged.connect(self._update_gif_scale)
+        self.gif_path_edit.editingFinished.connect(self._prepare_gif_preview)
+        self._on_source_mode_changed("gif")
 
     # ---- 槽分配联动 --------------------------------------------------------
 
     def _bind_slots(self) -> None:
         for combo in self.core_combos.values():
             combo.currentIndexChanged.connect(self._on_slot_changed)
+
+    def _source_mode(self) -> str:
+        return "gif" if self._source_stack.currentIndex() == 0 else "psb"
+
+    def _on_source_mode_changed(self, route_key: str) -> None:
+        is_gif = route_key == "gif"
+        self._source_stack.setCurrentIndex(0 if is_gif else 1)
+        self._core_host.setVisible(not is_gif)
+        self._preview_btn.setVisible(not is_gif)
+        self._preview_status.setText(
+            "图标：自动使用 GIF 首帧生成"
+            if is_gif
+            else "图标：未生成（可选；也可稍后手动补入）"
+        )
+        self._source_card.show()
+        self._details_host.hide()
+        self._generate_btn.setText(
+            "从 GIF 生成并写入 ACUS" if is_gif else "从 PSB 生成并写入 ACUS"
+        )
+
+    def _show_source_editor(self) -> None:
+        self._details_host.hide()
+        self._source_card.show()
+        self.resize(max(980, self.minimumSizeHint().width()), 650)
+
+    def _browse_gif(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "选择动态 GIF", "", "GIF 动画 (*.gif)")
+        if not path:
+            return
+        self.gif_path_edit.setText(path)
+        self._prepare_gif_preview()
+
+    def _prepare_gif_preview(self) -> None:
+        path = self.gif_path_edit.text().strip()
+        if not Path(path).is_file():
+            return
+        pixmap = QPixmap(path)
+        if pixmap.isNull():
+            fly_critical(self.window(), "无法读取", "所选文件不是可读取的 GIF")
+            return
+        self.preview.set_chara_image(Path(path))
+        self._update_gif_scale()
+        self._source_card.hide()
+        self._details_host.show()
+        if self.height() < 780:
+            self.resize(max(self.width(), 1120), 820)
+        self._status.setText("GIF 已就绪；确认伴侣信息和位置后即可生成")
+
+    def _browse_gif_template(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择一个现有 Mate 动画作为模板",
+            str(self._acus_root / "mate"),
+            "E-mote 动画 (*.emtbytes *.psb);;全部文件 (*)",
+        )
+        if path:
+            self.gif_template_edit.setText(path)
+
+    def _update_gif_scale(self) -> None:
+        target_height = int(self.gif_height_combo.currentData() or 384)
+        self.preview.set_source_height(target_height)
+        recommended = round(900 * 1080 / (_CHARA_H_PER_SCALE * target_height))
+        self.scale_spin.setValue(max(self.scale_spin.minimum(), min(40000, recommended)))
 
     def _on_slot_changed(self, _idx: int) -> None:
         chosen = "、".join(
@@ -530,10 +728,23 @@ class PsbActionDialog(FluentCaptionDialog):
         return int(cid), str(cname), str(key)
 
     def reject(self) -> None:  # noqa: D102
-        if self._fetch_thread is not None and self._fetch_thread.isRunning():
-            self._status.setText("正在下载/解析模型，完成后才能关闭。")
+        if self._is_busy():
+            self._status.setText("正在处理素材，完成后即可关闭；窗口仍可正常移动和刷新。")
             return
         super().reject()
+
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
+        if self._is_busy():
+            event.ignore()
+            self._status.setText("正在处理素材，完成后即可关闭；不会在后台留下隐藏窗口。")
+            return
+        super().closeEvent(event)
+
+    def _is_busy(self) -> bool:
+        return any(
+            thread is not None and thread.isRunning()
+            for thread in (self._fetch_thread, self._build_thread)
+        )
 
     # ---- 系统语音 ----------------------------------------------------------
 
@@ -601,8 +812,6 @@ class PsbActionDialog(FluentCaptionDialog):
 
     def _run_fetch(self, start_msg: str, step_download, running_msg) -> None:
         """后台执行 下载(可选)+解包；完成后回主线程填充 UI。"""
-        from PyQt6.QtCore import QThread
-
         if self._fetch_thread is not None and self._fetch_thread.isRunning():
             self._status.setText("上一次解析还在进行中，请稍候…")
             return
@@ -625,7 +834,6 @@ class PsbActionDialog(FluentCaptionDialog):
                 except Exception as e:  # noqa: BLE001
                     self.failed.emit(f"{type(e).__name__}: {e}")
 
-        self.setEnabled(False)
         self._status.setText(start_msg)
         w = _Worker(self)
         self._fetch_thread = w
@@ -642,7 +850,7 @@ class PsbActionDialog(FluentCaptionDialog):
 
         w.done.connect(_on_done)
         w.failed.connect(_on_fail)
-        w.finished.connect(lambda: (self.setEnabled(True), setattr(self, "_fetch_thread", None)))
+        w.finished.connect(lambda: setattr(self, "_fetch_thread", None))
         w.start()
 
     def _finish_load(self) -> None:
@@ -658,11 +866,19 @@ class PsbActionDialog(FluentCaptionDialog):
             while combo.count() > 1:
                 combo.removeItem(1)
             for tl in self._psb_data.timelines:
+                if tl.label.strip().startswith("-----"):
+                    continue
                 tag = "主" if tl.diff == 0 else "差"
                 combo.addItem(f"[{tag}] {tl.label}", userData=tl.label)
 
         self._apply_template()
-        self.preview.set_chara_image(None)
+        if self._source_mode() == "psb":
+            self.preview.set_source_height(1080)
+            self.preview.set_chara_image(None)
+            self._source_card.hide()
+            self._details_host.show()
+            if self.height() < 780:
+                self.resize(max(self.width(), 1120), 820)
         self._status.setText(
             f"平台 {self._psb_data.platform} · 主 {len(self._psb_data.main_timelines)} 条 / "
             f"差分 {len(self._psb_data.diff_timelines)} 条 — 已按官方模板预分配，可手动微调")
@@ -722,14 +938,81 @@ class PsbActionDialog(FluentCaptionDialog):
     # ---- 生成部署 ----------------------------------------------------------
 
     def _generate(self) -> None:
-        if self._psb_data is None or self._psb_path is None:
-            fly_critical(self.window(), "错误", "请先解析 PSB")
+        if self._is_busy():
+            self._status.setText("已有任务正在处理，请稍候…")
             return
+        if self._source_mode() == "gif":
+            self._generate_gif()
+        else:
+            self._generate_psb()
+
+    def _validated_identity(self) -> tuple[int, str, int, str, str] | None:
         chara = self._current_chara()
         if chara is None:
             fly_critical(self.window(), "错误", "请选择关联角色（或点「新建…」先创建一个）")
-            return
+            return None
         chara_id, chara_name, dds_illust_key = chara
+        mate_id = self.mate_id_edit.value()
+        name = self.name_edit.text().strip() or chara_name
+        return mate_id, name, chara_id, chara_name, dds_illust_key
+
+    def _generate_gif(self) -> None:
+        identity = self._validated_identity()
+        if identity is None:
+            return
+        gif_path = Path(self.gif_path_edit.text().strip())
+        template_path = Path(self.gif_template_edit.text().strip())
+        if not gif_path.is_file():
+            fly_critical(self.window(), "错误", "请先选择一张动态 GIF")
+            return
+        if not template_path.is_file():
+            fly_critical(
+                self.window(),
+                "缺少动画模板",
+                "ACUS 中没有找到现有 Mate。请用“更换…”选择一个合法的 emtbytes 作为骨架。",
+            )
+            return
+        mate_id, name, chara_id, chara_name, dds_illust_key = identity
+        request = GifMateCreateRequest(
+            acus_root=self._acus_root,
+            freemote_dir=self._freemote_dir,
+            gif_path=gif_path,
+            template_emtbytes=template_path,
+            mate_id=mate_id,
+            name=name,
+            chara_id=chara_id,
+            chara_name=chara_name,
+            dds_illust_key=dds_illust_key,
+            system_voice_id=int(self.voice_combo.currentData() or 0),
+            pos_x=self.pos_x_spin.value(),
+            pos_y=self.pos_y_spin.value(),
+            scale_x10000=self.scale_spin.value(),
+            target_fps=self.gif_fps_spin.value(),
+            target_height=int(self.gif_height_combo.currentData() or 384),
+            dds_tool_path=self._get_tool_path() if self._get_tool_path else None,
+        )
+
+        def task(progress):
+            return create_gif_mate(request, progress=progress)
+
+        def message(result):
+            return (
+                f"已写入 {result.mate_dir}\n\n"
+                f"GIF：{result.frame_count} 帧 · {result.frame_size[0]}×{result.frame_size[1]} · "
+                f"{result.effective_fps:.1f} FPS\n"
+                "已生成 E-mote、Mate.xml 与 BC3 图标。"
+            )
+
+        self._run_build(task, message)
+
+    def _generate_psb(self) -> None:
+        if self._psb_data is None or self._psb_path is None:
+            fly_critical(self.window(), "错误", "请先解析 PSB")
+            return
+        identity = self._validated_identity()
+        if identity is None:
+            return
+        mate_id, name, chara_id, chara_name, dds_illust_key = identity
         core = {k: cb.currentData() for k, cb in self.core_combos.items()}
         missing = [k for k, v in core.items() if not v]
         if missing:
@@ -744,8 +1027,6 @@ class PsbActionDialog(FluentCaptionDialog):
         for s in range(4, 19):
             slot_assignments[s] = core["happy"]
 
-        mate_id = self.mate_id_edit.value()
-        name = self.name_edit.text().strip() or chara_name
         xml_str = generate_mate_xml(
             mate_id=mate_id,
             name=name,
@@ -760,34 +1041,77 @@ class PsbActionDialog(FluentCaptionDialog):
             pos_y=self.pos_y_spin.value(),
             scale_x10000=self.scale_spin.value(),
         )
+        psb_path = self._psb_path
+        preview_png = self._preview_png
+        dds_tool = self._get_tool_path() if self._get_tool_path else None
+        assigner = self._assigner
 
-        try:
+        def task(progress):
             mate_dir = self._acus_root / "mate" / f"mate{mate_id:06d}"
-            mate_dir.mkdir(parents=True, exist_ok=True)
-            emt = mate_dir / f"emote{mate_id:06d}.emtbytes"
-            self._assigner.port_to_common(self._psb_path, emt)
-            (mate_dir / "Mate.xml").write_text(xml_str, encoding="utf-8")
-            icon_msg = "图标：未生成（可在资源包导入或手动放入）"
-            if self._preview_png is not None and self._preview_png.is_file():
-                tool = self._get_tool_path() if self._get_tool_path else None
-                ingest_to_bc3_dds(
-                    tool_path=tool,
-                    input_path=self._preview_png,
-                    output_dds=mate_dir / f"CHU_UI_Mate_{mate_id:06d}.dds",
+            if mate_dir.exists():
+                raise FileExistsError(f"Mate ID 已存在：{mate_dir.name}")
+            mate_root = mate_dir.parent
+            mate_root.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(prefix=".psb_mate_", dir=mate_root) as temp_name:
+                staged = Path(temp_name) / mate_dir.name
+                staged.mkdir()
+                progress("正在转换 PSB 到 common 平台…")
+                assigner.port_to_common(
+                    psb_path, staged / f"emote{mate_id:06d}.emtbytes"
                 )
-                icon_msg = f"图标：CHU_UI_Mate_{mate_id:06d}.dds（BC3）"
-        except DdsToolError as e:
-            fly_critical(self.window(), "图标转换失败", f"{e}\n\nMate.xml/emtbytes 已写入，图标可稍后手动补。")
-            return
-        except Exception as e:
-            fly_critical(self.window(), "部署失败", str(e))
-            return
+                (staged / "Mate.xml").write_text(xml_str, encoding="utf-8")
+                icon_msg = "图标未生成，可稍后补入"
+                if preview_png is not None and preview_png.is_file():
+                    progress("正在生成 BC3 图标…")
+                    ingest_to_bc3_dds(
+                        tool_path=dds_tool,
+                        input_path=preview_png,
+                        output_dds=staged / f"CHU_UI_Mate_{mate_id:06d}.dds",
+                    )
+                    icon_msg = "BC3 图标已生成"
+                progress("正在写入 ACUS…")
+                os.replace(staged, mate_dir)
+            return mate_dir, icon_msg
 
-        notify_parent = self.parentWidget() or self
-        fly_message(
-            notify_parent, "完成",
-            f"已写入 {mate_dir}\n\n"
-            f"  emote{mate_id:06d}.emtbytes（已转 common 平台）\n"
-            f"  Mate.xml（关联 chara {chara_id} · {chara_name}）\n"
-            f"  {icon_msg}")
-        self.accept()
+        def message(result):
+            mate_dir, icon_msg = result
+            return (
+                f"已写入 {mate_dir}\n\n"
+                f"emote{mate_id:06d}.emtbytes（common 平台）\n"
+                f"Mate.xml（关联 chara {chara_id} · {chara_name}）\n"
+                f"{icon_msg}"
+            )
+
+        self._run_build(task, message)
+
+    def _run_build(self, task, message_factory) -> None:
+        """Start one conversion and finalize only after its QThread has stopped."""
+        self._generate_btn.setEnabled(False)
+        self._status.setText("正在准备转换…")
+        worker = _TaskWorker(task, self)
+        self._build_thread = worker
+        state: dict[str, object] = {}
+        worker.progress.connect(self._status.setText)
+        worker.done.connect(lambda result: state.update(result=result))
+        worker.failed.connect(lambda error: state.update(error=error))
+
+        def finish() -> None:
+            self._build_thread = None
+            self._generate_btn.setEnabled(True)
+            error = state.get("error")
+            if error is not None:
+                self._status.setText("生成失败，可调整后重试")
+                fly_critical(self.window(), "生成失败", str(error))
+                return
+            result = state.get("result")
+            if result is None:
+                self._status.setText("任务意外结束")
+                return
+            message = message_factory(result)
+            notify_parent = self.parentWidget()
+            self.accept()
+            if notify_parent is not None:
+                fly_message(notify_parent, "完成", message)
+
+        worker.finished.connect(finish)
+        worker.start()
