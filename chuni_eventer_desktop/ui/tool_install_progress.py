@@ -5,14 +5,16 @@ from __future__ import annotations
 import time
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QDialog, QProgressBar, QSizePolicy, QVBoxLayout
+from PyQt6.QtGui import QCloseEvent
+from PyQt6.QtWidgets import QApplication, QSizePolicy, QVBoxLayout
 
-from qfluentwidgets import BodyLabel
+from qfluentwidgets import BodyLabel, ProgressBar
 
+from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import safe_dismiss_modal_progress_dialog
 
 
-class ToolInstallProgressDialog(QDialog):
+class ToolInstallProgressDialog(FluentCaptionDialog):
     """避免 QProgressDialog 在深色系统主题下黑底无字、且仅能显示不确定进度的问题。"""
 
     _UI_THROTTLE_S = 0.12
@@ -24,41 +26,27 @@ class ToolInstallProgressDialog(QDialog):
         title: str = "外部工具",
         initial: str = "准备中…",
     ) -> None:
-        super().__init__(parent)
+        super().__init__(parent=parent)
         self.setWindowTitle(title)
         self.setModal(True)
-        self.setFixedSize(480, 132)
+        self.setFixedSize(480, 180)
         self.setWindowModality(Qt.WindowModality.WindowModal)
         self.setSizeGripEnabled(False)
+        self.titleBar.closeBtn.hide()
+        self._allow_close = False
         self._last_paint = 0.0
         self._last_percent: int | None = None
-        self.setStyleSheet(
-            "QDialog { background-color: #ffffff; }"
-            "QProgressBar {"
-            "  border: 1px solid #d1d5db;"
-            "  border-radius: 6px;"
-            "  background: #f3f4f6;"
-            "  text-align: center;"
-            "  color: #111827;"
-            "  min-height: 22px;"
-            "}"
-            "QProgressBar::chunk {"
-            "  background-color: #0d9488;"
-            "  border-radius: 5px;"
-            "}"
-        )
-
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setContentsMargins(
+            *fluent_caption_content_margins(left=24, right=24, bottom=20)
+        )
         layout.setSpacing(12)
 
         self._label = BodyLabel(initial, self)
         self._label.setWordWrap(True)
         self._label.setMaximumHeight(56)
         self._label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self._label.setStyleSheet("color: #374151; font-size: 13px; background: transparent;")
-
-        self._bar = QProgressBar(self)
+        self._bar = ProgressBar(self)
         # Start in indeterminate mode ("准备中…") until first real percent arrives.
         self._bar.setRange(0, 0)
         self._bar.setFormat("准备中…")
@@ -105,12 +93,30 @@ class ToolInstallProgressDialog(QDialog):
         self.raise_()
         self.activateWindow()
 
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """Keep the modal owner alive until its worker performs a controlled dismiss."""
+        if not self._allow_close:
+            event.ignore()
+            return
+        super().closeEvent(event)
+
+    def reject(self) -> None:
+        # Escape and programmatic reject must follow the same worker-lifetime rule.
+        if not self._allow_close:
+            return
+        super().reject()
+
 
 def dismiss_tool_install_progress(dlg: ToolInstallProgressDialog | None) -> None:
     if dlg is None:
         return
-    dlg.hide()
-    dlg.deleteLater()
+    dlg._allow_close = True
+    try:
+        dlg.setWindowModality(Qt.WindowModality.NonModal)
+        dlg.close()
+    except RuntimeError:
+        return
+    QApplication.processEvents()
 
 
 def dismiss_tool_install_progress_any(dlg) -> None:

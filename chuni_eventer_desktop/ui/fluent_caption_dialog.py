@@ -1,4 +1,4 @@
-"""无边框弹窗：Fluent 标题栏（左标题、右最小化 / 关闭），与主窗口风格一致。"""
+"""无边框弹窗：Fluent 标题栏（左标题、右关闭），与主窗口风格一致。"""
 
 from __future__ import annotations
 
@@ -55,7 +55,11 @@ class FluentCaptionDialog(FramelessDialog):
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.setTitleBar(FluentTitleBar(self))
         self.titleBar.maxBtn.hide()
-        self.titleBar.minBtn.show()
+        # Dialogs are frequently window-modal. A minimized modal window keeps
+        # blocking its parent while becoming effectively invisible, which users
+        # experience as a frozen application. Dialogs therefore never expose a
+        # minimize action; use a real window for long-lived minimizable surfaces.
+        self.titleBar.minBtn.hide()
         self.titleBar.setDoubleClickEnabled(False)
         # 强制移除 Win32 系统标题栏（Windows 11 DWM 残留 workaround）
         _force_remove_win32_caption(int(self.winId()))
