@@ -8,9 +8,9 @@ from pathlib import Path
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QImage, QPainter, QPixmap
-from PyQt6.QtWidgets import QFileDialog, QFormLayout, QHBoxLayout, QSlider, QVBoxLayout
+from PyQt6.QtWidgets import QFileDialog, QFormLayout, QHBoxLayout, QVBoxLayout
 
-from qfluentwidgets import BodyLabel, CardWidget, LineEdit, PrimaryPushButton, PushButton
+from qfluentwidgets import BodyLabel, CardWidget, LineEdit, PrimaryPushButton, PushButton, Slider
 
 from ..acus_scan import scan_avatar_accessories
 from ..dds_convert import DdsToolError
@@ -28,6 +28,7 @@ from .dds_progress import run_bc3_jobs_with_progress
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical
 from .name_glyph_preview import wrap_name_input_with_preview
+from .rich_hint import hint_row
 
 # 裁剪 (337,227)+(341×306)；Tex 232×208；Icon 模板 3.png 上叠 183×164，左上角 (39,57)
 MASK_CROP_X = 337
@@ -93,19 +94,18 @@ class AvatarMaskComposeDialog(FluentCaptionDialog):
             parent=self,
         )
 
-        self._opacity_slider = QSlider(Qt.Orientation.Horizontal, self)
+        self._opacity_slider = Slider(Qt.Orientation.Horizontal, self)
         self._opacity_slider.setRange(0, 100)
         self._opacity_slider.setValue(100)
         self._opacity_slider.setToolTip("Hand 层透明度（便于对齐）")
 
-        hint = BodyLabel(
+        hint = hint_row(
+            "拖动调整位置、滚轮缩放；绿框内为导出范围。",
             "预览：Body + 你的面具图 + Hand（绿框为导出裁剪区 (337,227)+(341×306)）。"
             "导出 Tex 为裁剪后面具图层缩放到 232×208（透明底）；"
             "Icon 在模板 3.png 上将 Tex 缩至 183×164，左上角对齐 (39,57)。",
             self,
         )
-        hint.setWordWrap(True)
-        hint.setTextColor("#6B7280", "#9CA3AF")
 
         pick = PushButton("选择面具图片…", self)
         pick.clicked.connect(self._pick_mask)
@@ -118,9 +118,8 @@ class AvatarMaskComposeDialog(FluentCaptionDialog):
         op_row.addWidget(self._opacity_slider, stretch=1)
         self._opacity_slider.valueChanged.connect(self._on_opacity)
 
-        self._cloth_zoom_slider = QSlider(Qt.Orientation.Horizontal, self)
+        self._cloth_zoom_slider = Slider(Qt.Orientation.Horizontal, self)
         self._cloth_zoom_slider.setRange(5, 1200)
-        self._cloth_zoom_slider.setEnabled(False)
         self._cloth_zoom_slider.setToolTip("上传图缩放（也可用鼠标滚轮）")
         self._cloth_zoom_slider.valueChanged.connect(self._on_cloth_zoom_slider)
         self._editor.changed.connect(self._sync_cloth_zoom_slider)
@@ -136,8 +135,9 @@ class AvatarMaskComposeDialog(FluentCaptionDialog):
         cl.addWidget(hint)
         cl.addWidget(pick)
         cl.addLayout(op_row)
+        self._zoom_label = BodyLabel("图片缩放", self)
         zoom_row = QHBoxLayout()
-        zoom_row.addWidget(BodyLabel("图片缩放", self))
+        zoom_row.addWidget(self._zoom_label)
         zoom_row.addWidget(self._cloth_zoom_slider, stretch=1)
         cl.addLayout(zoom_row)
         cl.addWidget(self._editor, stretch=1)
@@ -166,15 +166,16 @@ class AvatarMaskComposeDialog(FluentCaptionDialog):
         self._editor.set_cloth_zoom(max(0.05, min(12.0, v / 100.0)))
 
     def _sync_cloth_zoom_slider(self) -> None:
-        if not self._editor.has_cloth:
-            self._cloth_zoom_slider.setEnabled(False)
+        has = self._editor.has_cloth
+        self._zoom_label.setVisible(has)
+        self._cloth_zoom_slider.setVisible(has)
+        if not has:
             return
-        self._cloth_zoom_slider.setEnabled(True)
         v = int(round(self._editor.cloth_zoom * 100))
         v = max(self._cloth_zoom_slider.minimum(), min(self._cloth_zoom_slider.maximum(), v))
-        self._cloth_zoom_slider.blockSignals(True)
+        # qfluentwidgets 的把手位置只在 valueChanged 里重算，blockSignals 会让把手停在旧位置；
+        # 回灌由 set_cloth_zoom() 的等值早退挡住，不会递归。
         self._cloth_zoom_slider.setValue(v)
-        self._cloth_zoom_slider.blockSignals(False)
 
     def _load_edit_state(self) -> None:
         if self._edit_xml is None or not self._edit_xml.is_file():

@@ -12,12 +12,11 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
-    QSlider,
     QVBoxLayout,
     QWidget,
 )
 
-from qfluentwidgets import BodyLabel, CardWidget, LineEdit, PrimaryPushButton, PushButton
+from qfluentwidgets import BodyLabel, CardWidget, LineEdit, PrimaryPushButton, PushButton, Slider
 
 from ..acus_scan import scan_avatar_accessories
 from ..dds_convert import DdsToolError
@@ -35,6 +34,7 @@ from .dds_progress import run_bc3_jobs_with_progress
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical
 from .name_glyph_preview import wrap_name_input_with_preview
+from .rich_hint import hint_row
 
 # 1024 画布上左右手导出区（各 290×791）
 HAND_L_X, HAND_L_Y = 130, 141
@@ -317,6 +317,14 @@ class PenguinHandPairEditorWidget(QWidget):
     def has_user_pixmaps(self) -> bool:
         return self._cloth_l is not None or self._cloth_r is not None
 
+    @property
+    def has_left_pixmap(self) -> bool:
+        return self._cloth_l is not None
+
+    @property
+    def has_right_pixmap(self) -> bool:
+        return self._cloth_r is not None
+
 
 class AvatarHandComposeDialog(FluentCaptionDialog):
     """新增/编辑企鹅手部饰物（category=5）。"""
@@ -360,25 +368,27 @@ class AvatarHandComposeDialog(FluentCaptionDialog):
             parent=self,
         )
 
-        self._opacity_slider = QSlider(Qt.Orientation.Horizontal, self)
+        self._opacity_slider = Slider(Qt.Orientation.Horizontal, self)
         self._opacity_slider.setRange(0, 100)
         self._opacity_slider.setValue(100)
         self._opacity_slider.setToolTip("Hand 层透明度（便于对齐）")
 
-        self._zoom_l_slider = QSlider(Qt.Orientation.Horizontal, self)
+        self._zoom_l_slider = Slider(Qt.Orientation.Horizontal, self)
         self._zoom_l_slider.setRange(5, 800)
-        self._zoom_r_slider = QSlider(Qt.Orientation.Horizontal, self)
+        self._zoom_r_slider = Slider(Qt.Orientation.Horizontal, self)
         self._zoom_r_slider.setRange(5, 800)
+        # 标签先建好：编辑态 _load_edit_state() 会在布局搭建前调用 _sync_hand_zoom_sliders()
+        self._zoom_l_label = BodyLabel("左手缩放", self)
+        self._zoom_r_label = BodyLabel("右手缩放", self)
 
-        hint = BodyLabel(
+        hint = hint_row(
+            "左右两侧各自拖动、滚轮缩放；绿框内为导出范围，可只传一侧。",
             "预览：Body + Hand + 左手图 + 右手图（饰物在用户图层，叠在手之上）。"
             "绿框为导出区 (130,141)+(290×791) 与 (597,141)+(290×791)。"
             "Tex 为左右两矩形拼成 580×791；Icon 在 5.png 上将左右条各缩至 64×175，"
             "分别放在 (51,60) 与 (140,60)。可只传一侧图片，另一侧留空。",
             self,
         )
-        hint.setWordWrap(True)
-        hint.setTextColor("#6B7280", "#9CA3AF")
 
         pick_l = PushButton("选择左手侧图片…", self)
         pick_l.clicked.connect(self._pick_left)
@@ -396,10 +406,10 @@ class AvatarHandComposeDialog(FluentCaptionDialog):
         self._opacity_slider.valueChanged.connect(self._on_opacity)
 
         zl_row = QHBoxLayout()
-        zl_row.addWidget(BodyLabel("左手缩放", self))
+        zl_row.addWidget(self._zoom_l_label)
         zl_row.addWidget(self._zoom_l_slider, stretch=1)
         zr_row = QHBoxLayout()
-        zr_row.addWidget(BodyLabel("右手缩放", self))
+        zr_row.addWidget(self._zoom_r_label)
         zr_row.addWidget(self._zoom_r_slider, stretch=1)
 
         self._zoom_l_slider.valueChanged.connect(self._on_zoom_l_slider)
@@ -459,12 +469,16 @@ class AvatarHandComposeDialog(FluentCaptionDialog):
         self._editor.set_zoom_right(self._slider_to_zoom(v))
 
     def _sync_hand_zoom_sliders(self) -> None:
-        self._zoom_l_slider.blockSignals(True)
-        self._zoom_r_slider.blockSignals(True)
+        has_l = self._editor.has_left_pixmap
+        has_r = self._editor.has_right_pixmap
+        self._zoom_l_label.setVisible(has_l)
+        self._zoom_l_slider.setVisible(has_l)
+        self._zoom_r_label.setVisible(has_r)
+        self._zoom_r_slider.setVisible(has_r)
+        # qfluentwidgets 的把手位置只在 valueChanged 里重算，blockSignals 会让把手停在旧位置；
+        # 回灌由 set_zoom_left()/set_zoom_right() 的等值早退挡住，不会递归。
         self._zoom_l_slider.setValue(self._zoom_to_slider(self._editor.zoom_left))
         self._zoom_r_slider.setValue(self._zoom_to_slider(self._editor.zoom_right))
-        self._zoom_l_slider.blockSignals(False)
-        self._zoom_r_slider.blockSignals(False)
 
     def _load_edit_state(self) -> None:
         if self._edit_xml is None or not self._edit_xml.is_file():
