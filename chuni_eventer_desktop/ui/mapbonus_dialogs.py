@@ -39,6 +39,7 @@ from ..game_data_index import GameDataIndex, acus_chara_pairs, merged_music_pair
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical
 from .name_glyph_preview import wrap_name_input_with_preview
+from .rich_hint import hint_row
 
 
 KIND_LABELS: dict[str, str] = {
@@ -297,7 +298,7 @@ def _slot_button_style() -> str:
     fg = "#E4E4E7" if dark else "#3F3F46"
     return (
         f"QPushButton{{background:{bg};border:2px dashed {bd};border-radius:10px;color:{fg};"
-        "padding:12px;text-align:left;}}"
+        "padding:12px;text-align:left;}"
         f"QPushButton:hover{{background:{bg_h};border:2px solid {bd_h};}}"
     )
 
@@ -398,14 +399,14 @@ class MapBonusEditDialog(FluentCaptionDialog):
         rules_lay.setContentsMargins(16, 14, 16, 14)
         rules_lay.setSpacing(10)
         rules_lay.addWidget(BodyLabel("命中条件（最多 4 条）", self))
-        hint = BodyLabel(self)
-        hint.setWordWrap(True)
-        hint.setText(
-            "点击下方格子编辑对应序号条件；空白格表示未使用。保存时按条件 1→4 的顺序写入 XML，"
-            "自动跳过空白格。若全部空白，将写入一条默认占位条件。"
+        rules_lay.addWidget(
+            hint_row(
+                "点击格子编辑条件，最多 4 条，保存时自动按顺序整理。",
+                "点击下方格子编辑对应序号条件；空白格表示未使用。保存时按条件 1→4 的顺序写入 XML，"
+                "自动跳过空白格。若全部空白，将写入一条默认占位条件。",
+                rules_card,
+            )
         )
-        hint.setTextColor("#6B7280", "#9CA3AF")
-        rules_lay.addWidget(hint)
         rules_lay.addLayout(grid, stretch=1)
 
         ok = PrimaryPushButton("保存", self)
