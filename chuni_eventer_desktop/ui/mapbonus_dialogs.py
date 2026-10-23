@@ -204,9 +204,11 @@ class _MapBonusRuleEditDialog(FluentCaptionDialog):
         else:
             pairs = [(-1, "Invalid")]
 
-        cb.addItem("(请选择)", None)
+        cb.addItem("(请选择)")
         for i, s in pairs:
-            cb.addItem(f"{i} | {s}", i)
+            # FluentComboBox.addItem(text, icon, userData)：id 必须走 userData，
+            # 否则会被当成 icon（展开下拉时 AttributeError，currentData 恒为 None）
+            cb.addItem(f"{i} | {s}", userData=i)
         cb.setMinimumWidth(400)
         cb.setMaxVisibleItems(24)
         pick = -1
