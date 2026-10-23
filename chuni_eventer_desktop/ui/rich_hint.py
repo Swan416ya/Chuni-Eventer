@@ -1,4 +1,9 @@
-"""将少量 Markdown（**粗体**、``行内代码``）转为 QLabel 可用的 RichText HTML。"""
+"""说明文字的统一出口。
+
+约定（见 ``docs/界面与工作区/ui_style_inventory_zh.md``）：
+- 正文只留「这页干什么 + 一条关键约束」，一行说清；
+- 像素坐标、XML 字段名、内部处理步骤这类细则一律收进 ⓘ 弹窗，不占正文。
+"""
 
 from __future__ import annotations
 
@@ -6,9 +11,9 @@ import html
 import re
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QLabel, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QWidget
 
-from qfluentwidgets import isDarkTheme
+from qfluentwidgets import FluentIcon, TransparentToolButton, isDarkTheme
 
 _BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
 _CODE_RE = re.compile(r"`([^`]+)`")
@@ -51,3 +56,43 @@ def rich_hint_label(
     lbl.setStyleSheet(f"color:{color};font-size:{font_size_pt}px;")
     lbl.setOpenExternalLinks(False)
     return lbl
+
+
+def hint_row(
+    text: str,
+    details: str | None = None,
+    parent: QWidget | None = None,
+    *,
+    color: str | None = None,
+    font_size_pt: int = 12,
+    details_title: str = "说明",
+) -> QWidget:
+    """一行说明（可选尾部 ⓘ）：细则点开弹窗看，不铺在正文里。"""
+    row = QWidget(parent)
+    # 只占一行高度：外层 VBox 有富余空间时不要把它拉高（否则 ⓘ 会飘到行外）
+    row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+    lay = QHBoxLayout(row)
+    lay.setContentsMargins(0, 0, 0, 0)
+    lay.setSpacing(6)
+
+    lbl = rich_hint_label(text, row, color=color, font_size_pt=font_size_pt)
+    # wordWrap 下 QLabel 的 sizeHint 会按窄宽度估成多行，外层 VBox 因此留出空白；
+    # 说明行按「最多两行」定高，正文规范也要求控制在一行内。
+    lbl.setMaximumHeight(40)
+    lay.addWidget(lbl, stretch=1, alignment=Qt.AlignmentFlag.AlignTop)
+    if not details:
+        return row
+
+    btn = TransparentToolButton(FluentIcon.INFO, row)
+    btn.setFixedSize(22, 22)
+    btn.setToolTip(f"查看{details_title}")
+
+    def _show_details() -> None:
+        # 局部 import：fluent_dialogs 依赖较多，避免模块级循环引用
+        from .fluent_dialogs import fly_message
+
+        fly_message(btn.window(), details_title, details)
+
+    btn.clicked.connect(_show_details)
+    lay.addWidget(btn, alignment=Qt.AlignmentFlag.AlignTop)
+    return row

@@ -26,12 +26,14 @@ from PyQt6.QtWidgets import (
 )
 from qfluentwidgets import (
     BodyLabel,
+    CaptionLabel,
     CardWidget,
     CheckBox,
     ComboBox as FluentComboBox,
     LineEdit,
     PrimaryPushButton,
     PushButton,
+    StrongBodyLabel,
     TableView,
     isDarkTheme,
 )
@@ -76,9 +78,9 @@ from .fluent_table import (
     apply_fluent_tableview_header_style,
     mark_sheet_item_readonly,
     sheet_list_card_layout_margins,
-    sheet_list_hint_muted_colors,
 )
 from .qthread_lifecycle import await_qthreads, defer_finalize_qthread, finalize_qthread, qthread_running_safe
+from .rich_hint import hint_row
 
 _PGKO_TABLE_COL_DETAIL = 2
 _PGKO_DETAIL_URL_ROLE = Qt.ItemDataRole.UserRole + 11
@@ -402,12 +404,11 @@ class _MargreteScreenshotHover(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
-        self._hint = QLabel("鼠标移到这里查看演示截图", self)
-        self._hint.setStyleSheet(
-            "color:#1565c0;text-decoration:underline;padding-bottom:4px;"
-        )
+        self._hint = CaptionLabel("鼠标移到这里查看演示截图", self)
         self._hint.setWordWrap(True)
         self._hint.setCursor(Qt.CursorShape.PointingHandCursor)
+        # 主题感知的「链接感」颜色，别用硬编码蓝（深色主题下会发暗）
+        self._hint.setTextColor("#1565C0", "#60A5FA")
 
         self._img = QLabel(self)
         self._img.setAlignment(Qt.AlignmentFlag.AlignHCenter)
@@ -459,35 +460,38 @@ class _PgkoUgcGuideDialog(FluentCaptionDialog):
         hp.setContentsMargins(0, 0, 0, 0)
         hp.setSpacing(8)
 
-        title = QLabel("如何将下载的 UGC 转为 mgxc", help_panel)
-        title.setStyleSheet("font-size:15pt;font-weight:700;color:#b71c1c;")
+        title = StrongBodyLabel("如何将下载的 UGC 转为 mgxc", help_panel)
 
-        step1 = QLabel(help_panel)
+        step1 = CaptionLabel(help_panel)
         step1.setOpenExternalLinks(True)
         step1.setWordWrap(True)
         step1.setTextFormat(Qt.TextFormat.RichText)
         step1.setText(
             "1. 在 "
-            "<a href=\"https://umgr.inonote.jp/en/docs/releases\">UMIGURI 官方下载页（Margrete）</a> "
-            "下载并安装 <b>Margrete</b> 制谱器（版本以官网为准，例如 v1.8.0）。"
+            "<a href=\"https://umgr.inonote.jp/en/docs/releases\">UMIGURI 官方下载页</a> "
+            "下载并安装 <b>Margrete</b> 制谱器。"
         )
 
-        step2 = QLabel(
-            "2. 打开 Margrete，在菜单栏选择「ファイル」→「他形式譜面取り込み…」，从本机选择要导入的 UGC 文件。",
+        step2 = CaptionLabel(
+            "2. 打开 Margrete，菜单栏「ファイル」→「他形式譜面取り込み…」，选择要导入的 UGC。",
             help_panel,
         )
         step2.setWordWrap(True)
 
         shot_hover = _MargreteScreenshotHover(help_panel)
 
-        step3 = QLabel(help_panel)
+        step3 = CaptionLabel(help_panel)
         step3.setTextFormat(Qt.TextFormat.RichText)
         step3.setWordWrap(True)
         step3.setText(
-            "3. 使用快捷键 <b>Ctrl+Shift+S</b> 将谱面另存为 <b>mgxc</b>，"
-            "保存到与原始 <b>ugc</b> 相同的文件夹（便于本工具与音频、封面等资源同目录识别）。"
-            "<br>导入前本工具会从同目录 <b>ugc</b> 自动补全 mgxc 中缺失的 BGM/标题/试听等字段，"
-            "并在临时目录生成 WAV，<b>不会改写</b>包内原始音频文件。"
+            "3. 按 <b>Ctrl+Shift+S</b> 另存为 <b>mgxc</b>，放回与 <b>ugc</b> 相同的文件夹。"
+        )
+
+        mgxc_note = hint_row(
+            "导入时缺的 BGM / 标题 / 试听字段会自动从同目录 ugc 补全。",
+            "本工具从同目录 ugc 读取缺失字段；音频在临时目录生成 WAV 供转换，"
+            "不会改写包内原始音频文件。",
+            help_panel,
         )
 
         hp.addWidget(title)
@@ -495,13 +499,14 @@ class _PgkoUgcGuideDialog(FluentCaptionDialog):
         hp.addWidget(step2)
         hp.addWidget(shot_hover)
         hp.addWidget(step3)
+        hp.addWidget(mgxc_note)
 
-        hint_below = BodyLabel(
-            "下方列表来自本应用缓存目录下的 pgko_downloads（与线上下载解压位置一致）。"
-            "显示含有 .mgxc 或 .ugc 的文件夹；双击一行仍按默认规则（mgxc 优先）处理。"
+        hint_below = hint_row(
+            "下方列表来自本机 pgko_downloads 缓存目录。",
+            "缓存目录与应用内下载解压位置一致，列出的文件夹都含 .mgxc 或 .ugc；"
+            "双击一行按默认规则处理（mgxc 优先）。",
+            help_panel,
         )
-        hint_below.setWordWrap(True)
-        sheet_list_hint_muted_colors(hint_below)
 
         self._table = QTableWidget(0, 6, self)
         apply_fluent_sheet_table(self._table)
@@ -509,12 +514,14 @@ class _PgkoUgcGuideDialog(FluentCaptionDialog):
             ["缓存文件夹", "曲名（元数据）", "艺术家", "谱师", "mgxc 数", "ugc 数"]
         )
         hh = self._table.horizontalHeader()
-        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         hh.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         hh.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         hh.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        # 长曲名/艺术家省略而不是把列撑宽（否则 800px 宽也会出横向滚动条）
+        self._table.setTextElideMode(Qt.TextElideMode.ElideRight)
         self._table.itemDoubleClicked.connect(self._on_row_activated)
 
         refresh = PushButton("刷新列表", self)
@@ -650,28 +657,23 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
         self._seen_bundle_ids: set[str] = set()
         self._penguin_cli_prompt_shown = False
 
-        credit = QLabel(self)
+        credit = CaptionLabel(self)
         credit.setTextFormat(Qt.TextFormat.RichText)
         credit.setOpenExternalLinks(True)
         credit.setText(
-            '<p style="margin:0;line-height:1.5;">'
-            '<span style="color:#c62828;font-weight:700;">※</span> '
-            f'<a href="{PGKO_BASE_URL}" style="color:#1565c0;font-weight:600;text-decoration:none;">'
-            "pgko.dev</a> 列表数据与谱面转码（<b>mgxc → c2s</b>、音频、封面）均使用 "
-            '<a href="https://github.com/ChuniPingu/PenguinTools" style="color:#1565c0;font-weight:600;text-decoration:none;">'
-            "PenguinTools CLI</a>（作者 "
-            '<a href="https://github.com/ChuniPingu" style="color:#1565c0;font-weight:600;text-decoration:none;">ChuniPingu</a>）。'
-            "</p>"
+            "列表与转码来自 "
+            f'<a href="{PGKO_BASE_URL}">pgko.dev</a> · '
+            '<a href="https://github.com/ChuniPingu/PenguinTools">PenguinTools CLI</a>'
+            "（ChuniPingu）"
         )
         credit.setWordWrap(True)
 
         card = CardWidget(self)
-        hint = BodyLabel(
-            "选择一行后点「下载选中项」；下载完成可转 c2s 并导入 ACUS（需 PenguinTools CLI 与包内 mgxc）。"
-            "仅有 UGC 时请点「UGC → mgxc…」。"
+        hint = hint_row(
+            "选中一行后下载；有 mgxc 就能转 c2s 并导入 ACUS。",
+            "转 c2s 需要 PenguinTools CLI 与包内 mgxc；只有 UGC 时点「UGC → mgxc…」先转换。",
+            card,
         )
-        hint.setWordWrap(True)
-        sheet_list_hint_muted_colors(hint)
 
         self._model = QStandardItemModel(0, 3, self)
         self._model.setHorizontalHeaderLabels(["曲名", "作曲家", "详情"])
@@ -1182,11 +1184,14 @@ class _PgkoInstallConfigDialog(FluentCaptionDialog):
         hint = BodyLabel(
             f"曲名: {meta.get('title') or ''}\n"
             f"作者: {meta.get('artist') or meta.get('designer') or ''}\n"
-            f"难度标识: {diff}（0=BAS, 1=ADV, 2=EXP, 3=MAS, 4=ULT, 5=WE）\n"
-            "定数将按包内各 mgxc 的 cnst 自动写入，不允许手填。\n"
-            "Stage 在 PenguinTools 导出完成后写入 Music.xml，引用 ACUS 内已有舞台。"
+            f"难度: {diff}（0=BAS, 1=ADV, 2=EXP, 3=MAS, 4=ULT, 5=WE）"
         )
         hint.setWordWrap(True)
+        hint_detail = hint_row(
+            "定数按包内 mgxc 自动写入；Stage 在导出完成后写进 Music.xml。",
+            "定数取自各 mgxc 的 cnst 字段，不允许手填；"
+            "Stage 由 PenguinTools 导出后写入 Music.xml，引用 ACUS 里已有的舞台。",
+        )
 
         ok = PrimaryPushButton("开始导入", self)
         ok.clicked.connect(self._run_install)
@@ -1202,6 +1207,7 @@ class _PgkoInstallConfigDialog(FluentCaptionDialog):
         root.setContentsMargins(*fluent_caption_content_margins())
         root.setSpacing(12)
         root.addWidget(hint)
+        root.addWidget(hint_detail)
         root.addLayout(form)
         self._status = BodyLabel("", self)
         self._status.setWordWrap(True)

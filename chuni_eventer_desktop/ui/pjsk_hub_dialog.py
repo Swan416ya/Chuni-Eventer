@@ -11,7 +11,6 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QHeaderView,
-    QLabel,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -19,6 +18,7 @@ from PyQt6.QtWidgets import (
 
 from qfluentwidgets import (
     BodyLabel,
+    CaptionLabel,
     CardWidget,
     CheckBox,
     LineEdit,
@@ -50,6 +50,7 @@ from .fluent_dialogs import fly_critical, fly_message, fly_warning
 from .fluent_table import apply_fluent_sheet_table
 from .pjsk_sus_download_dialog import PjskSusDownloadDialog
 from .qthread_lifecycle import await_qthreads, finalize_qthread, qthread_running_safe
+from .rich_hint import hint_row
 
 _SLOT_LABELS: dict[str, str] = {
     "BASIC": "BASIC（PJSK Normal）",
@@ -187,18 +188,18 @@ class PjskConvertToAcusDialog(FluentCaptionDialog):
             )
         else:
             levels_hint = "未记录 PJSK 等级（老缓存），已用兜底值；可手工修改"
-        hint_lv = BodyLabel(levels_hint, levels_box)
+        hint_lv = CaptionLabel(levels_hint, levels_box)
         hint_lv.setWordWrap(True)
-        hint_lv.setStyleSheet("color:#6b7280;font-size:12px;")
         levels_lay.addWidget(hint_lv)
         if not present:
             levels_grid.addWidget(
-                QLabel("当前缓存无可用 SUS，请先下载谱面后再转谱。", levels_box), 0, 0, 1, 3
+                CaptionLabel("当前缓存无可用 SUS，请先下载谱面后再转谱。", levels_box),
+                0, 0, 1, 3,
             )
         else:
-            levels_grid.addWidget(QLabel("难度"), 0, 0)
-            levels_grid.addWidget(QLabel("等级"), 0, 1)
-            levels_grid.addWidget(QLabel("小数（0～99）"), 0, 2)
+            levels_grid.addWidget(CaptionLabel("难度"), 0, 0)
+            levels_grid.addWidget(CaptionLabel("等级"), 0, 1)
+            levels_grid.addWidget(CaptionLabel("小数（0～99）"), 0, 2)
         for row, slot in enumerate(present, start=1):
             play_level = play_levels.get(slot)
             if play_level:
@@ -209,7 +210,7 @@ class PjskConvertToAcusDialog(FluentCaptionDialog):
             else:
                 lv, dec = _FALLBACK_LEVELS.get(slot, (13, 0))
                 slot_label = _SLOT_LABELS.get(slot, slot)
-            lab = QLabel(slot_label, levels_box)
+            lab = CaptionLabel(slot_label, levels_box)
             w_lv = SpinBox(levels_box)
             w_lv.setRange(1, 15)
             w_dec = SpinBox(levels_box)
@@ -232,17 +233,16 @@ class PjskConvertToAcusDialog(FluentCaptionDialog):
         form.addRow("舞台 str (stageName.str)", self._stage_str)
         form.addRow("", self._ult_event)
 
-        hint = BodyLabel(
-            "谱面转换使用「PJSK 官谱语义」转换器（装饰音符降级、曲线烘焙、变速保留），"
+        hint = hint_row(
+            "转换后由 PenguinTools.CLI 打包 c2s / 封面 / 音频 / Music.xml。",
+            "谱面转换走「PJSK 官谱语义」转换器：装饰音符降级、曲线烘焙、变速保留；"
             "再由 PenguinTools.CLI 打包 c2s / 封面 DDS / HCA 音频与 Music.xml。\n"
-            "releaseTag 固定 -2 / PJSK，genre 为 niconico。"
+            "releaseTag 固定 -2 / PJSK，genre 为 niconico。",
+            self,
         )
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color:#6b7280;font-size:12px;")
 
-        self._prog_label = QLabel("", self)
+        self._prog_label = CaptionLabel("", self)
         self._prog_label.setWordWrap(True)
-        self._prog_label.setStyleSheet("color:#374151;font-size:12px;")
         self._prog_label.hide()
         self._prog_bar = ProgressBar(self)
         self._prog_bar.setRange(0, 1000)
@@ -421,23 +421,20 @@ class PjskHubDialog(FluentCaptionDialog):
 
         card = CardWidget(self)
         c2s_unusable = BodyLabel(
-            "谱面转换走「PJSK 官谱语义」转换器（装饰音符降级为装饰线、曲线烘焙、变速保留），"
-            "再由 PenguinTools.CLI 打包 c2s / 封面 DDS / HCA 音频 / Music.xml。"
-            "音频按实测前导静音自动对齐，不再固定裁 9 秒。\n"
-            "若未配置 PenguinTools.CLI，「转换并写入 ACUS」会失败——可在「设置 → 外部工具」里安装。"
+            "转换与打包都依赖 PenguinTools.CLI。",
+            self,
         )
         c2s_unusable.setWordWrap(True)
-        c2s_unusable.setStyleSheet("color: #b45309; font-size: 13px;")
+        c2s_unusable.setTextColor("#B45309", "#FBBF24")
 
-        top = BodyLabel(
-            f"下列为已下载到本地的 PJSK 资源（{self._cache_root.as_posix()}）。"
-            "选中一行后可「转换并写入 ACUS」；或打开「从网络下载新曲」补充缓存。"
+        top = CaptionLabel(
+            f"缓存目录：{self._cache_root.as_posix()}",
+            self,
         )
         top.setWordWrap(True)
 
-        self._empty_hint = BodyLabel("", card)
+        self._empty_hint = CaptionLabel("", card)
         self._empty_hint.setWordWrap(True)
-        self._empty_hint.setStyleSheet("color:#9ca3af;")
         self._empty_hint.hide()
 
         self._table = QTableWidget(0, 5, card)
