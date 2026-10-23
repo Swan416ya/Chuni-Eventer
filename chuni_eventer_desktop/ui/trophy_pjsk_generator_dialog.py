@@ -6,12 +6,21 @@ import time
 
 from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QIcon, QColor, QFont, QFontDatabase, QImage, QLinearGradient, QPainter, QPainterPath, QPainterPathStroker, QPixmap
-from PyQt6.QtWidgets import QColorDialog, QHBoxLayout, QLabel, QSlider, QVBoxLayout
+from PyQt6.QtWidgets import QColorDialog, QHBoxLayout, QVBoxLayout
 
-from qfluentwidgets import BodyLabel, CardWidget, ComboBox as FluentComboBox, LineEdit, PrimaryPushButton, PushButton
+from qfluentwidgets import (
+    BodyLabel,
+    CardWidget,
+    ComboBox as FluentComboBox,
+    LineEdit,
+    PrimaryPushButton,
+    PushButton,
+    Slider,
+)
 
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical
+from .rich_hint import hint_row
 from .trophy_texture_compose_dialog import compose_trophy_title_image
 
 W = 608
@@ -223,18 +232,17 @@ class TrophyPjskGeneratorDialog(FluentCaptionDialog):
             f"字体：{_resolve_misans_family()}（优先 {str(_preferred_misans_file())}）"
         )
 
-        self.preview = QLabel(self)
+        self.preview = BodyLabel(self)
         self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview.setMinimumHeight(200)
         self.preview.setStyleSheet("border:1px solid #d1d5db;border-radius:8px;")
 
-        hint = BodyLabel(
+        hint = hint_row(
+            "文字样式固定：黑体加粗、白到黄渐变填充，并按底板自动取描边色。",
             "文字样式：黑体加粗，填充渐变（#ffffff -> #ffffff -> #fff665），"
             "并按当前底板平均色生成 5px 外描边（暗部提升 50%）。",
             self,
         )
-        hint.setWordWrap(True)
-        hint.setTextColor("#6B7280", "#9CA3AF")
 
         self.bg_combo.currentIndexChanged.connect(self._refresh_preview)
         self.line_combo.currentIndexChanged.connect(self._refresh_preview)
@@ -243,15 +251,15 @@ class TrophyPjskGeneratorDialog(FluentCaptionDialog):
         pick_stroke_btn.clicked.connect(self._pick_stroke_color)
         auto_stroke_btn = PushButton("描边改回自动", self)
         auto_stroke_btn.clicked.connect(self._reset_stroke_color)
-        self.size_slider = QSlider(Qt.Orientation.Horizontal, self)
+        self.size_slider = Slider(Qt.Orientation.Horizontal, self)
         self.size_slider.setRange(20, 96)
         self.size_slider.setValue(self._font_size)
         self.size_slider.valueChanged.connect(self._on_slider_changed)
-        self.x_slider = QSlider(Qt.Orientation.Horizontal, self)
+        self.x_slider = Slider(Qt.Orientation.Horizontal, self)
         self.x_slider.setRange(-180, 180)
         self.x_slider.setValue(self._offset_x)
         self.x_slider.valueChanged.connect(self._on_slider_changed)
-        self.y_slider = QSlider(Qt.Orientation.Horizontal, self)
+        self.y_slider = Slider(Qt.Orientation.Horizontal, self)
         self.y_slider.setRange(-80, 80)
         self.y_slider.setValue(self._offset_y)
         self.y_slider.valueChanged.connect(self._on_slider_changed)

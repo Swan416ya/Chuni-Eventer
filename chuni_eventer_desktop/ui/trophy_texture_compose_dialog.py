@@ -6,12 +6,13 @@ import time
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QImage, QPainter, QPixmap
-from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QVBoxLayout
+from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QVBoxLayout
 
 from qfluentwidgets import BodyLabel, CardWidget, PrimaryPushButton, PushButton
 
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical
+from .rich_hint import hint_row
 
 TROPHY_TITLE_W = 608
 TROPHY_TITLE_H = 148
@@ -83,16 +84,15 @@ class TrophyTextureComposeDialog(FluentCaptionDialog):
         self._out_dir = out_dir
         self.result_png_path: Path | None = None
 
-        hint = BodyLabel(
+        hint = hint_row(
+            "上传 608 宽的称号贴图，窄图会自动补透明边到 608×148 再套模板。",
             f"上传宽 {TROPHY_TITLE_W}、高 {TROPHY_SHORT_H} 或 {TROPHY_TITLE_H} 的 PNG（或常见位图）。"
             f"若为 {TROPHY_TITLE_W}×{TROPHY_SHORT_H}，会在下方自动扩展透明区域至 {TROPHY_TITLE_H}，"
             "再与工具模板叠加（模板在最上层）。",
             self,
         )
-        hint.setWordWrap(True)
-        hint.setTextColor("#6B7280", "#9CA3AF")
 
-        self._preview = QLabel(self)
+        self._preview = BodyLabel(self)
         self._preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._preview.setMinimumHeight(160)
         self._preview.setText("尚未选择图片")

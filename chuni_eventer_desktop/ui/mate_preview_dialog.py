@@ -7,13 +7,14 @@ from pathlib import Path
 
 from PyQt6.QtCore import QPoint, Qt
 from PyQt6.QtGui import QImage, QMouseEvent, QPainter, QPixmap, QWheelEvent
-from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QSlider, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QVBoxLayout, QWidget
 
-from qfluentwidgets import BodyLabel, CardWidget, PrimaryPushButton, PushButton
+from qfluentwidgets import BodyLabel, CardWidget, PrimaryPushButton, PushButton, Slider
 
 from ..acus_workspace import acus_generated_dir
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical
+from .rich_hint import hint_row
 
 CANVAS_W = 400
 CANVAS_H = 256
@@ -177,21 +178,19 @@ class MatePreviewDialog(FluentCaptionDialog):
         self._acus_root = acus_root
         self.result_png_path: Path | None = None
 
-        hint = BodyLabel(
+        hint = hint_row(
+            "底层卡片 + 立绘（拖动摆位、滚轮缩放）+ 白框标签；超出白框底的部分会自动擦除。",
             "底层为卡片背景（background），中间为立绘（拖动摆位、滚轮缩放），最上层为白框与标签（frontframe）。"
             "立绘在白框底边以下的部分会被自动擦除（防止出框），与系统语音预览图同一套拼接逻辑。"
             "生成 PNG 后在生成伴侣时自动转 BC3 写入 mate 目录。",
             self,
         )
-        hint.setWordWrap(True)
-        hint.setTextColor("#6B7280", "#9CA3AF")
 
         self._canvas = MateComposeWidget(self)
-        self._scale_slider = QSlider(Qt.Orientation.Horizontal, self)
+        self._scale_slider = Slider(Qt.Orientation.Horizontal, self)
         self._scale_slider.setRange(15, 400)
         self._scale_slider.setValue(100)
-        self._scale_slider.valueChanged.connect(
-            lambda v: self._canvas.set_scale(v / 100.0))
+        self._scale_slider.valueChanged.connect(self._on_scale_changed)
 
         pick = PushButton("选择立绘…", self)
         pick.clicked.connect(self._on_pick)
@@ -201,7 +200,7 @@ class MatePreviewDialog(FluentCaptionDialog):
         cancel.clicked.connect(self.reject)
         row = QHBoxLayout()
         row.addWidget(pick)
-        row.addWidget(QLabel("缩放", self))
+        row.addWidget(BodyLabel("缩放", self))
         row.addWidget(self._scale_slider, stretch=1)
         row.addWidget(cancel)
         row.addWidget(gen)
@@ -219,6 +218,13 @@ class MatePreviewDialog(FluentCaptionDialog):
         lay.setSpacing(10)
         lay.addWidget(card, stretch=1)
 
+    def _on_scale_changed(self, value: int) -> None:
+        # 程序化 setValue 也会走到这里：等值早退，避免把手同步时反复改画布。
+        scale = value / 100.0
+        if abs(self._canvas.scale() - scale) < 1e-6:
+            return
+        self._canvas.set_scale(scale)
+
     def _on_pick(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self, "选择立绘", "",
@@ -228,9 +234,7 @@ class MatePreviewDialog(FluentCaptionDialog):
             return
         try:
             self._canvas.load_portrait(Path(path).expanduser())
-            self._scale_slider.blockSignals(True)
-            self._scale_slider.setValue(int(self._canvas.scale() * 100))
-            self._scale_slider.blockSignals(False)
+            self._scale_slider.setValue(int(round(self._canvas.scale() * 100)))
         except ValueError as e:
             fly_critical(self, "错误", str(e))
 

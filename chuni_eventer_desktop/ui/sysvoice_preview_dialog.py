@@ -8,17 +8,16 @@ from PyQt6.QtGui import QImage, QMouseEvent, QPainter, QPixmap, QWheelEvent
 from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
-    QLabel,
-    QSlider,
     QVBoxLayout,
     QWidget,
 )
 
-from qfluentwidgets import BodyLabel, CardWidget, PrimaryPushButton, PushButton
+from qfluentwidgets import BodyLabel, CardWidget, PrimaryPushButton, PushButton, Slider
 
 from ..acus_workspace import acus_generated_dir
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical
+from .rich_hint import hint_row
 
 CANVAS_W = 400
 CANVAS_H = 256
@@ -186,17 +185,16 @@ class SysvoicePreviewDialog(FluentCaptionDialog):
         self._acus_root = acus_root
         self.result_png_path: Path | None = None
 
-        hint = BodyLabel(
+        hint = hint_row(
+            "底层 back + 立绘（可拖动、滚轮缩放）+ front；立绘下方固定区域会被擦除。",
             "底层为 back.png，中间为立绘（可拖动、滚轮缩放），再叠 front.png。"
             " 自上往下第 194～296 行（从 1 计数；高 256 时底边钳在画布内）仅擦掉立绘在该带内的像素，"
             " back 与 front 两图层保持完整。点「生成 PNG」后路径会填回打包页；写入 ACUS 时在后台转为 BC3 DDS。",
             self,
         )
-        hint.setWordWrap(True)
-        hint.setTextColor("#6B7280", "#9CA3AF")
 
         self._canvas = SysvoiceComposeWidget(self)
-        self._scale_slider = QSlider(Qt.Orientation.Horizontal, self)
+        self._scale_slider = Slider(Qt.Orientation.Horizontal, self)
         self._scale_slider.setRange(15, 300)
         self._scale_slider.setValue(100)
         self._scale_slider.valueChanged.connect(self._on_slider)
@@ -209,7 +207,7 @@ class SysvoicePreviewDialog(FluentCaptionDialog):
         cancel.clicked.connect(self.reject)
         row = QHBoxLayout()
         row.addWidget(pick)
-        row.addWidget(QLabel("缩放", self))
+        row.addWidget(BodyLabel("缩放", self))
         row.addWidget(self._scale_slider, stretch=1)
         row.addWidget(cancel)
         row.addWidget(gen)
@@ -228,7 +226,11 @@ class SysvoicePreviewDialog(FluentCaptionDialog):
         lay.addWidget(card, stretch=1)
 
     def _on_slider(self, v: int) -> None:
-        self._canvas.set_scale(v / 100.0)
+        # 程序化 setValue 也会走到这里：等值早退，避免把手同步时反复改画布。
+        scale = v / 100.0
+        if abs(self._canvas.scale() - scale) < 1e-6:
+            return
+        self._canvas.set_scale(scale)
         self._canvas.update()
 
     def _on_pick(self) -> None:
@@ -242,9 +244,7 @@ class SysvoicePreviewDialog(FluentCaptionDialog):
             return
         try:
             self._canvas.load_portrait(Path(path).expanduser())
-            self._scale_slider.blockSignals(True)
-            self._scale_slider.setValue(int(self._canvas.scale() * 100))
-            self._scale_slider.blockSignals(False)
+            self._scale_slider.setValue(int(round(self._canvas.scale() * 100)))
         except ValueError as e:
             fly_critical(self, "错误", str(e))
 
