@@ -170,6 +170,7 @@ class PjskSusDownloadDialog(FluentCaptionDialog):
         self._dl_progress = ProgressBar(card)
         self._dl_progress.setRange(0, 100)
         self._dl_progress.setValue(0)
+        self._dl_progress.hide()
 
         cly = QVBoxLayout(card)
         cly.setContentsMargins(16, 16, 16, 16)
@@ -379,16 +380,20 @@ class PjskSusDownloadDialog(FluentCaptionDialog):
 
     def _on_cache_progress(self, text: str, ratio: float) -> None:
         if ratio < 0:
+            # qfluentwidgets 的 ProgressBar 没有不确定态动画（range 0/0 只剩静止底槽），
+            # 准备阶段干脆收起进度条，交给状态文字说明
             self._status.setText(text)
-            self._dl_progress.setRange(0, 0)
+            self._dl_progress.hide()
             return
         self._status.setText(f"{text}（{ratio * 100:.1f}%）")
+        self._dl_progress.show()
         self._dl_progress.setRange(0, 1000)
         self._dl_progress.setValue(min(1000, int(ratio * 1000)))
 
     def _reset_cache_progress_bar(self) -> None:
         self._dl_progress.setRange(0, 100)
         self._dl_progress.setValue(0)
+        self._dl_progress.hide()
 
     def _on_cache_ok(self, path: str) -> None:
         self._status.setText("已写入缓存。")
