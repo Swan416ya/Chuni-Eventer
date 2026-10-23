@@ -11,9 +11,24 @@ import html
 import re
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QWidget
+from PyQt6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QScrollArea,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
 
-from qfluentwidgets import FluentIcon, TransparentToolButton, isDarkTheme
+from qfluentwidgets import (
+    FluentIcon,
+    PrimaryPushButton,
+    TransparentToolButton,
+    isDarkTheme,
+)
+
+from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 
 _BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
 _CODE_RE = re.compile(r"`([^`]+)`")
@@ -58,6 +73,52 @@ def rich_hint_label(
     return lbl
 
 
+class DetailDialog(FluentCaptionDialog):
+    """细则弹窗：正文按窗口宽度换行、超长可滚动。
+
+    不用 ``fly_message`` 承载长细则：原生 QMessageBox 的正文标签不换行，
+    上百字的说明会被裁成一行（实测 width≈300、sizeHint≈2360，右侧看不见）。
+    """
+
+    def __init__(self, *, text: str, title: str = "说明", parent=None) -> None:
+        super().__init__(parent=parent)
+        self.setWindowTitle(title)
+        self.setModal(True)
+        self.resize(560, 420)
+
+        body = QWidget(self)
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(16, 8, 16, 8)
+        body_lay.setSpacing(8)
+        body_lay.addWidget(rich_hint_label(text, body, font_size_pt=13))
+        body_lay.addStretch(1)
+
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(body)
+
+        ok = PrimaryPushButton("知道了", self)
+        ok.clicked.connect(self.accept)
+        foot = QHBoxLayout()
+        foot.setContentsMargins(0, 0, 0, 0)
+        foot.addStretch(1)
+        foot.addWidget(ok)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(*fluent_caption_content_margins())
+        root.setSpacing(10)
+        root.addWidget(scroll, stretch=1)
+        root.addLayout(foot)
+
+
+def show_detail_dialog(parent: QWidget | None, text: str, title: str = "说明") -> None:
+    dlg = DetailDialog(text=text, title=title, parent=parent)
+    dlg.setWindowModality(Qt.WindowModality.WindowModal)
+    # open() 而不是 exec()：细则弹窗常在已有模态弹窗里打开，避免嵌套事件循环
+    dlg.open()
+
+
 def hint_row(
     text: str,
     details: str | None = None,
@@ -86,13 +147,6 @@ def hint_row(
     btn = TransparentToolButton(FluentIcon.INFO, row)
     btn.setFixedSize(22, 22)
     btn.setToolTip(f"查看{details_title}")
-
-    def _show_details() -> None:
-        # 局部 import：fluent_dialogs 依赖较多，避免模块级循环引用
-        from .fluent_dialogs import fly_message
-
-        fly_message(btn.window(), details_title, details)
-
-    btn.clicked.connect(_show_details)
+    btn.clicked.connect(lambda: show_detail_dialog(btn.window(), details, details_title))
     lay.addWidget(btn, alignment=Qt.AlignmentFlag.AlignTop)
     return row
