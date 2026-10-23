@@ -13,7 +13,6 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QSizePolicy,
-    QSlider,
     QVBoxLayout,
     QWidget,
 )
@@ -26,6 +25,7 @@ from qfluentwidgets import (
     LineEdit,
     PrimaryPushButton,
     PushButton,
+    Slider,
     isDarkTheme,
 )
 
@@ -342,7 +342,7 @@ class _CharaQuickComposeDialog(FluentCaptionDialog):
         hint.setMaximumHeight(24)
         hint.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 
-        self._opacity_slider = QSlider(Qt.Orientation.Horizontal, self)
+        self._opacity_slider = Slider(Qt.Orientation.Horizontal, self)
         self._opacity_slider.setRange(0, 100)
         self._opacity_slider.setValue(65)
         self._opacity_slider.valueChanged.connect(self._on_template_opacity_changed)

@@ -13,9 +13,9 @@ from pathlib import Path
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QImage, QPainter, QPalette, QPen, QPixmap
-from PyQt6.QtWidgets import QHBoxLayout, QSlider, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
-from qfluentwidgets import BodyLabel, CardWidget, PrimaryPushButton, PushButton
+from qfluentwidgets import BodyLabel, CardWidget, PrimaryPushButton, PushButton, Slider
 
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical
@@ -440,7 +440,7 @@ class ImageCropEditorDialog(FluentCaptionDialog):
         hint.setWordWrap(True)
         hint.setTextColor("#6B7280", "#9CA3AF")
 
-        self._zoom_slider = QSlider(Qt.Orientation.Horizontal, self)
+        self._zoom_slider = Slider(Qt.Orientation.Horizontal, self)
         self._zoom_slider.setRange(2, 4000)
         self._zoom_slider.setValue(int(self._canvas.zoom * 100))
         self._zoom_slider.setToolTip("图片缩放（也可用鼠标滚轮）")
