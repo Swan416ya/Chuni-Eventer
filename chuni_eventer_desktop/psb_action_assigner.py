@@ -3,10 +3,18 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
+
+
+def _hidden_process_kwargs() -> dict[str, int]:
+    if sys.platform == "win32":
+        return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+    return {}
 
 
 @dataclass
@@ -59,6 +67,7 @@ class PsbActionAssigner:
                 [str(self._psb_decompile), str(psb_path), "-o", str(out_dir)],
                 capture_output=True, text=True, encoding="utf-8", errors="replace",
                 timeout=600,
+                **_hidden_process_kwargs(),
             )
         except subprocess.TimeoutExpired as e:
             raise RuntimeError("PsbDecompile 解包超时（10 分钟），模型可能过大或损坏") from e
@@ -117,6 +126,7 @@ class PsbActionAssigner:
             psb_path: 原始 PSB 路径
             output_emtbytes: 输出 emtbytes 路径
         """
+        output_emtbytes.parent.mkdir(parents=True, exist_ok=True)
         proc = subprocess.run(
             [
                 str(self._psbuild), "port",
@@ -126,12 +136,20 @@ class PsbActionAssigner:
             ],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=600,
+            **_hidden_process_kwargs(),
         )
         if proc.returncode != 0:
             raise RuntimeError(f"PsBuild port 失败:\n{proc.stdout}\n{proc.stderr}")
 
         if not output_emtbytes.exists():
-            raise RuntimeError(f"port 后未生成文件: {output_emtbytes}")
+            # PsBuild treats an already-common PSB as a successful no-op and
+            # therefore creates no output file.  It is already in the exact
+            # platform the game expects, so preserving it is the correct port.
+            message = f"{proc.stdout}\n{proc.stderr}".lower()
+            if "same platform" in message or "already" in message and "common" in message:
+                shutil.copyfile(psb_path, output_emtbytes)
+            else:
+                raise RuntimeError(f"port 后未生成文件: {output_emtbytes}")
 
 
 # CHUNITHM 动作槽语义说明（对照 mate000101 官方规范）
