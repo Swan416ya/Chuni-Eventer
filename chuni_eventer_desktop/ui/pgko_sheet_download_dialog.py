@@ -964,8 +964,9 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
         fly_critical(
             self,
             "读取 pgko.dev 失败",
-            "从 pgko.dev 加载列表失败。请展开并复制调试信息发给开发者。",
+            "从 pgko.dev 加载列表失败。请展开查看完整报错，或点「复制调试信息」发给开发者。",
             details=msg,
+            copy_text=msg,
         )
 
     def _fetch_more(self) -> None:
@@ -1055,8 +1056,9 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
             self,
             "下载失败",
             "下载 pgko.dev 谱面失败。\n"
-            "请展开并复制调试信息发给开发者，并用新版本重试。",
+            "请展开查看完整报错，或点「复制调试信息」发给开发者，并用新版本重试。",
             details=msg,
+            copy_text=msg,
         )
 
     def _try_convert_pgko_to_c2s(self, output: Path) -> None:

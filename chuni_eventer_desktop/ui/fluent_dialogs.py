@@ -839,6 +839,7 @@ def fly_critical(
     text: str,
     *,
     details: str | None = None,
+    copy_text: str | None = None,
 ) -> None:
     fly_message_async(
         parent,
@@ -848,6 +849,7 @@ def fly_critical(
         window_modal=True,
         icon=QMessageBox.Icon.Critical,
         details=details,
+        copy_text=copy_text,
     )
 
 
@@ -860,6 +862,7 @@ def fly_message_async(
     window_modal: bool = False,
     icon: QMessageBox.Icon = QMessageBox.Icon.Information,
     details: str | None = None,
+    copy_text: str | None = None,
 ) -> None:
     """
     非阻塞提示框：用于避免连环模态框导致 UI 卡死。
@@ -882,6 +885,12 @@ def fly_message_async(
         )
         if details:
             w.setDetailedText(details)
+        if copy_text:
+            # 调试信息一键复制（v0.8.0 起 pgko 报错弹窗的既定能力，异步链路里也要保留）
+            copy_btn = w.addButton("复制调试信息", QMessageBox.ButtonRole.ActionRole)
+            copy_btn.clicked.connect(
+                lambda _checked=False: QApplication.clipboard().setText(copy_text)
+            )
         # Must match QDialog.open(): window-modal over parent. ApplicationModal here
         # conflicts with open() and can prevent native QMessageBox from appearing.
         w.setWindowModality(

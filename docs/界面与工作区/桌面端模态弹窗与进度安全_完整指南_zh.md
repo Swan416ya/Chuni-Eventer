@@ -31,7 +31,7 @@
 - **仓库内已落地的集中封装**（统一调用方式，减少漏写）；
 - **排查步骤**与**Code Review 检查项**。
 
-**技术栈**：PyQt6、`qframelesswindow`（`FramelessDialog`）、`qfluentwidgets`（`MSFluentWindow`、`MessageBox`）、无边框 `FluentCaptionDialog`。
+**技术栈**：PyQt6、`qframelesswindow`（`FramelessDialog`）、`qfluentwidgets`（`MSFluentWindow`、控件库）、无边框 `FluentCaptionDialog`。消息框为**原生 `QMessageBox` + Fluent QSS**（见 §3.1 说明）。
 
 **非目标**：不改变 Fluent 视觉样式；不讨论游戏数据业务规则。
 
@@ -52,7 +52,9 @@
 
 实现位置：**`chuni_eventer_desktop/ui/fluent_dialogs.py`**。
 
-### 3.1 消息框（Fluent `MessageBox`）
+### 3.1 消息框（原生 `QMessageBox` + Fluent QSS）
+
+> **不要改回 `qfluentwidgets.MessageBox`。** v0.6.x 曾用它，在 Windows 上出现过「提示框点击丢失 / 叠模态卡死」，之后统一改为原生 `QMessageBox` 套 Fluent 主题 QSS（`_apply_fluent_style_to_native_message_box`）。`fly_critical(..., details=..., copy_text=...)` 里 `details` 走 `setDetailedText`（可展开查看完整 traceback），`copy_text` 会额外加一个「复制调试信息」按钮。
 
 | API | 行为摘要 | 何时使用 |
 |-----|----------|----------|

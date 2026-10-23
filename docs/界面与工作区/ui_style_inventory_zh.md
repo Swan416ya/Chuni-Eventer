@@ -17,7 +17,7 @@
 | 工作区容器 | `QWidget` + `QVBoxLayout` / `QHBoxLayout` | `main_window.py` 中 `_workspace` |
 | 顶栏控件 | `SubtitleLabel`、`SearchLineEdit`、`PushButton`、`PrimaryPushButton` | Fluent |
 | 系统级弹窗 | `QFileDialog` | 选目录/选文件仍为系统原生 |
-| 轻量提示 / 确认 | `fly_message` / `fly_critical` / `fly_warning` / `fly_question`；进度条收尾 `safe_dismiss_modal_progress_dialog` | `ui/fluent_dialogs.py`，底层为 `qfluentwidgets.MessageBox`；规范见 [桌面端模态弹窗与进度安全_完整指南_zh.md](./桌面端模态弹窗与进度安全_完整指南_zh.md) |
+| 轻量提示 / 确认 | `fly_message` / `fly_critical` / `fly_warning` / `fly_question`；进度条收尾 `safe_dismiss_modal_progress_dialog` | `ui/fluent_dialogs.py`，底层为**原生 `QMessageBox` + Fluent QSS**（v0.6.x 起刻意不用 `qfluentwidgets.MessageBox`：后者在 Windows 上会丢点击/叠模态）；规范见 [桌面端模态弹窗与进度安全_完整指南_zh.md](./桌面端模态弹窗与进度安全_完整指南_zh.md) |
 
 ---
 
