@@ -101,7 +101,7 @@
 | `avatar_wear_compose_dialog.py` | `FluentCaptionDialog` | `CardWidget`、`BodyLabel`、`LineEdit`、`PushButton` / `PrimaryPushButton`、`QSlider`；`fluent_caption_content_margins`；`fly_critical` | `QFormLayout`、`QFileDialog`；企鹅装扮 1024 合成画布（`PenguinWearEditorWidget`） |
 | `index_progress.py` | 进度 | 无 | `QProgressDialog` |
 | `dds_progress.py` | 进度 | 无 | `QProgressDialog` |
-| `tool_install_progress.py` | `FluentCaptionDialog` | `BodyLabel`、`ProgressBar`；跟随当前主题；运行中隐藏最小化/关闭并拦截 Esc、Alt+F4，结束时受控解除模态 | — |
+| `tool_install_progress.py` | `FluentCaptionDialog` | `BodyLabel`、`ProgressBar` / `IndeterminateProgressBar`、`PushButton`（取消）；百分比走独立标签（`ProgressBar` 不渲染 `setFormat` 文本）；运行中拦截 Esc / Alt+F4，取消或结束时受控关闭 | — |
 
 ---
 

@@ -84,7 +84,12 @@ def run_external_tools_bootstrap(
     cancel = threading.Event()
     parent._tool_install_cancel = cancel  # type: ignore[attr-defined]
 
-    dlg = ToolInstallProgressDialog(parent, title="外部工具", initial="正在准备外部工具环境…")
+    dlg = ToolInstallProgressDialog(
+        parent,
+        title="外部工具",
+        initial="正在准备外部工具环境…",
+        on_cancel=cancel.set,
+    )
     parent._bootstrap_progress_dialog = dlg  # type: ignore[attr-defined]
     dlg.show_progress()
 

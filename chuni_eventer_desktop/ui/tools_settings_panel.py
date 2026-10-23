@@ -206,7 +206,10 @@ class ToolsSettingsPanel(QWidget):
         self._install_cancel = cancel
 
         dlg = ToolInstallProgressDialog(
-            self, title="外部工具", initial=f"正在安装 {spec.name}…"
+            self,
+            title="外部工具",
+            initial=f"正在安装 {spec.name}…",
+            on_cancel=cancel.set,
         )
         self._install_progress_dialog = dlg
         dlg.show_progress()
