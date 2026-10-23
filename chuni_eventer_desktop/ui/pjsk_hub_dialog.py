@@ -12,7 +12,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QProgressBar,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -24,6 +23,7 @@ from qfluentwidgets import (
     CheckBox,
     LineEdit,
     PrimaryPushButton,
+    ProgressBar,
     PushButton,
     SpinBox,
 )
@@ -235,7 +235,7 @@ class PjskConvertToAcusDialog(FluentCaptionDialog):
         hint = BodyLabel(
             "谱面转换使用「PJSK 官谱语义」转换器（装饰音符降级、曲线烘焙、变速保留），"
             "再由 PenguinTools.CLI 打包 c2s / 封面 DDS / HCA 音频与 Music.xml。\n"
-            "音频对齐由实测前导静音自动决定（不再固定裁 9 秒）；releaseTag 固定 -2 / PJSK，genre 为 niconico。"
+            "releaseTag 固定 -2 / PJSK，genre 为 niconico。"
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#6b7280;font-size:12px;")
@@ -244,7 +244,7 @@ class PjskConvertToAcusDialog(FluentCaptionDialog):
         self._prog_label.setWordWrap(True)
         self._prog_label.setStyleSheet("color:#374151;font-size:12px;")
         self._prog_label.hide()
-        self._prog_bar = QProgressBar(self)
+        self._prog_bar = ProgressBar(self)
         self._prog_bar.setRange(0, 1000)
         self._prog_bar.setValue(0)
         self._prog_bar.setTextVisible(True)

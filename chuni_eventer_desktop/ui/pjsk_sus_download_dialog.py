@@ -11,13 +11,19 @@ from PyQt6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QHeaderView,
-    QProgressBar,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
 )
 
-from qfluentwidgets import BodyLabel, CardWidget, LineEdit, PrimaryPushButton, PushButton
+from qfluentwidgets import (
+    BodyLabel,
+    CardWidget,
+    LineEdit,
+    PrimaryPushButton,
+    ProgressBar,
+    PushButton,
+)
 
 from ..pjsk_sheet_client import (
     PjskDifficultyRow,
@@ -159,7 +165,7 @@ class PjskSusDownloadDialog(FluentCaptionDialog):
         self._status = BodyLabel("正在加载曲目列表…", card)
         self._status.setWordWrap(True)
 
-        self._dl_progress = QProgressBar(card)
+        self._dl_progress = ProgressBar(card)
         self._dl_progress.setRange(0, 100)
         self._dl_progress.setValue(0)
         self._dl_progress.setTextVisible(True)

@@ -3,18 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtCore import QEvent, QSize, Qt
-from PyQt6.QtGui import QColor, QIcon, QMouseEvent
+from PyQt6.QtGui import QIcon, QMouseEvent
 from PyQt6.QtWidgets import (
-    QDialog,
-    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QSizePolicy,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
-from qfluentwidgets import PushButton, SubtitleLabel
+from qfluentwidgets import CardWidget, PushButton, SubtitleLabel
+
+from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 
 def _logo_path(filename: str) -> Path:
     return Path(__file__).resolve().parents[1] / "static" / "logo" / filename
@@ -24,7 +23,7 @@ _BTN_H = 44
 _BTN_W = int(round(_BTN_H * 2.5))
 
 
-class MusicSheetChannelsDialog(QDialog):
+class MusicSheetChannelsDialog(FluentCaptionDialog):
     """
     乐曲页「新增」：选择自制谱下载渠道（SwanSite / pgko / PJSK 烤谱）。
     """
@@ -33,22 +32,12 @@ class MusicSheetChannelsDialog(QDialog):
         super().__init__(parent=parent)
         self.setWindowTitle("自制谱下载渠道")
         self.setModal(True)
-        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.resize(600, 280)
+        self.resize(600, 250)
 
         self._action: str | None = None
 
-        card = QWidget(self)
+        card = CardWidget(self)
         self._card = card
-        card.setObjectName("channelDialogCard")
-        card.setStyleSheet(
-            "#channelDialogCard{"
-            "background-color: rgba(255,255,255,190);"
-            "border: 1px solid rgba(255,255,255,70);"
-            "border-radius: 14px;"
-            "}"
-        )
         cly = QVBoxLayout(card)
         cly.setContentsMargins(24, 22, 24, 20)
         cly.setSpacing(18)
@@ -61,10 +50,9 @@ class MusicSheetChannelsDialog(QDialog):
         row.setContentsMargins(0, 0, 0, 0)
         icon_sz = QSize(_BTN_W - 12, _BTN_H - 8)
 
-        def mk(fname: str, tip: str, *, enabled: bool, act: str) -> QToolButton:
-            b = QToolButton(card)
+        def mk(fname: str, tip: str, *, enabled: bool, act: str) -> PushButton:
+            b = PushButton(card)
             b.setToolTip(tip)
-            b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
             p = _logo_path(fname)
             if p.is_file():
                 b.setIcon(QIcon(str(p)))
@@ -112,14 +100,8 @@ class MusicSheetChannelsDialog(QDialog):
         foot.addWidget(self._close_btn, stretch=1)
         cly.addLayout(foot)
 
-        sh = QGraphicsDropShadowEffect(card)
-        sh.setBlurRadius(36)
-        sh.setOffset(0, 10)
-        sh.setColor(QColor(0, 0, 0, 85))
-        card.setGraphicsEffect(sh)
-
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
+        root.setContentsMargins(*fluent_caption_content_margins())
         root.setSpacing(12)
         root.addWidget(card, stretch=1)
 

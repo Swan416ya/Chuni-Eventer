@@ -65,7 +65,12 @@ from ..penguin_tools_cli import explain_penguin_tools_cli_lookup, resolve_pengui
 from ..stage_from_image import StageAfbToolError, StageCreateOptions, create_stage_from_image
 from ..dds_convert import DdsToolError
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
-from .fluent_dialogs import fly_message_async, fly_question_async, fly_warning, fly_critical, _apply_fluent_style_to_native_message_box
+from .fluent_dialogs import (
+    fly_critical,
+    fly_message_async,
+    fly_question_async,
+    fly_warning,
+)
 from .fluent_table import (
     apply_fluent_sheet_table,
     apply_fluent_tableview_header_style,
@@ -956,32 +961,12 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
     def _on_fetch_fail(self, msg: str) -> None:
         self._status.setText("加载失败。")
         self._is_fetching_more = False
-        fly_message_async(
+        fly_critical(
             self,
             "读取 pgko.dev 失败",
-            msg,
-            single_button=True,
-            window_modal=False,
+            "从 pgko.dev 加载列表失败。请展开并复制调试信息发给开发者。",
+            details=msg,
         )
-        # Also show a modal popup with copy button for debugging
-        parent = self.window()
-        if not parent or not parent.isWindow():
-            parent = self
-        box = QMessageBox(parent)
-        box.setWindowTitle("读取 pgko.dev 失败")
-        _apply_fluent_style_to_native_message_box(box)
-        box.setText(
-            "从 pgko.dev 加载列表失败。\n"
-            "请截图下方调试信息发给开发者。"
-        )
-        box.setDetailedText(msg)
-        box.setIcon(QMessageBox.Icon.Critical)
-        copy_btn = box.addButton("复制调试信息", QMessageBox.ButtonRole.ActionRole)
-        box.addButton(QMessageBox.StandardButton.Close)
-        box.exec()
-        clicked = box.clickedButton()
-        if clicked == copy_btn:
-            QApplication.clipboard().setText(msg)
 
     def _fetch_more(self) -> None:
         if not self._next_cursor:
@@ -1066,26 +1051,13 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
             "调试信息（复制给开发者）：\n"
             f"{msg}"
         )
-        # Show modal popup with copy button
-        parent = self.window()
-        if not parent or not parent.isWindow():
-            parent = self
-
-        box = QMessageBox(parent)
-        box.setWindowTitle("下载失败")
-        _apply_fluent_style_to_native_message_box(box)
-        box.setText(
+        fly_critical(
+            self,
+            "下载失败",
             "下载 pgko.dev 谱面失败。\n"
-            "请截图下方调试信息发给开发者，并用新版本重试。"
+            "请展开并复制调试信息发给开发者，并用新版本重试。",
+            details=msg,
         )
-        box.setDetailedText(msg)
-        box.setIcon(QMessageBox.Icon.Critical)
-        copy_btn = box.addButton("复制调试信息", QMessageBox.ButtonRole.ActionRole)
-        box.addButton(QMessageBox.StandardButton.Close)
-        box.exec()
-        clicked = box.clickedButton()
-        if clicked == copy_btn:
-            QApplication.clipboard().setText(msg)
 
     def _try_convert_pgko_to_c2s(self, output: Path) -> None:
         _pgko_dlog("_try_convert_pgko_to_c2s:start", output=str(output))

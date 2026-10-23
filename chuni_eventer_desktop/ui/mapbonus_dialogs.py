@@ -158,7 +158,7 @@ class _MapBonusRuleEditDialog(FluentCaptionDialog):
         keep_str = None
         if keep:
             w = self._target_widget
-            if isinstance(w, QComboBox):
+            if isinstance(w, (QComboBox, FluentComboBox)):
                 d = w.currentData()
                 if isinstance(d, int):
                     keep_id = int(d)
@@ -191,7 +191,7 @@ class _MapBonusRuleEditDialog(FluentCaptionDialog):
             self._target_widget = le
             return
 
-        cb = QComboBox(self._target_host)
+        cb = FluentComboBox(self._target_host)
         pairs: list[tuple[int, str]]
         if kind == "music":
             pairs = self._music_pairs
@@ -263,7 +263,7 @@ class _MapBonusRuleEditDialog(FluentCaptionDialog):
             tid = -1
             tstr = "Invalid"
         else:
-            if not isinstance(tw, QComboBox):
+            if not isinstance(tw, (QComboBox, FluentComboBox)):
                 fly_critical(self, "错误", "目标下拉异常")
                 return
             d = tw.currentData()

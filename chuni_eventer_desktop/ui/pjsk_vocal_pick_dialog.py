@@ -5,9 +5,9 @@ PJSK 同一乐曲多个人声版本时，由用户选择要下载的 long 音频
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QHBoxLayout, QListWidget, QListWidgetItem, QVBoxLayout
+from PyQt6.QtWidgets import QHBoxLayout, QListWidgetItem, QVBoxLayout
 
-from qfluentwidgets import BodyLabel, PrimaryPushButton, PushButton
+from qfluentwidgets import BodyLabel, ListWidget, PrimaryPushButton, PushButton
 
 from ..pjsk_sheet_client import PjskVocalRow
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
@@ -38,7 +38,7 @@ class PjskVocalPickDialog(FluentCaptionDialog):
         )
         tip.setWordWrap(True)
 
-        self._list = QListWidget(self)
+        self._list = ListWidget(self)
         for v in vocals:
             it = QListWidgetItem(v.caption)
             it.setData(Qt.ItemDataRole.UserRole, v)

@@ -8,14 +8,10 @@ from pathlib import Path
 from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor, QFont, QPainter, QPen, QPixmap, QLinearGradient
 from PyQt6.QtWidgets import (
-    QComboBox,
     QFileDialog,
     QFormLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
-    QMessageBox,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -28,6 +24,7 @@ from qfluentwidgets import (
     LineEdit,
     PrimaryPushButton,
     PushButton,
+    SpinBox,
 )
 
 from ..acus_scan import scan_charas, scan_system_voices
@@ -39,7 +36,7 @@ from ..psb_action_assigner import (
 )
 from .chara_add_dialog import CharaAddDialog
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
-from .fluent_dialogs import fly_critical
+from .fluent_dialogs import fly_critical, fly_message
 from .mate_preview_dialog import MatePreviewDialog
 
 
@@ -314,7 +311,7 @@ class PsbActionDialog(FluentCaptionDialog):
         self.psb_path_edit.setPlaceholderText("选择本地 PSB 文件")
         self.name_edit = LineEdit(self)
         self.name_edit.setPlaceholderText("伴侣显示名，例如 アズキ")
-        self.mate_id_edit = QSpinBox(self)
+        self.mate_id_edit = SpinBox(self)
         self.mate_id_edit.setRange(1, 999999)
         self.mate_id_edit.setValue(mate_id)
         self.chara_combo = FluentComboBox(self)
@@ -328,23 +325,28 @@ class PsbActionDialog(FluentCaptionDialog):
         self.chara_new_btn.clicked.connect(self._new_chara)
         ch_h.addWidget(self.chara_new_btn)
 
-        self.pos_x_spin = QSpinBox(self)
+        self.pos_x_spin = SpinBox(self)
         self.pos_x_spin.setRange(-500, 500)
         self.pos_x_spin.setValue(1)
-        self.pos_y_spin = QSpinBox(self)
+        self.pos_y_spin = SpinBox(self)
         self.pos_y_spin.setRange(-1000, 500)
         self.pos_y_spin.setValue(-50)
-        self.scale_spin = QSpinBox(self)
+        self.scale_spin = SpinBox(self)
         self.scale_spin.setRange(1000, 20000)
         self.scale_spin.setValue(6000)
 
         self.preview = MatePositionPreview(self)
 
         # 4 个核心动作选择（按官方规律自动展开成 18 个槽）
-        self.core_combos: dict[str, QComboBox] = {}
-        core_group = QGroupBox("动作匹配：从模型动画列表里选出 4 个", self)
-        core_form = QFormLayout(core_group)
+        self.core_combos: dict[str, FluentComboBox] = {}
+        core_group = CardWidget(self)
+        core_group_lay = QVBoxLayout(core_group)
+        core_group_lay.setContentsMargins(16, 12, 16, 12)
+        core_group_lay.setSpacing(8)
+        core_group_lay.addWidget(BodyLabel("动作匹配：从模型动画列表里选出 4 个", core_group))
+        core_form = QFormLayout()
         core_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        core_group_lay.addLayout(core_form)
         core_defs: tuple[tuple[str, str, str], ...] = (
             ("idle", "待机 idle", "平时站立循环（呼吸/眨眼），出场默认动作"),
             ("angry", "生气", "游戏内生气场景"),
@@ -352,7 +354,7 @@ class PsbActionDialog(FluentCaptionDialog):
             ("happy", "开心", "其余大部分场景（欢呼/高兴）都会用这个"),
         )
         for key, title, desc in core_defs:
-            combo = QComboBox(self)
+            combo = FluentComboBox(self)
             combo.addItem("（未选择）", userData="")
             self.core_combos[key] = combo
             cap = QLabel(self)
@@ -395,7 +397,7 @@ class PsbActionDialog(FluentCaptionDialog):
         ur_h = QHBoxLayout(url_row)
         ur_h.setContentsMargins(0, 0, 0, 0)
         ur_h.setSpacing(8)
-        self.model_combo = QComboBox(self)
+        self.model_combo = FluentComboBox(self)
         self.model_combo.addItem("（点击「获取列表」从 lolicount 拉取在线模型）", userData="")
         ur_h.addWidget(self.model_combo, stretch=1)
         refresh_btn = PushButton("获取列表", self)
@@ -781,8 +783,9 @@ class PsbActionDialog(FluentCaptionDialog):
             fly_critical(self.window(), "部署失败", str(e))
             return
 
-        QMessageBox.information(
-            self.window(), "完成",
+        notify_parent = self.parentWidget() or self
+        fly_message(
+            notify_parent, "完成",
             f"已写入 {mate_dir}\n\n"
             f"  emote{mate_id:06d}.emtbytes（已转 common 平台）\n"
             f"  Mate.xml（关联 chara {chara_id} · {chara_name}）\n"

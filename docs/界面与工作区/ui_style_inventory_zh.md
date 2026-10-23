@@ -79,27 +79,29 @@
 |------|----------------|--------|----------------|
 | `settings_dialog.py` | `FluentCaptionDialog` | `BodyLabel`、`CardWidget`、`LineEdit`、`PushButton`、`PrimaryPushButton`；`fluent_caption_content_margins` | `QFileDialog`、`QInputDialog.getItem`、`QVBoxLayout` / `QHBoxLayout` |
 | `save_patch_dialog.py` | `FluentCaptionDialog` | `TabWidget`、`SearchLineEdit`、`EditableComboBox`、`SpinBox`、`BodyLabel`、`CaptionLabel`、`CardWidget`、按钮、`isDarkTheme`；`fluent_caption_content_margins` | 各 Tab 内 `QWidget`、`QFormLayout`、`QLabel`（预览） |
-| `music_add_actions_dialog.py` | `FluentCaptionDialog` | `CardWidget`、`SubtitleLabel`、`PushButton`；`fluent_caption_content_margins` | `QToolButton`、`QGraphicsDropShadowEffect`（卡片阴影） |
+| `music_add_actions_dialog.py` | `FluentCaptionDialog` | `CardWidget`、`SubtitleLabel`、`PushButton`；`fluent_caption_content_margins` | `QIcon`（渠道 Logo） |
 | `game_music_browser_dialog.py` | `FluentCaptionDialog` | `CardWidget`、`BodyLabel`、`FluentComboBox`、`LineEdit`、`PushButton` / `PrimaryPushButton`；`fluent_table.apply_fluent_sheet_table`；`fly_warning` / `fly_critical`；`fluent_caption_content_margins` | `QTableWidget`、`QLabel`（筛选标签）、`QVBoxLayout` / `QHBoxLayout` |
 | `chara_add_dialog.py` | `FluentCaptionDialog` | `LineEdit`、`FluentComboBox`、`PushButton`、`PrimaryPushButton`、`CardWidget`、`BodyLabel`；`isDarkTheme`；`fluent_caption_content_margins`；`fly_message` / `fly_critical` | `QFileDialog`；布局 `QVBoxLayout` / `QHBoxLayout` |
 | `event_add_dialog.py` | `FluentCaptionDialog` | `CardWidget`、`BodyLabel`、`LineEdit`、`PushButton`、`PrimaryPushButton`；`fluent_caption_content_margins`；`fly_message` / `fly_critical` | `QFormLayout`、`QFileDialog` |
 | `trophy_add_dialog.py` | `FluentCaptionDialog` | `CardWidget`、`BodyLabel`、`LineEdit`、`FluentComboBox`、`PushButton`、`PrimaryPushButton`；`isDarkTheme`；`fly_message` / `fly_critical` | `QFormLayout`、`QLabel`（示例图）、`QFileDialog` |
 | `nameplate_add_dialog.py` | `FluentCaptionDialog` | `CardWidget`、`BodyLabel`、`LineEdit`、`PushButton`、`PrimaryPushButton`；`fly_message` / `fly_critical` | `QFormLayout`、`QFileDialog` |
-| `quest_add_dialog.py` | `FluentCaptionDialog` | `CardWidget`、`BodyLabel`、`LineEdit`、`FluentComboBox`、`CheckBox`、`SpinBox`、`PushButton`、`PrimaryPushButton`；`fly_critical`；`fluent_caption_content_margins` | `QFormLayout`、`QListWidget` |
+| `quest_add_dialog.py` | `FluentCaptionDialog` | `CardWidget`、`BodyLabel`、`LineEdit`、`FluentComboBox`、`ListWidget`、`CheckBox`、`SpinBox`、`PushButton`、`PrimaryPushButton`；`fly_critical`；`fluent_caption_content_margins` | `QFormLayout` |
 | `map_add_dialog.py` | `FluentCaptionDialog`（主窗 + 多个子对话框） | `TabWidget`（含 `tabAddRequested` 新建页签）、`CardWidget`、`SubtitleLabel`、`LineEdit`、`FluentComboBox`、`CheckBox`、`ScrollArea`、`TextEdit`、`PushButton` / `PrimaryPushButton`；`fly_message` / `fly_critical` / `fly_warning` / `fly_question`；`fluent_caption_content_margins` | `QFormLayout`、`QGridLayout`、`QLabel`（说明/警告色文案）、`QProgressDialog`、`QFileDialog`；`MapBonusEditDialog` 等仍来自其它模块 |
 | `mapbonus_dialogs.py` | `FluentCaptionDialog`（主窗 + 单条条件子窗） | `CardWidget`、`BodyLabel`、`LineEdit`、`FluentComboBox`、`PushButton`、`PrimaryPushButton`；2×2 槽位 + 子窗编辑；`fly_critical`；`isDarkTheme`（槽位样式） | `QFormLayout`、`QGridLayout` |
 | `music_trophy_dialog.py` | `FluentCaptionDialog` | `FluentComboBox`、`BodyLabel`、`PushButton` / `PrimaryPushButton`；`fly_message` / `fly_warning` / `fly_critical`；`fluent_caption_content_margins` | `QLabel`（表单标签）、`QHBoxLayout` / `QVBoxLayout` |
 | `works_dialogs.py` | `FluentCaptionDialog`（作品库 / 创建 / 绑定） | `LineEdit`、`FluentComboBox`、`PushButton`、`PrimaryPushButton`；`fluent_caption_content_margins` | `QListWidget`（列表）；工具函数仍接受 `QComboBox \| FluentComboBox` 以兼容旧调用 |
 | `swan_sheet_download_dialog.py` | `FluentCaptionDialog` | `BodyLabel`、`CardWidget`、`PushButton` / `PrimaryPushButton`；`fluent_caption_content_margins`；`fly_*` | `QProgressDialog`；`QTableWidget` + `apply_fluent_sheet_table` |
 | `pgko_sheet_download_dialog.py` | `FluentCaptionDialog`（主窗 + `_PgkoUgcGuideDialog` + `_PgkoInstallConfigDialog`） | `CardWidget`、`BodyLabel`、`LineEdit`、`FluentComboBox`、`CheckBox`、`PushButton` / `PrimaryPushButton`；`fly_question` / `fly_*`；`fluent_caption_content_margins` | `QTableWidget` + `apply_fluent_sheet_table`、`QLabel`（富文本说明） |
-| `pjsk_hub_dialog.py` | `FluentCaptionDialog`（`PjskHubDialog` + `PjskConvertToAcusDialog`；入口在乐曲页「新增 → PJSK」） | `BodyLabel`、`CardWidget`、`LineEdit`、`SpinBox`、`CheckBox`、`PushButton` / `PrimaryPushButton`；`fly_*`；`fluent_caption_content_margins` | `QTableWidget` + `apply_fluent_sheet_table`、`QFormLayout`、`QGridLayout`、`QLabel`、`QProgressBar` |
-| `pjsk_sus_download_dialog.py` | `FluentCaptionDialog` | `CardWidget`、`BodyLabel`、`LineEdit`、`PushButton` / `PrimaryPushButton`；`fluent_caption_content_margins`；`fly_*` | `QTableWidget` + `apply_fluent_sheet_table`、`QProgressBar` |
-| `pjsk_vocal_pick_dialog.py` | `FluentCaptionDialog` | `BodyLabel`、`PushButton` / `PrimaryPushButton`；`fluent_caption_content_margins` | `QListWidget` |
+| `pjsk_hub_dialog.py` | `FluentCaptionDialog`（`PjskHubDialog` + `PjskConvertToAcusDialog`；入口在乐曲页「新增 → PJSK」） | `BodyLabel`、`CardWidget`、`LineEdit`、`SpinBox`、`CheckBox`、`ProgressBar`、`PushButton` / `PrimaryPushButton`；`fly_*`；`fluent_caption_content_margins` | `QTableWidget` + `apply_fluent_sheet_table`、`QFormLayout`、`QGridLayout`、`QLabel` |
+| `pjsk_sus_download_dialog.py` | `FluentCaptionDialog` | `CardWidget`、`BodyLabel`、`LineEdit`、`ProgressBar`、`PushButton` / `PrimaryPushButton`；`fluent_caption_content_margins`；`fly_*` | `QTableWidget` + `apply_fluent_sheet_table` |
+| `pjsk_vocal_pick_dialog.py` | `FluentCaptionDialog` | `BodyLabel`、`ListWidget`、`PushButton` / `PrimaryPushButton`；`fluent_caption_content_margins` | — |
+| `psb_action_dialog.py` | `FluentCaptionDialog` | `CardWidget`、`BodyLabel`、`CaptionLabel`、`LineEdit`、`FluentComboBox`、`SpinBox`、`PushButton` / `PrimaryPushButton`；`fly_*`；`fluent_caption_content_margins` | `QFileDialog`、自绘位置预览 |
 | `avatar_mask_compose_dialog.py` | `FluentCaptionDialog` | 同 `avatar_wear` 壳层 | `PenguinWearEditorWidget`；`Icon_template/3.png` |
 | `avatar_hat_compose_dialog.py` | `FluentCaptionDialog` | 同 `avatar_wear` 壳层组件 | `PenguinWearEditorWidget`（帽子裁剪区）；`Icon_template/2.png` |
 | `avatar_wear_compose_dialog.py` | `FluentCaptionDialog` | `CardWidget`、`BodyLabel`、`LineEdit`、`PushButton` / `PrimaryPushButton`、`QSlider`；`fluent_caption_content_margins`；`fly_critical` | `QFormLayout`、`QFileDialog`；企鹅装扮 1024 合成画布（`PenguinWearEditorWidget`） |
 | `index_progress.py` | 进度 | 无 | `QProgressDialog` |
 | `dds_progress.py` | 进度 | 无 | `QProgressDialog` |
+| `tool_install_progress.py` | `FluentCaptionDialog` | `BodyLabel`、`ProgressBar`；跟随当前主题；运行中隐藏最小化/关闭并拦截 Esc、Alt+F4，结束时受控解除模态 | — |
 
 ---
 

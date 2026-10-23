@@ -8,7 +8,6 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
-    QListWidget,
     QListWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -20,6 +19,7 @@ from qfluentwidgets import (
     CheckBox,
     ComboBox as FluentComboBox,
     LineEdit,
+    ListWidget,
     PrimaryPushButton,
     PushButton,
     SpinBox,
@@ -160,7 +160,7 @@ class QuestAddDialog(FluentCaptionDialog):
         self._create_event.toggled.connect(self._event_id_edit.setEnabled)
         self._create_event.toggled.connect(self._event_title_edit.setEnabled)
 
-        self._chara_list = QListWidget(self)
+        self._chara_list = ListWidget(self)
         self._chara_list.setMinimumHeight(180)
         charas = merged_chara_items(acus_root, game_index)
         for c in charas:
