@@ -20,6 +20,7 @@ from pathlib import Path
 from PIL import Image
 
 from .dds_convert import ingest_to_bc3_dds
+from .mate_layout import recommended_scale_for_height
 from .psb_action_assigner import PsbActionAssigner, generate_mate_xml
 
 TICK_RATE = 60
@@ -52,6 +53,32 @@ class GifMateCreateRequest:
 
 
 @dataclass(frozen=True)
+class FrameMateCreateRequest:
+    """Build request for already-rendered transparent RGBA frames.
+
+    Live2D and Spine adapters should render/download their model into this
+    format, then cross this seam.  Callers do not need to know anything about
+    FreeMote's JSON structure or Mate deployment.
+    """
+
+    acus_root: Path
+    freemote_dir: Path
+    frame_paths: tuple[Path, ...]
+    duration_seconds: float
+    template_emtbytes: Path
+    mate_id: int
+    name: str
+    chara_id: int
+    chara_name: str
+    dds_illust_key: str
+    system_voice_id: int = 0
+    pos_x: int = 1
+    pos_y: int = -50
+    scale_x10000: int | None = None
+    dds_tool_path: Path | None = None
+
+
+@dataclass(frozen=True)
 class GifMateCreateResult:
     mate_dir: Path
     frame_count: int
@@ -62,7 +89,28 @@ class GifMateCreateResult:
     emtbytes_size: int
 
 
+@dataclass(frozen=True)
+class GifFramePlan:
+    """The exact sampling/cropping plan used by the E-mote builder."""
+
+    source_frame_count: int
+    duration_seconds: float
+    requested_fps: int
+    output_frame_count: int
+    effective_fps: float
+    crop_box: tuple[int, int, int, int]
+    output_size: tuple[int, int]
+    sampled_indices: tuple[int, ...]
+
+    @property
+    def capped(self) -> bool:
+        return self.output_frame_count >= MAX_OUTPUT_FRAMES and max(
+            2, round(self.duration_seconds * self.requested_fps)
+        ) > MAX_OUTPUT_FRAMES
+
+
 ProgressFn = Callable[[str], None]
+MateCreateRequest = GifMateCreateRequest | FrameMateCreateRequest
 
 
 def find_gif_mate_template(acus_root: Path) -> Path | None:
@@ -79,13 +127,13 @@ def _emit(progress: ProgressFn | None, text: str) -> None:
         progress(text)
 
 
-def _extract_frames(
+def inspect_gif(
     gif_path: Path,
-    out_dir: Path,
     *,
     target_fps: int,
     target_height: int,
-) -> tuple[list[Path], float, tuple[int, int]]:
+) -> GifFramePlan:
+    """Inspect a GIF and return the plan later used by :func:`create_gif_mate`."""
     if target_fps < 1 or target_fps > 30:
         raise GifMateError("GIF 帧率必须在 1～30 FPS 之间")
     if target_height not in {256, 320, 384, 512}:
@@ -95,61 +143,57 @@ def _extract_frames(
         source = Image.open(gif_path)
     except Exception as exc:
         raise GifMateError(f"无法读取 GIF：{exc}") from exc
-    if getattr(source, "n_frames", 1) < 2:
-        source.close()
-        raise GifMateError("所选文件不是多帧 GIF")
-    if source.width * source.height > 32_000_000:
-        source.close()
-        raise GifMateError("GIF 单帧尺寸过大（最多约 3200 万像素）")
-
-    durations_ms: list[int] = []
-    default_duration = max(10, int(source.info.get("duration", 100) or 100))
     try:
-        for index in range(source.n_frames):
+        frame_count = getattr(source, "n_frames", 1)
+        if frame_count < 2:
+            raise GifMateError("所选文件不是多帧 GIF")
+        if source.width * source.height > 32_000_000:
+            raise GifMateError("GIF 单帧尺寸过大（最多约 3200 万像素）")
+
+        durations_ms: list[int] = []
+        boxes: list[tuple[int, int, int, int]] = []
+        has_transparency = False
+        default_duration = max(10, int(source.info.get("duration", 100) or 100))
+        for index in range(frame_count):
             source.seek(index)
             durations_ms.append(
                 max(10, int(source.info.get("duration", default_duration) or default_duration))
             )
-        total_ms = sum(durations_ms)
-        duration_seconds = total_ms / 1000.0
-        wanted = max(2, round(duration_seconds * target_fps))
-        output_count = min(MAX_OUTPUT_FRAMES, wanted)
-        cumulative: list[int] = []
-        elapsed = 0
-        for duration in durations_ms:
-            elapsed += duration
-            cumulative.append(elapsed)
-
-        sampled_indices = []
-        for index in range(output_count):
-            timestamp = min(total_ms - 1, round((index + 0.5) * total_ms / output_count))
-            sampled_indices.append(
-                min(source.n_frames - 1, bisect_right(cumulative, timestamp))
-            )
-
-        needed = set(sampled_indices)
-        decoded: dict[int, Image.Image] = {}
-        for index in range(source.n_frames):
-            source.seek(index)
-            if index in needed:
-                decoded[index] = source.convert("RGBA")
-        sampled = [decoded[index] for index in sampled_indices]
+            rgba = source.convert("RGBA")
+            alpha = rgba.getchannel("A")
+            if alpha.getextrema()[0] < 255:
+                has_transparency = True
+            bbox = alpha.point(lambda value: 255 if value > 8 else 0).getbbox()
+            if bbox:
+                boxes.append(bbox)
     finally:
         source.close()
 
-    if all(frame.getchannel("A").getextrema()[0] == 255 for frame in sampled):
+    if not has_transparency:
         raise GifMateError(
             "GIF 没有透明背景，生成后会出现整块矩形底色；请先抠图并导出带透明通道的 GIF"
         )
-
-    boxes = []
-    for frame in sampled:
-        alpha = frame.getchannel("A").point(lambda value: 255 if value > 8 else 0)
-        bbox = alpha.getbbox()
-        if bbox:
-            boxes.append(bbox)
     if not boxes:
         raise GifMateError("GIF 的所有帧均为透明画面")
+    total_ms = sum(durations_ms)
+    duration_seconds = total_ms / 1000.0
+    wanted = max(2, round(duration_seconds * target_fps))
+    output_count = min(MAX_OUTPUT_FRAMES, wanted)
+    cumulative: list[int] = []
+    elapsed = 0
+    for duration in durations_ms:
+        elapsed += duration
+        cumulative.append(elapsed)
+    sampled_indices = tuple(
+        min(
+            frame_count - 1,
+            bisect_right(
+                cumulative,
+                min(total_ms - 1, round((index + 0.5) * total_ms / output_count)),
+            ),
+        )
+        for index in range(output_count)
+    )
     crop_box = (
         min(box[0] for box in boxes),
         min(box[1] for box in boxes),
@@ -161,17 +205,55 @@ def _extract_frames(
     if crop_w <= 0 or crop_h <= 0:
         raise GifMateError("GIF 有效画面尺寸为零")
     output_width = max(1, round(crop_w * target_height / crop_h))
+    return GifFramePlan(
+        source_frame_count=frame_count,
+        duration_seconds=duration_seconds,
+        requested_fps=target_fps,
+        output_frame_count=output_count,
+        effective_fps=output_count / duration_seconds,
+        crop_box=crop_box,
+        output_size=(output_width, target_height),
+        sampled_indices=sampled_indices,
+    )
+
+
+def _extract_frames(
+    gif_path: Path,
+    out_dir: Path,
+    *,
+    target_fps: int,
+    target_height: int,
+    plan: GifFramePlan | None = None,
+) -> tuple[list[Path], float, tuple[int, int]]:
+    plan = plan or inspect_gif(
+        gif_path, target_fps=target_fps, target_height=target_height
+    )
+
+    try:
+        source = Image.open(gif_path)
+    except Exception as exc:
+        raise GifMateError(f"无法读取 GIF：{exc}") from exc
+    try:
+        needed = set(plan.sampled_indices)
+        decoded: dict[int, Image.Image] = {}
+        for index in range(source.n_frames):
+            source.seek(index)
+            if index in needed:
+                decoded[index] = source.convert("RGBA")
+        sampled = [decoded[index] for index in plan.sampled_indices]
+    finally:
+        source.close()
 
     out_dir.mkdir(parents=True, exist_ok=True)
     paths: list[Path] = []
     for index, frame in enumerate(sampled):
-        output = frame.crop(crop_box).resize(
-            (output_width, target_height), Image.Resampling.LANCZOS
+        output = frame.crop(plan.crop_box).resize(
+            plan.output_size, Image.Resampling.LANCZOS
         )
         path = out_dir / f"f{index:04d}.png"
         output.save(path, "PNG")
         paths.append(path)
-    return paths, duration_seconds, (output_width, target_height)
+    return paths, plan.duration_seconds, plan.output_size
 
 
 def _load_skeleton(skeleton_dir: Path) -> tuple[dict, dict]:
@@ -231,6 +313,28 @@ def _build_emtbytes(
     frame_list = []
     with Image.open(frame_paths[0]) as first:
         frame_width, frame_height = first.size
+
+    # The E-mote origin is the centre of its authored screen.  Keeping the
+    # donor's 800x1080 screen/pixel-marker bounds would make wide or short GIFs
+    # use the donor model's culling envelope even though their textures were
+    # replaced.  Describe the generated model's real union-cropped canvas.
+    model["screenSize"] = {
+        "height": frame_height,
+        "originX": 0,
+        "originY": 0,
+        "width": frame_width,
+    }
+    chara_profile = model.get("metadata", {}).get("charaProfile", {})
+    pixel_marker = chara_profile.get("pixelMarker")
+    if isinstance(pixel_marker, dict):
+        pixel_marker.update(
+            {
+                "boundsBottom": frame_height / 2,
+                "boundsLeft": -frame_width / 2,
+                "boundsRight": frame_width / 2,
+                "boundsTop": -frame_height / 2,
+            }
+        )
     for index, path in enumerate(frame_paths):
         copied = copied_frames / path.name
         shutil.copyfile(path, copied)
@@ -368,16 +472,57 @@ def _make_icon(first_frame: Path, output_path: Path) -> None:
         canvas.save(output_path, "PNG")
 
 
-def create_gif_mate(
-    request: GifMateCreateRequest,
+def _validate_rendered_frames(
+    frame_paths: tuple[Path, ...], duration_seconds: float
+) -> tuple[list[Path], tuple[int, int]]:
+    if not 2 <= len(frame_paths) <= MAX_OUTPUT_FRAMES:
+        raise GifMateError(f"透明帧序列必须包含 2～{MAX_OUTPUT_FRAMES} 帧")
+    if duration_seconds <= 0:
+        raise GifMateError("动画时长必须大于 0 秒")
+    if len(frame_paths) / duration_seconds > TICK_RATE:
+        raise GifMateError(f"动画帧率不能超过 E-mote 时间轴的 {TICK_RATE} FPS")
+
+    resolved: list[Path] = []
+    expected_size: tuple[int, int] | None = None
+    has_transparency = False
+    for raw_path in frame_paths:
+        path = Path(raw_path).expanduser().resolve()
+        if not path.is_file():
+            raise GifMateError(f"动画帧不存在：{path}")
+        try:
+            with Image.open(path) as frame:
+                rgba = frame.convert("RGBA")
+                if expected_size is None:
+                    expected_size = rgba.size
+                elif rgba.size != expected_size:
+                    raise GifMateError(
+                        f"动画帧尺寸不一致：期望 {expected_size[0]}×{expected_size[1]}，"
+                        f"实际 {rgba.width}×{rgba.height}（{path.name}）"
+                    )
+                if rgba.getchannel("A").getextrema()[0] < 255:
+                    has_transparency = True
+        except GifMateError:
+            raise
+        except Exception as exc:
+            raise GifMateError(f"无法读取动画帧 {path.name}：{exc}") from exc
+        resolved.append(path)
+
+    if not has_transparency:
+        raise GifMateError("动画帧没有透明通道，生成后会出现矩形底色")
+    assert expected_size is not None
+    return resolved, expected_size
+
+
+def _publish_frame_mate(
+    request: MateCreateRequest,
     *,
-    progress: ProgressFn | None = None,
+    frame_paths: list[Path],
+    duration: float,
+    frame_size: tuple[int, int],
+    temp_root: Path,
+    progress: ProgressFn | None,
 ) -> GifMateCreateResult:
-    """Create and atomically publish one complete Mate directory from a GIF."""
-    gif_path = Path(request.gif_path).expanduser().resolve()
     template = Path(request.template_emtbytes).expanduser().resolve()
-    if not gif_path.is_file():
-        raise GifMateError(f"GIF 不存在：{gif_path}")
     if not template.is_file():
         raise GifMateError(f"Mate 模板不存在：{template}")
     mate_root = Path(request.acus_root) / "mate"
@@ -386,73 +531,123 @@ def create_gif_mate(
         raise GifMateError(f"Mate ID 已存在：{mate_dir.name}")
     mate_root.mkdir(parents=True, exist_ok=True)
 
+    skeleton_work = temp_root / "skeleton"
+    staged = temp_root / f"mate{request.mate_id:06d}"
+    staged.mkdir()
+
+    _emit(progress, f"已准备 {len(frame_paths)} 帧，正在解包 Mate 模板…")
+    assigner = PsbActionAssigner(Path(request.freemote_dir))
+    assigner.decompile(template, skeleton_work)
+    decompiled = skeleton_work / "decompiled"
+
+    emt_name = f"emote{request.mate_id:06d}.emtbytes"
+    emt_path = staged / emt_name
+    _emit(progress, "正在构建 E-mote 动画…")
+    _build_emtbytes(
+        skeleton_dir=decompiled,
+        frame_paths=frame_paths,
+        duration_seconds=duration,
+        output_path=emt_path,
+        freemote_dir=Path(request.freemote_dir),
+    )
+
+    icon_png = temp_root / "mate_icon.png"
+    _make_icon(frame_paths[0], icon_png)
+    dds_name = f"CHU_UI_Mate_{request.mate_id:06d}.dds"
+    _emit(progress, "正在生成 Mate 图标…")
+    ingest_to_bc3_dds(
+        tool_path=request.dds_tool_path,
+        input_path=icon_png,
+        output_dds=staged / dds_name,
+    )
+
+    recommended_scale = recommended_scale_for_height(frame_size[1])
+    scale = request.scale_x10000 or recommended_scale
+    slots = {slot: _GIF_TIMELINE_LABEL for slot in range(1, 19)}
+    xml = generate_mate_xml(
+        mate_id=request.mate_id,
+        name=request.name,
+        chara_id=request.chara_id,
+        chara_name=request.chara_name,
+        emote_filename=emt_name,
+        dds_filename=dds_name,
+        slot_assignments=slots,
+        dds_illust_key=request.dds_illust_key,
+        system_voice_id=request.system_voice_id,
+        pos_x=request.pos_x,
+        pos_y=request.pos_y,
+        scale_x10000=scale,
+    )
+    (staged / "Mate.xml").write_text(xml, encoding="utf-8")
+
+    _emit(progress, "正在写入 ACUS…")
+    os.replace(staged, mate_dir)
+    return GifMateCreateResult(
+        mate_dir=mate_dir,
+        frame_count=len(frame_paths),
+        frame_size=frame_size,
+        duration_seconds=duration,
+        effective_fps=len(frame_paths) / duration,
+        scale_x10000=scale,
+        emtbytes_size=(mate_dir / emt_name).stat().st_size,
+    )
+
+
+def create_frame_mate(
+    request: FrameMateCreateRequest,
+    *,
+    progress: ProgressFn | None = None,
+) -> GifMateCreateResult:
+    """Create a Mate from transparent frames rendered by any source adapter."""
+    frames, frame_size = _validate_rendered_frames(
+        request.frame_paths, request.duration_seconds
+    )
+    mate_root = Path(request.acus_root) / "mate"
+    mate_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".frame_mate_", dir=mate_root) as temp_name:
+        return _publish_frame_mate(
+            request,
+            frame_paths=frames,
+            duration=request.duration_seconds,
+            frame_size=frame_size,
+            temp_root=Path(temp_name),
+            progress=progress,
+        )
+
+
+def create_gif_mate(
+    request: GifMateCreateRequest,
+    *,
+    progress: ProgressFn | None = None,
+) -> GifMateCreateResult:
+    """Create and atomically publish one complete Mate directory from a GIF."""
+    gif_path = Path(request.gif_path).expanduser().resolve()
+    if not gif_path.is_file():
+        raise GifMateError(f"GIF 不存在：{gif_path}")
+    mate_root = Path(request.acus_root) / "mate"
+    mate_root.mkdir(parents=True, exist_ok=True)
+
     with tempfile.TemporaryDirectory(prefix=".gif_mate_", dir=mate_root) as temp_name:
         temp_root = Path(temp_name)
         frames_dir = temp_root / "frames"
-        skeleton_work = temp_root / "skeleton"
-        staged = temp_root / f"mate{request.mate_id:06d}"
-        staged.mkdir()
-
         _emit(progress, "正在读取并优化 GIF 帧…")
+        plan = inspect_gif(
+            gif_path,
+            target_fps=request.target_fps,
+            target_height=request.target_height,
+        )
         frames, duration, frame_size = _extract_frames(
             gif_path,
             frames_dir,
             target_fps=request.target_fps,
             target_height=request.target_height,
+            plan=plan,
         )
-        _emit(progress, f"已准备 {len(frames)} 帧，正在解包 Mate 模板…")
-        assigner = PsbActionAssigner(Path(request.freemote_dir))
-        assigner.decompile(template, skeleton_work)
-        decompiled = skeleton_work / "decompiled"
-
-        emt_name = f"emote{request.mate_id:06d}.emtbytes"
-        emt_path = staged / emt_name
-        _emit(progress, "正在构建 E-mote 动画…")
-        _build_emtbytes(
-            skeleton_dir=decompiled,
+        return _publish_frame_mate(
+            request,
             frame_paths=frames,
-            duration_seconds=duration,
-            output_path=emt_path,
-            freemote_dir=Path(request.freemote_dir),
-        )
-
-        icon_png = temp_root / "mate_icon.png"
-        _make_icon(frames[0], icon_png)
-        dds_name = f"CHU_UI_Mate_{request.mate_id:06d}.dds"
-        _emit(progress, "正在生成 Mate 图标…")
-        ingest_to_bc3_dds(
-            tool_path=request.dds_tool_path,
-            input_path=icon_png,
-            output_dds=staged / dds_name,
-        )
-
-        recommended_scale = round(900 * 1080 / (0.163 * frame_size[1]))
-        scale = request.scale_x10000 or recommended_scale
-        slots = {slot: _GIF_TIMELINE_LABEL for slot in range(1, 19)}
-        xml = generate_mate_xml(
-            mate_id=request.mate_id,
-            name=request.name,
-            chara_id=request.chara_id,
-            chara_name=request.chara_name,
-            emote_filename=emt_name,
-            dds_filename=dds_name,
-            slot_assignments=slots,
-            dds_illust_key=request.dds_illust_key,
-            system_voice_id=request.system_voice_id,
-            pos_x=request.pos_x,
-            pos_y=request.pos_y,
-            scale_x10000=scale,
-        )
-        (staged / "Mate.xml").write_text(xml, encoding="utf-8")
-
-        _emit(progress, "正在写入 ACUS…")
-        os.replace(staged, mate_dir)
-        return GifMateCreateResult(
-            mate_dir=mate_dir,
-            frame_count=len(frames),
+            duration=duration,
             frame_size=frame_size,
-            duration_seconds=duration,
-            effective_fps=len(frames) / duration,
-            scale_x10000=scale,
-            emtbytes_size=(mate_dir / emt_name).stat().st_size,
+            temp_root=temp_root,
+            progress=progress,
         )

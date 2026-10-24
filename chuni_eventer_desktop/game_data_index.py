@@ -904,17 +904,36 @@ def index_cache_path() -> Path:
     return app_cache_dir() / INDEX_FILENAME
 
 
+# 单条缓存：索引 JSON 通常有几 MB，而 UI 每开一个弹窗都会重新要一次索引。
+# 按 (路径, mtime, 大小) 命中；重建索引会写新文件，因此 mtime/size 变化后自动失效。
+_INDEX_LOAD_CACHE: tuple[tuple[str, int, int], GameDataIndex] | None = None
+
+
 def load_cached_game_index(expected_game_root: str | None = None) -> GameDataIndex | None:
+    global _INDEX_LOAD_CACHE
+
     p = index_cache_path()
     if not p.is_file():
         return None
     try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-    except Exception:
+        st = p.stat()
+        key = (str(p), st.st_mtime_ns, st.st_size)
+    except OSError:
         return None
-    idx = GameDataIndex.from_json(data)
-    if idx is None:
-        return None
+
+    cached = _INDEX_LOAD_CACHE
+    if cached is not None and cached[0] == key:
+        idx = cached[1]
+    else:
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+        idx = GameDataIndex.from_json(data)
+        if idx is None:
+            return None
+        _INDEX_LOAD_CACHE = (key, idx)
+
     if expected_game_root and Path(idx.game_root).resolve() != Path(expected_game_root).resolve():
         return None
     return idx

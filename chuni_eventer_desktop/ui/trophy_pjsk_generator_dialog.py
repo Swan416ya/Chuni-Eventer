@@ -200,7 +200,8 @@ class TrophyPjskGeneratorDialog(FluentCaptionDialog):
         super().__init__(parent=parent)
         self.setWindowTitle("PJSK 称号贴图自助生成")
         self.setModal(True)
-        self.setWindowModality(Qt.WindowModality.ApplicationModal)
+        # WindowModal：只锁父窗口，不要用 ApplicationModal 把整个应用（含其它窗口）一起锁死。
+        self.setWindowModality(Qt.WindowModality.WindowModal)
         self.resize(760, 520)
         self._out_dir = out_dir
         self.result_png_path: Path | None = None

@@ -28,7 +28,6 @@ from PyQt6.QtWidgets import (
 from qfluentwidgets import Action, FluentIcon as FIF, MenuAnimationType, RoundMenu, ScrollArea
 
 from .fluent_scroll import apply_fluent_transparent_panel, apply_fluent_transparent_scroll
-from .qthread_lifecycle import await_qthreads
 
 
 from ..acus_scan import MusicItem
@@ -535,13 +534,13 @@ class MusicCardsView(QWidget):
             self._schedule_jacket_loads()
 
     def _stop_jacket_loader(self) -> None:
+        # 不在 GUI 线程等待：阻塞循环只认 generation，会在一张图之后自行退出。
         self._jacket_load_generation_ref[0] += 1
         thread = self._jacket_thread
         self._jacket_thread = None
         self._jacket_worker = None
         if thread is not None and thread.isRunning():
             thread.quit()
-        await_qthreads(thread, timeout_ms=60_000)
 
     def _prioritized_jacket_jobs(self) -> list[tuple[int, Path]]:
         tool = self._get_tool_path()
@@ -592,9 +591,11 @@ class MusicCardsView(QWidget):
         if card is not None:
             card.set_jacket(pm)
 
-    def _on_jacket_loader_finished(self) -> None:
-        self._jacket_thread = None
-        self._jacket_worker = None
+    def _on_jacket_loader_finished(self, thread: QThread | None = None) -> None:
+        # 只清理自己那一份引用；旧线程晚结束时不能把新线程的引用抹掉。
+        if thread is None or thread is self._jacket_thread:
+            self._jacket_thread = None
+            self._jacket_worker = None
 
     def _schedule_jacket_loads(self) -> None:
         jobs = self._prioritized_jacket_jobs()
@@ -603,7 +604,8 @@ class MusicCardsView(QWidget):
         self._stop_jacket_loader()
         generation = self._jacket_load_generation_ref[0]
         tool = self._get_tool_path()
-        thread = QThread(self)
+        # 挂到 QApplication 而不是本视图：切页/销毁视图时不会把仍在解码的线程一起带走。
+        thread = QThread(QApplication.instance())
         worker = _JacketLoadWorker(
             jobs=jobs,
             acus_root=self._acus_root,
@@ -616,7 +618,7 @@ class MusicCardsView(QWidget):
         worker.loaded.connect(self._on_jacket_loaded)
         worker.finished.connect(thread.quit)
         worker.finished.connect(worker.deleteLater)
-        worker.finished.connect(self._on_jacket_loader_finished)
+        worker.finished.connect(lambda t=thread: self._on_jacket_loader_finished(t))
         thread.finished.connect(thread.deleteLater)
         self._jacket_thread = thread
         self._jacket_worker = worker

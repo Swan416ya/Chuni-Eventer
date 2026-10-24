@@ -29,7 +29,7 @@ from ..system_voice_pack import (
 )
 from .fluent_dialogs import fly_critical, fly_message
 from .fluent_table import apply_fluent_sheet_table
-from .qthread_lifecycle import await_qthreads, finalize_qthread
+from .qthread_lifecycle import defer_finalize_qthread
 from .rich_hint import hint_row
 from .sysvoice_preview_dialog import SysvoicePreviewDialog
 
@@ -307,7 +307,7 @@ class SystemVoicePackPage(QWidget):
         self._thread.start()
 
     def hideEvent(self, event) -> None:
-        await_qthreads(self._thread)
+        # 不在 GUI 线程等待打包线程：隐藏/关闭时线程继续收尾，finished 后自行 deleteLater。
         super().hideEvent(event)
 
     def _on_pack_done(self, msg: str) -> None:
@@ -324,4 +324,4 @@ class SystemVoicePackPage(QWidget):
         self._pack_btn.setEnabled(True)
         self._worker = None
         self._thread = None
-        finalize_qthread(th)
+        defer_finalize_qthread(th)

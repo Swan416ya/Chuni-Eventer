@@ -1117,6 +1117,7 @@ class MainWindow(MSFluentWindow):
                 acus_root=self._acus_root,
                 freemote_dir=fr_dir,
                 mate_id=next_id,
+                game_root=self._cfg.game_root or None,
                 get_tool_path=self._get_tool_path_or_none,
                 parent=self,
             )

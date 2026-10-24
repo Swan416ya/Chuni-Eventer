@@ -37,7 +37,7 @@ from ..pjsk_sheet_client import (
 )
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
-from .qthread_lifecycle import await_qthreads, defer_finalize_qthread, qthread_running_safe
+from .qthread_lifecycle import defer_dialog_close, defer_finalize_qthread, qthread_running_safe
 from .fluent_table import apply_fluent_sheet_table
 from .pjsk_vocal_pick_dialog import PjskVocalPickDialog
 
@@ -295,15 +295,18 @@ class PjskSusDownloadDialog(FluentCaptionDialog):
             self._cache_thread = None
         defer_finalize_qthread(th if isinstance(th, QThread) else None)
 
-    def _await_bg_threads(self) -> None:
-        await_qthreads(self._load_thread, self._cache_thread)
+    def _bg_threads(self) -> tuple[QThread | None, ...]:
+        return (self._load_thread, self._cache_thread)
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        self._await_bg_threads()
+        if defer_dialog_close(self, *self._bg_threads()):
+            event.ignore()
+            return
         super().closeEvent(event)
 
     def reject(self) -> None:
-        self._await_bg_threads()
+        if defer_dialog_close(self, *self._bg_threads()):
+            return
         super().reject()
 
     def _on_download(self) -> None:

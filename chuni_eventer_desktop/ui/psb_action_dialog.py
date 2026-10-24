@@ -6,7 +6,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from PyQt6.QtCore import QPointF, QRectF, Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QPointF, QRectF, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor, QCloseEvent, QFont, QPainter, QPen, QPixmap, QLinearGradient
 from PyQt6.QtWidgets import (
     QFileDialog,
@@ -34,10 +34,21 @@ from qfluentwidgets import (
 
 from ..acus_scan import scan_charas, scan_system_voices
 from ..dds_convert import ingest_to_bc3_dds
+from ..dds_preview import ensure_dds_preview_png
 from ..gif_mate import (
+    GifFramePlan,
     GifMateCreateRequest,
     create_gif_mate,
     find_gif_mate_template,
+    inspect_gif,
+)
+from ..mate_layout import (
+    DEFAULT_RESULT_CALIBRATION,
+    MateSceneCalibration,
+    calibration_from_game,
+    mate_content_rect,
+    mate_position_from_screen,
+    recommended_scale_for_height,
 )
 from ..psb_action_assigner import (
     PsbActionAssigner,
@@ -110,19 +121,11 @@ class _LolicountClient:
 # 位置预览画布
 # ---------------------------------------------------------------------------
 
-# 实测标定（mate031004 红豆, 1080p 游戏截图对照）:
-#   scale=6000 时角色显示高约 980px  → 显示高 = scale * 0.163
-#   posY=-50 刚好(脚底离屏底约50px), posY=-130 裁头, +100 裁脚
-#   → 底边 y = 1080 + posY (负值上移)
-#   posX=1 时角色中心约在 x=1620 → 中心 x = 1520 + posX*100 (近似)
-_CHARA_H_PER_SCALE = 0.163
-_CHARA_BASE_X = 1520
-_CHARA_X_PER_POS = 100
 _LOGICAL_W, _LOGICAL_H = 1920, 1080
 
 
 class MatePositionPreview(QWidget):
-    """16:9 预览画布：显示 mate 在游戏画面里的大概位置/大小，支持拖动。"""
+    """Scene preview driven by the same two-stage transforms as the game."""
 
     positionChanged = pyqtSignal(int, int, int)  # posX, posY, scale
 
@@ -130,10 +133,17 @@ class MatePositionPreview(QWidget):
         super().__init__(parent)
         self._bg: QPixmap | None = None
         self._chara: QPixmap | None = None
+        self._result_atlas: QPixmap | None = None
+        self._score_atlas: QPixmap | None = None
+        self._rank_atlas: QPixmap | None = None
+        self._mate_room_bg: QPixmap | None = None
+        self._mate_room_atlas: QPixmap | None = None
+        self._mate_room_title: QPixmap | None = None
         self._pos_x = 1
         self._pos_y = -50
         self._scale = 6000
-        self._source_height = 1080
+        self._source_size = (432, 960)
+        self._calibration: MateSceneCalibration = DEFAULT_RESULT_CALIBRATION
         self._dragging = False
         self._drag_offset = QPointF()
         self.setMinimumSize(480, 270)
@@ -152,29 +162,57 @@ class MatePositionPreview(QWidget):
             self._bg = None
         self.update()
 
-    def set_chara_image(self, path: Path | None) -> None:
+    def set_result_overlay_assets(self, paths: dict[str, Path | None]) -> None:
+        """Load the installed game's result atlases used by the foreground UI."""
+        def load(name: str) -> QPixmap | None:
+            path = paths.get(name)
+            if path is None or not Path(path).is_file():
+                return None
+            pixmap = QPixmap(str(path))
+            return None if pixmap.isNull() else pixmap
+
+        self._result_atlas = load("result")
+        self._score_atlas = load("score")
+        self._rank_atlas = load("rank")
+        self._mate_room_bg = load("mate_room_bg")
+        self._mate_room_atlas = load("mate_room")
+        self._mate_room_title = load("mate_room_title")
+        self.update()
+
+    def set_chara_image(
+        self,
+        path: Path | None,
+        crop_box: tuple[int, int, int, int] | None = None,
+    ) -> None:
         if path and Path(path).is_file():
-            self._chara = QPixmap(str(path))
+            pixmap = QPixmap(str(path))
+            if crop_box is not None and not pixmap.isNull():
+                left, top, right, bottom = crop_box
+                pixmap = pixmap.copy(left, top, max(1, right - left), max(1, bottom - top))
+            self._chara = pixmap
         else:
             self._chara = None
         self.update()
 
-    def set_source_height(self, height: int) -> None:
-        """Set source texture height so the game-scale preview stays calibrated."""
-        self._source_height = max(1, height)
+    def set_source_size(self, width: int, height: int) -> None:
+        """Set the alpha-cropped E-mote source bounds used for placement."""
+        self._source_size = max(1, width), max(1, height)
+        self.update()
+
+    def set_calibration(self, calibration: MateSceneCalibration) -> None:
+        self._calibration = calibration
         self.update()
 
     def chara_rect(self) -> QRectF:
         """角色在 1920x1080 逻辑坐标里的矩形。"""
-        h = self._scale * _CHARA_H_PER_SCALE * self._source_height / 1080
-        bottom = _LOGICAL_H + self._pos_y
-        cx = _CHARA_BASE_X + self._pos_x * _CHARA_X_PER_POS
-        if self._chara is not None and not self._chara.isNull():
-            ratio = self._chara.width() / max(1, self._chara.height())
-        else:
-            ratio = 0.45  # 人形占位剪影的宽高比
-        w = h * ratio
-        return QRectF(cx - w / 2, bottom - h, w, h)
+        left, top, width, height = mate_content_rect(
+            source_size=self._source_size,
+            pos_x=self._pos_x,
+            pos_y=self._pos_y,
+            scale_x10000=self._scale,
+            calibration=self._calibration,
+        )
+        return QRectF(left, top, width, height)
 
     # -- 绘制 ---------------------------------------------------------------
 
@@ -193,8 +231,16 @@ class MatePositionPreview(QWidget):
 
         painter.setClipRect(0, 0, _LOGICAL_W, _LOGICAL_H)
 
-        # 背景
-        if self._bg is not None and not self._bg.isNull():
+        is_mate_room = self._calibration.scene_key == "mate_room"
+
+        # 背景。Mate ROOM 使用游戏自己的专用纹理；用户截图只替换结算页。
+        if is_mate_room and self._mate_room_bg is not None and not self._mate_room_bg.isNull():
+            painter.drawPixmap(
+                QRectF(0, 0, _LOGICAL_W, _LOGICAL_H),
+                self._mate_room_bg,
+                QRectF(self._mate_room_bg.rect()),
+            )
+        elif self._bg is not None and not self._bg.isNull():
             painter.drawPixmap(QRectF(0, 0, _LOGICAL_W, _LOGICAL_H), self._bg, QRectF(self._bg.rect()))
         else:
             grad = QLinearGradient(0, 0, 0, _LOGICAL_H)
@@ -212,16 +258,36 @@ class MatePositionPreview(QWidget):
             f.setPixelSize(30)
             painter.setFont(f)
             painter.drawText(QRectF(340, 200, 900, 60), Qt.AlignmentFlag.AlignLeft,
-                             "游戏结算画面 (示意) — 可加载自己的截图做背景")
+                             f"{self._calibration.scene_label}（参考布局）")
 
-        # 角色
+        if is_mate_room:
+            self._draw_mate_room_background_deco(painter)
+
+        # 角色先绘制到 E-mote 动态纹理，再由 SurfRide 的 1080x1080
+        # C_emote_body 面片显示；面片之外的内容在游戏里不可见。
         rect = self.chara_rect()
-        head_clipped = rect.top() < 0
-        feet_clipped = rect.bottom() > _LOGICAL_H
+        surface = QRectF(*self._calibration.surface_rect)
+        # GIF frames are union-alpha-cropped, so their rectangle is a real
+        # visible bound.  A native PSB fallback is only its authored canvas;
+        # warning from that box would claim clipping even when all visible
+        # parts are safely inside the surface.
+        has_exact_visible_bounds = self._chara is not None and not self._chara.isNull()
+        head_clipped = has_exact_visible_bounds and rect.top() < surface.top()
+        feet_clipped = has_exact_visible_bounds and rect.bottom() > surface.bottom()
+        painter.save()
+        painter.setClipRect(surface, Qt.ClipOperation.IntersectClip)
         if self._chara is not None and not self._chara.isNull():
             painter.drawPixmap(rect, self._chara, QRectF(self._chara.rect()))
         else:
             self._draw_placeholder_figure(painter, rect)
+        painter.restore()
+
+        if is_mate_room:
+            self._draw_mate_room_foreground(painter)
+        else:
+            self._draw_result_foreground(painter)
+
+        self._draw_transform_guides(painter, rect, surface)
 
         # 溢出警告
         f = QFont()
@@ -229,9 +295,9 @@ class MatePositionPreview(QWidget):
         painter.setFont(f)
         warn = None
         if head_clipped:
-            warn = "⚠ 头部超出屏幕顶端（游戏内会被裁剪）— 减小 posY 绝对值"
+            warn = "⚠ 顶部超出 E-mote 显示面 — 向下拖动或减小缩放"
         elif feet_clipped:
-            warn = "⚠ 脚部超出屏幕底端 — 增大 posY"
+            warn = "⚠ 底部超出 E-mote 显示面 — 向上拖动或减小缩放"
         if warn:
             painter.setPen(QColor(200, 30, 30))
             painter.drawText(QRectF(40, 20, _LOGICAL_W - 80, 60),
@@ -242,46 +308,290 @@ class MatePositionPreview(QWidget):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(0, 0, _LOGICAL_W, _LOGICAL_H)
 
+    def _draw_transform_guides(
+        self, painter: QPainter, canvas: QRectF, surface: QRectF
+    ) -> None:
+        """Make the two coordinate spaces explicit instead of implying one box."""
+        painter.save()
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(QColor(14, 116, 144, 210), 3, Qt.PenStyle.DotLine))
+        painter.drawRect(surface)
+        painter.setPen(QPen(QColor(43, 101, 210, 225), 3, Qt.PenStyle.DashLine))
+        painter.drawRect(canvas)
+        box = QRectF(32, 936, 720, 112)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(19, 30, 49, 205))
+        painter.drawRoundedRect(box, 12, 12)
+        self._draw_result_text(
+            painter, QRectF(52, 948, 680, 34),
+            f"{self._calibration.scene_label} · XML → 动态贴图 → 场景面片",
+            22, QColor(255, 255, 255),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        )
+        painter.setPen(QPen(QColor(14, 188, 220), 4, Qt.PenStyle.DotLine))
+        painter.drawLine(QPointF(54, 1003), QPointF(116, 1003))
+        self._draw_result_text(
+            painter, QRectF(128, 986, 235, 34), "动态贴图可见面", 18,
+            QColor(214, 249, 255), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        )
+        painter.setPen(QPen(QColor(84, 142, 255), 4, Qt.PenStyle.DashLine))
+        painter.drawLine(QPointF(382, 1003), QPointF(444, 1003))
+        self._draw_result_text(
+            painter, QRectF(456, 986, 260, 34), "模型画布（非透明边界）", 18,
+            QColor(225, 234, 255), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        )
+        painter.restore()
+
+    def _draw_mate_room_foreground(self, painter: QPainter) -> None:
+        """Draw Mate ROOM's occupied UI areas above the E-mote body layer."""
+        # The Mate Room title belongs to L_MateGarden_BG and is deliberately
+        # drawn before the character.  Drawing it here would hide the head and
+        # reproduce the exact false clipping reported by users.
+        self._draw_mate_room_panel(painter, QRectF(58, 254, 430, 612), "MATE INFO")
+        self._draw_mate_room_panel(painter, QRectF(1432, 254, 430, 612), "YELL / RANK")
+        self._draw_mate_room_panel(painter, QRectF(640, 858, 640, 136), "ACTION")
+
+    def _draw_mate_room_background_deco(self, painter: QPainter) -> None:
+        atlas = self._mate_room_title
+        if atlas is not None and not atlas.isNull():
+            # The title is an authored crop in CHU_UI_MateGarden_00.dds.
+            painter.drawPixmap(
+                QRectF(360, 18, 1200, 280), atlas, QRectF(0, 0, 1200, 280)
+            )
+        else:
+            self._draw_result_text(
+                painter, QRectF(360, 28, 1200, 150), "Mate ROOM", 86,
+                QColor(83, 205, 70), Qt.AlignmentFlag.AlignCenter,
+            )
+
+    @classmethod
+    def _draw_mate_room_panel(cls, painter: QPainter, rect: QRectF, title: str) -> None:
+        painter.setPen(QPen(QColor(255, 255, 255, 235), 6))
+        painter.setBrush(QColor(255, 255, 248, 214))
+        painter.drawRoundedRect(rect, 24, 24)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(255, 107, 123, 235))
+        painter.drawRoundedRect(
+            QRectF(rect.left() + 5, rect.top() + 5, rect.width() - 10, 48), 18, 18
+        )
+        cls._draw_result_text(
+            painter, QRectF(rect.left() + 20, rect.top() + 8, rect.width() - 40, 40),
+            title, 24, QColor(255, 255, 255),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        )
+
+    def _draw_result_foreground(self, painter: QPainter) -> None:
+        """Draw the default result page in the installed game's layer order.
+
+        SurfRide stores a cast's translation at its authored pivot.  It is not
+        the centre of the atlas crop.  In particular ``C_score_base`` resolves
+        to the *top-left* of the score card at (316, 263).  Treating that value
+        as a centre was the source of the large offset in the old preview.
+        """
+        atlas = self._result_atlas
+
+        # Persistent result HUD.  These scenes are composed above Result_00/01
+        # by the game; keeping their occupied areas visible matters when a tall
+        # Mate is dragged upwards.
+        self._draw_hud_card(painter, QRectF(50, 24, 565, 200), "PLAYER DATA")
+        self._draw_hud_card(painter, QRectF(615, 24, 755, 200), "CLEAR / SCORE")
+        self._draw_hud_card(painter, QRectF(1370, 24, 500, 200), "TRACK 2  MASTER 15")
+
+        # Result_01 / score layer.  C_score_base is the authored top-left.
+        score_rect = QRectF(316, 263, 616, 215)
+        if atlas is not None:
+            self._draw_nine_slice(
+                painter, atlas, QRectF(0, 0, 616, 112), score_rect,
+                left=12, top=58, right=12, bottom=12,
+            )
+        else:
+            self._draw_result_panel(painter, score_rect, "SCORE")
+        if atlas is not None:
+            painter.drawPixmap(
+                QRectF(332, 319, 578, 36),
+                atlas,
+                QRectF(0, 116, 578, 36),
+            )
+        self._draw_result_text(
+            painter, QRectF(650, 283, 250, 34), "HIGH SCORE  1,009,876", 20,
+            QColor(48, 24, 67), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+        )
+        self._draw_result_text(
+            painter,
+            QRectF(342, 351, 560, 100),
+            "1,009,876",
+            66,
+            QColor(77, 29, 112),
+            Qt.AlignmentFlag.AlignCenter,
+        )
+
+        # Result_01 / rank reference.  Its control sits in the right result
+        # column; the referenced glyph scene supplies the animated letters.
+        rank_rect = QRectF(960, 263, 480, 290)
+        if atlas is not None:
+            self._draw_nine_slice(
+                painter, atlas, QRectF(0, 515, 480, 110), rank_rect,
+                left=12, top=58, right=12, bottom=12,
+            )
+        else:
+            self._draw_result_panel(painter, rank_rect, "RANK")
+        if self._rank_atlas is not None:
+            painter.drawPixmap(
+                QRectF(976, 319, 448, 36),
+                self._rank_atlas,
+                QRectF(461, 0, 441, 36),
+            )
+            for index in range(3):
+                painter.drawPixmap(
+                    QRectF(994 + index * 132, 354, 130, 136),
+                    self._rank_atlas,
+                    QRectF(275, 500, 170, 178),
+                )
+        else:
+            self._draw_result_text(
+                painter, QRectF(990, 348, 420, 150), "SSS", 104,
+                QColor(119, 51, 170), Qt.AlignmentFlag.AlignCenter,
+            )
+
+        # Clear/skill and max-combo layers are siblings in the left column.
+        skill_rect = QRectF(316, 503, 292, 112)
+        combo_rect = QRectF(621, 503, 339, 112)
+        self._draw_result_panel(painter, skill_rect, "SKILL")
+        self._draw_result_text(
+            painter, QRectF(337, 548, 250, 54), "HARD     17 / 20", 27,
+            QColor(69, 44, 84), Qt.AlignmentFlag.AlignCenter,
+        )
+        self._draw_result_panel(painter, combo_rect, "MAX COMBO")
+        self._draw_result_text(
+            painter, QRectF(758, 545, 180, 58), "1406", 39,
+            QColor(70, 35, 105),
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+        )
+
+        # Default judge summary.  The large 5x4 table at atlas y=195 belongs
+        # to Score Page 01 and must not be shown on the default Page 00.
+        judge_rect = QRectF(660, 638, 310, 208)
+        if atlas is not None:
+            painter.drawPixmap(judge_rect, atlas, QRectF(623, 786, 310, 208))
+        else:
+            self._draw_result_panel(painter, judge_rect, "JUDGEMENT")
+        for row, value in enumerate((2315, 130, 3, 3)):
+            self._draw_result_text(
+                painter, QRectF(856, 646 + row * 41, 92, 36), str(value), 23,
+                QColor(255, 255, 255), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+            )
+
+        # Rating and version-over-power bases recovered from their respective
+        # Result_01 cast chains: (923,568) and (923,739).
+        # The base pivot includes 37 px of authored left padding; visible card
+        # content therefore starts at x=960.
+        rating_rect = QRectF(960, 568, 460, 160)
+        overpower_rect = QRectF(960, 739, 460, 111)
+        self._draw_result_panel(painter, rating_rect, "RATING")
+        self._draw_result_text(
+            painter, QRectF(1030, 618, 285, 72), "17.25", 57,
+            QColor(91, 35, 120), Qt.AlignmentFlag.AlignCenter,
+        )
+        self._draw_result_panel(painter, overpower_rect, "VERSION OVER POWER")
+        self._draw_result_text(
+            painter, QRectF(1030, 779, 285, 54), "5271.20", 34,
+            QColor(91, 35, 120), Qt.AlignmentFlag.AlignCenter,
+        )
+
+        # Do not draw Result_01's character-rank branch in Mate mode.  The game
+        # selects C_emote_body instead of C_chara_body; character progression
+        # belongs to the normal character result branch shown in cabinet photos.
+
+    @staticmethod
+    def _draw_nine_slice(
+        painter: QPainter,
+        pixmap: QPixmap,
+        source: QRectF,
+        target: QRectF,
+        *,
+        left: float,
+        top: float,
+        right: float,
+        bottom: float,
+    ) -> None:
+        """Stretch an atlas panel while preserving its authored borders."""
+        sx = (source.left(), source.left() + left, source.right() - right, source.right())
+        sy = (source.top(), source.top() + top, source.bottom() - bottom, source.bottom())
+        tx = (target.left(), target.left() + left, target.right() - right, target.right())
+        ty = (target.top(), target.top() + top, target.bottom() - bottom, target.bottom())
+        for row in range(3):
+            for column in range(3):
+                painter.drawPixmap(
+                    QRectF(tx[column], ty[row], tx[column + 1] - tx[column], ty[row + 1] - ty[row]),
+                    pixmap,
+                    QRectF(sx[column], sy[row], sx[column + 1] - sx[column], sy[row + 1] - sy[row]),
+                )
+
+    @staticmethod
+    def _draw_hud_card(painter: QPainter, rect: QRectF, text: str) -> None:
+        painter.setPen(QPen(QColor(255, 255, 255, 220), 4))
+        painter.setBrush(QColor(40, 28, 76, 215))
+        painter.drawRect(rect)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(255, 160, 53, 230))
+        painter.drawRect(QRectF(rect.left(), rect.bottom() - 34, rect.width(), 34))
+        MatePositionPreview._draw_result_text(
+            painter, QRectF(rect.left() + 16, rect.top() + 8, rect.width() - 32, 42),
+            text, 25, QColor(255, 255, 255),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        )
+
+    @staticmethod
+    def _draw_result_panel(painter: QPainter, rect: QRectF, title: str) -> None:
+        painter.setPen(QPen(QColor(229, 204, 249, 235), 7))
+        painter.setBrush(QColor(255, 255, 255, 228))
+        painter.drawRoundedRect(rect, 18, 18)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(255, 91, 134, 230))
+        painter.drawRoundedRect(QRectF(rect.left() + 5, rect.top() + 5,
+                                      rect.width() - 10, 34), 12, 12)
+        MatePositionPreview._draw_result_text(
+            painter, QRectF(rect.left() + 18, rect.top() + 4, rect.width() - 36, 37),
+            title, 23, QColor(255, 255, 255),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        )
+
+    @staticmethod
+    def _draw_result_text(
+        painter: QPainter,
+        rect: QRectF,
+        text: str,
+        size: int,
+        color: QColor,
+        alignment: Qt.AlignmentFlag,
+    ) -> None:
+        # Use the Windows CJK UI family explicitly; Qt's off-screen/default
+        # fallback can otherwise select a Latin-only face and render boxes.
+        font = QFont("Microsoft YaHei UI")
+        font.setPixelSize(size)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(color)
+        painter.drawText(rect, alignment, text)
+
     def _draw_placeholder_figure(self, painter: QPainter, rect: QRectF) -> None:
-        """画一个简洁的人形剪影，表示角色的位置和大小（相对关系示意）。"""
-        from PyQt6.QtGui import QPainterPath
+        """Show the real E-mote canvas when no renderable frame is available.
 
-        w, h = rect.width(), rect.height()
-        x, y = rect.left(), rect.top()
-        cx = x + w / 2
-        head_r = w * 0.30
-
-        path = QPainterPath()
-        # 头
-        path.addEllipse(QPointF(cx, y + head_r), head_r, head_r)
-        # 脖子 + 上身
-        body_top = y + head_r * 2.0
-        body = QPainterPath()
-        body.moveTo(cx - w * 0.24, body_top)
-        body.quadTo(cx, body_top + h * 0.02, cx + w * 0.24, body_top)
-        body.lineTo(cx + w * 0.30, y + h * 0.58)
-        body.lineTo(cx - w * 0.30, y + h * 0.58)
-        body.closeSubpath()
-        path.addPath(body)
-        # 裙摆/下身
-        skirt = QPainterPath()
-        skirt.moveTo(cx - w * 0.30, y + h * 0.58)
-        skirt.lineTo(cx + w * 0.30, y + h * 0.58)
-        skirt.lineTo(cx + w * 0.38, y + h * 0.78)
-        skirt.lineTo(cx - w * 0.38, y + h * 0.78)
-        skirt.closeSubpath()
-        path.addPath(skirt)
-        # 双腿
-        for sign in (-1, 1):
-            leg = QPainterPath()
-            lx = cx + sign * w * 0.16
-            leg.addRoundedRect(QRectF(lx - w * 0.09, y + h * 0.78, w * 0.18, h * 0.22), 4, 4)
-            path.addPath(leg)
-
-        painter.fillPath(path, QColor(110, 150, 225, 95))
-        pen = QPen(QColor(70, 110, 190, 220), 3)
-        painter.setPen(pen)
-        painter.drawPath(path)
+        A fabricated humanoid silhouette falsely implied visible model bounds.
+        Native PSB geometry can only be composed by the E-mote runtime, so the
+        honest fallback is its authored screen rectangle and origin.
+        """
+        painter.setPen(QPen(QColor(48, 105, 190, 210), 3, Qt.PenStyle.DashLine))
+        painter.setBrush(QColor(80, 145, 220, 22))
+        painter.drawRect(rect)
+        center = rect.center()
+        painter.drawLine(QPointF(center.x() - 18, center.y()), QPointF(center.x() + 18, center.y()))
+        painter.drawLine(QPointF(center.x(), center.y() - 18), QPointF(center.x(), center.y() + 18))
+        self._draw_result_text(
+            painter, QRectF(rect.left(), rect.top() + 12, rect.width(), 42),
+            "E-mote authored canvas", 20, QColor(48, 105, 190),
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+        )
 
     # -- 交互: 拖动角色 ------------------------------------------------------
 
@@ -297,18 +607,19 @@ class MatePositionPreview(QWidget):
         lp = self._to_logical(QPointF(event.position()))
         if self.chara_rect().contains(lp):
             self._dragging = True
-            self._drag_offset = QPointF(lp.x() - self.chara_rect().center().x(),
-                                        lp.y() - self.chara_rect().bottom())
+            self._drag_offset = lp - self.chara_rect().center()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
         if not self._dragging:
             return
         lp = self._to_logical(QPointF(event.position()))
-        new_cx = lp.x() - self._drag_offset.x()
-        new_bottom = lp.y() - self._drag_offset.y()
-        self._pos_x = round((new_cx - _CHARA_BASE_X) / _CHARA_X_PER_POS)
-        self._pos_y = round(new_bottom - _LOGICAL_H)
+        new_center = lp - self._drag_offset
+        self._pos_x, self._pos_y = mate_position_from_screen(
+            center_x=new_center.x(),
+            center_y=new_center.y(),
+            calibration=self._calibration,
+        )
         self.update()
         self.positionChanged.emit(self._pos_x, self._pos_y, self._scale)
 
@@ -323,7 +634,8 @@ class PsbActionDialog(FluentCaptionDialog):
     """Create a Mate from a GIF or an existing PSB model."""
 
     def __init__(self, *, acus_root: Path, freemote_dir: Path, mate_id: int,
-                 chara_id: int = 80000, get_tool_path=None, parent=None) -> None:
+                 chara_id: int = 80000, game_root: Path | None = None,
+                 get_tool_path=None, parent=None) -> None:
         super().__init__(parent=parent)
         self.setWindowTitle("新增伴侣")
         self.setModal(True)
@@ -331,6 +643,12 @@ class PsbActionDialog(FluentCaptionDialog):
 
         self._acus_root = acus_root
         self._freemote_dir = freemote_dir
+        self._game_root = Path(game_root) if game_root else None
+        self._scene_calibrations = {
+            "result": calibration_from_game(self._game_root, "result"),
+            "mate_room": calibration_from_game(self._game_root, "mate_room"),
+        }
+        self._calibration = self._scene_calibrations["result"]
         self._mate_id = mate_id
         self._assigner = PsbActionAssigner(freemote_dir)
         self._psb_data: PsbActionData | None = None
@@ -339,19 +657,16 @@ class PsbActionDialog(FluentCaptionDialog):
         self._preview_png: Path | None = None
         self._fetch_thread = None
         self._build_thread = None
+        self._gif_thread = None
+        self._background_thread = None
+        self._models_thread = None
+        self._gif_plan: GifFramePlan | None = None
 
         # ---- 控件 ----
         self.psb_path_edit = LineEdit(self)
         self.psb_path_edit.setPlaceholderText("选择本地 PSB 文件")
         self.gif_path_edit = LineEdit(self)
         self.gif_path_edit.setPlaceholderText("选择一张动态 GIF")
-        self.gif_template_edit = LineEdit(self)
-        self.gif_template_edit.setReadOnly(True)
-        template = find_gif_mate_template(self._acus_root)
-        if template:
-            self.gif_template_edit.setText(str(template))
-        else:
-            self.gif_template_edit.setPlaceholderText("ACUS 中没有可复用的 Mate，请手动选择 emtbytes")
         self.gif_fps_spin = SpinBox(self)
         self.gif_fps_spin.setRange(1, 30)
         self.gif_fps_spin.setValue(10)
@@ -387,6 +702,7 @@ class PsbActionDialog(FluentCaptionDialog):
         self.scale_spin.setValue(6000)
 
         self.preview = MatePositionPreview(self)
+        self.preview.set_calibration(self._calibration)
 
         # 4 个核心动作选择（按官方规律自动展开成 18 个槽）
         self.core_combos: dict[str, FluentComboBox] = {}
@@ -453,16 +769,6 @@ class PsbActionDialog(FluentCaptionDialog):
         gif_browse.clicked.connect(self._browse_gif)
         gif_h.addWidget(gif_browse)
         gif_lay.addWidget(gif_row)
-        template_row = QWidget(gif_panel)
-        template_h = QHBoxLayout(template_row)
-        template_h.setContentsMargins(0, 0, 0, 0)
-        template_h.setSpacing(8)
-        template_h.addWidget(QLabel("动画模板", gif_panel))
-        template_h.addWidget(self.gif_template_edit, stretch=1)
-        template_browse = PushButton("更换…", gif_panel)
-        template_browse.clicked.connect(self._browse_gif_template)
-        template_h.addWidget(template_browse)
-        gif_lay.addWidget(template_row)
         gif_options = QHBoxLayout()
         gif_options.addWidget(QLabel("采样帧率", gif_panel))
         gif_options.addWidget(self.gif_fps_spin)
@@ -472,11 +778,14 @@ class PsbActionDialog(FluentCaptionDialog):
         gif_options.addStretch(1)
         gif_lay.addLayout(gif_options)
         gif_tip = CaptionLabel(
-            "请选择透明背景 GIF；系统会自动裁边、生成图标，并把全部 18 个动作映射为循环（最多 120 帧）。",
+            "请选择透明背景 GIF；系统会自动寻找兼容骨架、裁边、生成图标，并把全部 18 个动作映射为循环（最多 120 帧）。",
             gif_panel,
         )
         gif_tip.setWordWrap(True)
         gif_lay.addWidget(gif_tip)
+        self._gif_plan_label = CaptionLabel("选择 GIF 后会先计算真实输出帧数、时长和有效 FPS。", gif_panel)
+        self._gif_plan_label.setWordWrap(True)
+        gif_lay.addWidget(self._gif_plan_label)
         self._source_stack.addWidget(gif_panel)
 
         psb_panel = QWidget(self)
@@ -503,9 +812,9 @@ class PsbActionDialog(FluentCaptionDialog):
         self.model_combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self.model_combo.addItem("（点击「获取列表」从 lolicount 拉取在线模型）", userData="")
         ur_h.addWidget(self.model_combo, stretch=1)
-        refresh_btn = PushButton("获取列表", self)
-        refresh_btn.clicked.connect(self._fetch_models)
-        ur_h.addWidget(refresh_btn)
+        self._refresh_models_btn = PushButton("获取列表", self)
+        self._refresh_models_btn.clicked.connect(self._fetch_models)
+        ur_h.addWidget(self._refresh_models_btn)
         dl_btn = PushButton("下载并解析", self)
         dl_btn.clicked.connect(self._download_online)
         ur_h.addWidget(dl_btn)
@@ -557,12 +866,21 @@ class PsbActionDialog(FluentCaptionDialog):
         pv_lay.setSpacing(8)
         detail_head = QHBoxLayout()
         detail_head.addWidget(BodyLabel("③ 位置与动作（拖动角色即可调整）", self), stretch=1)
+        self._scene_segment = SegmentedWidget(self)
+        self._scene_segment.addItem("result", "结算画面")
+        self._scene_segment.addItem("mate_room", "Mate ROOM")
+        self._scene_segment.setCurrentItem("result")
+        self._scene_segment.currentItemChanged.connect(self._on_preview_scene_changed)
+        detail_head.addWidget(self._scene_segment)
         edit_source_btn = PushButton("更换素材", self)
         edit_source_btn.clicked.connect(self._show_source_editor)
         detail_head.addWidget(edit_source_btn)
         pv_lay.addLayout(detail_head)
         self.preview.positionChanged.connect(self._on_preview_drag)
         pv_lay.addWidget(self.preview, stretch=1)
+        self._placement_accuracy = CaptionLabel("", self)
+        self._placement_accuracy.setWordWrap(True)
+        pv_lay.addWidget(self._placement_accuracy)
         bg_row = QHBoxLayout()
         self._preview_btn = PushButton("生成图标…", self)
         self._preview_btn.clicked.connect(self._make_preview_icon)
@@ -576,8 +894,8 @@ class PsbActionDialog(FluentCaptionDialog):
 
         param_form = QFormLayout()
         param_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        for w, tip in ((self.pos_x_spin, "水平位置（游戏内像素偏移·近似）"),
-                       (self.pos_y_spin, "垂直位置（脚底相对屏幕底部, 负值上移）"),
+        for w, tip in ((self.pos_x_spin, "水平位置（E-mote 动态贴图坐标）"),
+                       (self.pos_y_spin, "垂直位置（E-mote 逻辑像素，负值上移）"),
                        (self.scale_spin, "缩放 (万分之一, 6000=0.6 倍)")):
             w.valueChanged.connect(self._on_param_changed)
             param_form.addRow(tip, w)
@@ -602,9 +920,30 @@ class PsbActionDialog(FluentCaptionDialog):
 
         self._bind_slots()
         self._source_segment.currentItemChanged.connect(self._on_source_mode_changed)
-        self.gif_height_combo.currentIndexChanged.connect(self._update_gif_scale)
+        self.gif_height_combo.currentIndexChanged.connect(self._gif_options_changed)
+        self.gif_fps_spin.valueChanged.connect(self._gif_options_changed)
         self.gif_path_edit.editingFinished.connect(self._prepare_gif_preview)
         self._on_source_mode_changed("gif")
+        QTimer.singleShot(0, self._load_game_background)
+
+    def _on_preview_scene_changed(self, scene_key: str) -> None:
+        """Switch only the game scene; XML values remain identical."""
+        calibration = self._scene_calibrations.get(scene_key)
+        if calibration is None:
+            return
+        self._calibration = calibration
+        self.preview.set_calibration(calibration)
+        self._placement_accuracy.setText(
+            (
+                "Mate ROOM：动态贴图面中心 (960, 552)、场景倍率 1.0；"
+                "同一组 XML 参数会比结算画面大约大 17.6%，且顶部从 y≈12 开始。"
+            )
+            if scene_key == "mate_room"
+            else (
+                "结算画面：动态贴图面中心 (1610, 636)、场景倍率 0.85；"
+                "虚线是模型画布，点线是 1080×1080 面片经场景缩放后的裁切范围。"
+            )
+        )
 
     # ---- 槽分配联动 --------------------------------------------------------
 
@@ -624,6 +963,11 @@ class PsbActionDialog(FluentCaptionDialog):
             "图标：自动使用 GIF 首帧生成"
             if is_gif
             else "图标：未生成（可选；也可稍后手动补入）"
+        )
+        self._placement_accuracy.setText(
+            "GIF 已按所有帧的透明边界裁切；拖动位置和缩放使用游戏实际坐标链。"
+            if is_gif
+            else "XML 坐标链已精确还原；原生 PSB 的内部骨骼、部件和画布边界只有 E-mote 运行时能完整渲染，剪影仅表示典型范围。"
         )
         self._source_card.show()
         self._details_host.hide()
@@ -647,33 +991,125 @@ class PsbActionDialog(FluentCaptionDialog):
         path = self.gif_path_edit.text().strip()
         if not Path(path).is_file():
             return
-        pixmap = QPixmap(path)
-        if pixmap.isNull():
-            fly_critical(self.window(), "无法读取", "所选文件不是可读取的 GIF")
+        if self._gif_thread is not None and self._gif_thread.isRunning():
+            self._status.setText("正在分析上一项 GIF，请稍候…")
             return
-        self.preview.set_chara_image(Path(path))
-        self._update_gif_scale()
-        self._source_card.hide()
-        self._details_host.show()
-        if self.height() < 780:
-            self.resize(max(self.width(), 1120), 820)
-        self._status.setText("GIF 已就绪；确认伴侣信息和位置后即可生成")
-
-    def _browse_gif_template(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            "选择一个现有 Mate 动画作为模板",
-            str(self._acus_root / "mate"),
-            "E-mote 动画 (*.emtbytes *.psb);;全部文件 (*)",
-        )
-        if path:
-            self.gif_template_edit.setText(path)
-
-    def _update_gif_scale(self) -> None:
+        gif_path = Path(path)
+        target_fps = self.gif_fps_spin.value()
         target_height = int(self.gif_height_combo.currentData() or 384)
-        self.preview.set_source_height(target_height)
-        recommended = round(900 * 1080 / (_CHARA_H_PER_SCALE * target_height))
-        self.scale_spin.setValue(max(self.scale_spin.minimum(), min(40000, recommended)))
+        self._status.setText("正在后台分析 GIF 帧与透明边界…")
+        self._gif_plan_label.setText("正在计算真实输出计划…")
+        self.gif_path_edit.setEnabled(False)
+        self.gif_fps_spin.setEnabled(False)
+        self.gif_height_combo.setEnabled(False)
+        worker = _TaskWorker(
+            lambda _progress: inspect_gif(
+                gif_path, target_fps=target_fps, target_height=target_height
+            ),
+            self,
+        )
+        self._gif_thread = worker
+        state: dict[str, object] = {}
+        worker.done.connect(lambda result: state.update(result=result))
+        worker.failed.connect(lambda error: state.update(error=error))
+
+        def finish() -> None:
+            self._gif_thread = None
+            self.gif_path_edit.setEnabled(True)
+            self.gif_fps_spin.setEnabled(True)
+            self.gif_height_combo.setEnabled(True)
+            error = state.get("error")
+            if error is not None:
+                self._gif_plan = None
+                self._gif_plan_label.setText("GIF 分析失败")
+                self._status.setText("GIF 分析失败，可更换文件后重试")
+                fly_critical(self.window(), "无法读取 GIF", str(error))
+                return
+            plan = state.get("result")
+            if not isinstance(plan, GifFramePlan):
+                return
+            self._gif_plan = plan
+            self.preview.set_chara_image(gif_path, plan.crop_box)
+            self.preview.set_source_size(*plan.output_size)
+            recommended = recommended_scale_for_height(
+                plan.output_size[1], calibration=self._calibration
+            )
+            self.scale_spin.setValue(
+                max(self.scale_spin.minimum(), min(self.scale_spin.maximum(), recommended))
+            )
+            cap = "；已触发 120 帧上限，实际帧率会降低" if plan.capped else ""
+            self._gif_plan_label.setText(
+                f"源 {plan.source_frame_count} 帧 / {plan.duration_seconds:.2f} 秒 → "
+                f"输出 {plan.output_frame_count} 帧 / {plan.effective_fps:.1f} FPS / "
+                f"{plan.output_size[0]}×{plan.output_size[1]}{cap}"
+            )
+            self._source_card.hide()
+            self._details_host.show()
+            if self.height() < 780:
+                self.resize(max(self.width(), 1120), 820)
+            self._status.setText("GIF 已就绪；预览已按游戏实际坐标链换算")
+
+        worker.finished.connect(finish)
+        worker.start()
+
+    def _gif_options_changed(self, _value=None) -> None:
+        if self.gif_path_edit.text().strip():
+            self._prepare_gif_preview()
+
+    def _load_game_background(self) -> None:
+        """Decode the installed game's result layers without blocking Qt."""
+        if self._game_root is None or self._background_thread is not None:
+            return
+        texture_dir = (
+            self._game_root
+            / "data"
+            / "surfboard"
+            / "texture"
+        )
+        sources = {
+            "background": texture_dir / "CHU_UI_Common_BK_00_Mate.dds",
+            "result": texture_dir / "CHU_UI_Result_01_v16.dds",
+            "score": texture_dir / "CHU_UI_Result_score_00.dds",
+            "rank": texture_dir / "CHU_UI_Result_Rank_00.dds",
+            "mate_room_bg": texture_dir / "CHU_UI_MateGarden_bg_00.dds",
+            "mate_room_title": texture_dir / "CHU_UI_MateGarden_bg_01.dds",
+            "mate_room": texture_dir / "CHU_UI_MateGarden_00.dds",
+        }
+        if not sources["background"].is_file():
+            return
+        tool_path = self._get_tool_path() if self._get_tool_path else None
+
+        def decode_result_layers(_progress) -> dict[str, Path | None]:
+            return {
+                name: ensure_dds_preview_png(
+                    acus_root=self._acus_root,
+                    compressonatorcli_path=tool_path,
+                    dds_path=dds,
+                )
+                if dds.is_file()
+                else None
+                for name, dds in sources.items()
+            }
+
+        worker = _TaskWorker(
+            decode_result_layers,
+            self,
+        )
+        self._background_thread = worker
+        state: dict[str, object] = {}
+        worker.done.connect(lambda result: state.update(result=result))
+
+        def finish() -> None:
+            self._background_thread = None
+            paths = state.get("result")
+            if isinstance(paths, dict):
+                background = paths.get("background")
+                if isinstance(background, Path):
+                    self.preview.set_background(background)
+                self.preview.set_result_overlay_assets(paths)
+
+        worker.finished.connect(finish)
+        worker.start()
 
     def _on_slot_changed(self, _idx: int) -> None:
         chosen = "、".join(
@@ -743,7 +1179,13 @@ class PsbActionDialog(FluentCaptionDialog):
     def _is_busy(self) -> bool:
         return any(
             thread is not None and thread.isRunning()
-            for thread in (self._fetch_thread, self._build_thread)
+            for thread in (
+                self._fetch_thread,
+                self._build_thread,
+                self._gif_thread,
+                self._background_thread,
+                self._models_thread,
+            )
         )
 
     # ---- 系统语音 ----------------------------------------------------------
@@ -770,21 +1212,43 @@ class PsbActionDialog(FluentCaptionDialog):
             self.psb_path_edit.setText(p)
 
     def _fetch_models(self) -> None:
-        """从 lolicount 拉取在线模型列表。"""
-        try:
-            models = _LolicountClient().list_models()
-        except Exception as e:
-            fly_critical(self.window(), "获取列表失败", f"{e}\n\n请检查网络连接。")
+        """从 lolicount 拉取在线模型列表（后台线程，避免网络阻塞 GUI）。"""
+        if self._models_thread is not None and self._models_thread.isRunning():
+            self._status.setText("正在获取在线模型列表…")
             return
-        if not models:
-            fly_critical(self.window(), "提示", "在线仓库为空")
-            return
-        self.model_combo.blockSignals(True)
-        self.model_combo.clear()
-        for m in models:
-            self.model_combo.addItem(m, userData=m)
-        self.model_combo.blockSignals(False)
-        self._status.setText(f"在线仓库共 {len(models)} 个模型，选择后点「下载并解析」")
+        self._refresh_models_btn.setEnabled(False)
+        self._status.setText("正在获取在线模型列表…")
+
+        worker = _TaskWorker(lambda _progress: _LolicountClient().list_models(), self)
+        self._models_thread = worker
+        state: dict[str, object] = {}
+        worker.done.connect(lambda result: state.update(models=result))
+
+        def _finish() -> None:
+            self._models_thread = None
+            self._refresh_models_btn.setEnabled(True)
+            models = state.get("models")
+            if not isinstance(models, list):
+                return
+            if not models:
+                fly_critical(self.window(), "提示", "在线仓库为空")
+                return
+            self.model_combo.blockSignals(True)
+            self.model_combo.clear()
+            for m in models:
+                self.model_combo.addItem(str(m), userData=str(m))
+            self.model_combo.blockSignals(False)
+            self._status.setText(f"在线仓库共 {len(models)} 个模型，选择后点「下载并解析」")
+
+        def _fail(msg: str) -> None:
+            self._models_thread = None
+            self._refresh_models_btn.setEnabled(True)
+            fly_critical(self.window(), "获取列表失败", f"{msg}\n\n请检查网络连接。")
+
+        worker.done.connect(lambda _result: _finish())
+        worker.failed.connect(_fail)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
 
     def _download_online(self) -> None:
         """下载选中的 lolicount 模型并进入解析（后台线程）。"""
@@ -873,7 +1337,10 @@ class PsbActionDialog(FluentCaptionDialog):
 
         self._apply_template()
         if self._source_mode() == "psb":
-            self.preview.set_source_height(1080)
+            # XML transforms the E-mote authored screen, not its packed texture
+            # atlas.  Use the PSB declaration (official Vanilla is 800x1080)
+            # rather than a made-up human silhouette envelope.
+            self.preview.set_source_size(*(self._psb_data.screen_size or (800, 1080)))
             self.preview.set_chara_image(None)
             self._source_card.hide()
             self._details_host.show()
@@ -961,15 +1428,15 @@ class PsbActionDialog(FluentCaptionDialog):
         if identity is None:
             return
         gif_path = Path(self.gif_path_edit.text().strip())
-        template_path = Path(self.gif_template_edit.text().strip())
         if not gif_path.is_file():
             fly_critical(self.window(), "错误", "请先选择一张动态 GIF")
             return
-        if not template_path.is_file():
+        template_path = find_gif_mate_template(self._acus_root)
+        if template_path is None:
             fly_critical(
                 self.window(),
-                "缺少动画模板",
-                "ACUS 中没有找到现有 Mate。请用“更换…”选择一个合法的 emtbytes 作为骨架。",
+                "缺少兼容骨架",
+                "当前 ACUS 中没有可复用的 Mate 动画。请先导入任意一个 PSB Mate；之后 GIF、Live2D 和 Spine 都会自动复用它，不需要再次选择。",
             )
             return
         mate_id, name, chara_id, chara_name, dds_illust_key = identity

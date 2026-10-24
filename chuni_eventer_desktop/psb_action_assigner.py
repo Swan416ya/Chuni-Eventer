@@ -30,6 +30,7 @@ class PsbActionData:
     psb_path: Path
     timelines: list[TimelineInfo] = field(default_factory=list)
     platform: str = ""
+    screen_size: tuple[int, int] | None = None
 
     @property
     def main_timelines(self) -> list[TimelineInfo]:
@@ -98,11 +99,22 @@ class PsbActionAssigner:
 
         # 4. 检测平台
         platform = data.get("spec", "unknown")
+        raw_screen = data.get("screenSize", {})
+        screen_size = None
+        if isinstance(raw_screen, dict):
+            try:
+                width = int(raw_screen.get("width", 0))
+                height = int(raw_screen.get("height", 0))
+                if width > 0 and height > 0:
+                    screen_size = (width, height)
+            except (TypeError, ValueError):
+                pass
 
         return PsbActionData(
             psb_path=psb_path,
             timelines=timelines,
             platform=platform,
+            screen_size=screen_size,
         )
 
     def extract_preview_texture(self, work_dir: Path) -> Path | None:

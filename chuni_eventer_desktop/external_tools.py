@@ -18,7 +18,6 @@ import threading
 import urllib.request
 import zipfile
 from collections.abc import Callable
-from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -597,57 +596,61 @@ def _resolve_tool_download_urls(
             return resolve_penguin_tools_cli_download_url(release), None, release.tag_name
         raise RuntimeError(f"未实现 {spec.latest_release_repo} 的 latest release 解析")
 
-    github_future: Future[tuple[str, str | None, str | None]] | None = None
-    try:
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            github_future = executor.submit(_do_github_query)
-            try:
-                resolved_urls = github_future.result(timeout=3.0)
-                download_url, companion_url, tag_name = resolved_urls
-                if tag_name:
-                    _report_progress(
-                        on_progress,
-                        f"将下载 {spec.name} {tag_name}",
-                        None,
-                    )
-                _log.info(
-                    "tool_latest_release id=%s repo=%s tag=%s exe=%s",
-                    spec.id,
-                    spec.latest_release_repo,
-                    tag_name or "?",
-                    download_url,
-                )
-                return download_url, companion_url
-            except TimeoutError:
-                _log.warning(
-                    "tool_github_api_timeout id=%s repo=%s falling back to embedded URL",
-                    spec.id,
-                    spec.latest_release_repo,
-                )
-                _report_progress(on_progress, "GitHub API 响应慢，使用内置回退下载地址", None)
-                return download_url, companion_url
-    except Exception as exc:
-        # ThreadPoolExecutor submit failed (unlikely), or query threw
-        if github_future is not None:
-            try:
-                github_future.result(timeout=0.1)
-            except Exception as query_exc:
-                _log.warning(
-                    "tool_latest_release_fallback id=%s repo=%s err=%s",
-                    spec.id,
-                    spec.latest_release_repo,
-                    query_exc,
-                )
-        if not download_url:
-            raise
+    # 查询放 daemon 线程：最多等 3 秒，查不完就直接走内置回退地址。
+    # 注意不要用 ``with ThreadPoolExecutor(...)``：退出上下文会 shutdown(wait=True)，
+    # 把「3 秒回退」变成「等完整个 12 秒 HTTP 超时」。
+    outcome: dict[str, object] = {}
+    done = threading.Event()
+
+    def _query() -> None:
+        try:
+            outcome["urls"] = _do_github_query()
+        except BaseException as exc:  # noqa: BLE001 - 只用于回退判定，不吞掉类型
+            outcome["error"] = exc
+        finally:
+            done.set()
+
+    threading.Thread(target=_query, name="tool-latest-release", daemon=True).start()
+    if not done.wait(3.0):
         _log.warning(
-            "tool_latest_release_fallback id=%s repo=%s err=%s",
+            "tool_github_api_timeout id=%s repo=%s falling back to embedded URL",
             spec.id,
             spec.latest_release_repo,
-            exc,
         )
-        _report_progress(on_progress, "无法查询最新版本，使用内置回退下载地址", None)
+        _report_progress(on_progress, "GitHub API 响应慢，使用内置回退下载地址", None)
         return download_url, companion_url
+
+    urls = outcome.get("urls")
+    if isinstance(urls, tuple) and len(urls) == 3:
+        download_url, companion_url, tag_name = urls
+        if tag_name:
+            _report_progress(
+                on_progress,
+                f"将下载 {spec.name} {tag_name}",
+                None,
+            )
+        _log.info(
+            "tool_latest_release id=%s repo=%s tag=%s exe=%s",
+            spec.id,
+            spec.latest_release_repo,
+            tag_name or "?",
+            download_url,
+        )
+        return download_url, companion_url
+
+    error = outcome.get("error")
+    _log.warning(
+        "tool_latest_release_fallback id=%s repo=%s err=%s",
+        spec.id,
+        spec.latest_release_repo,
+        error,
+    )
+    if not download_url:
+        if isinstance(error, BaseException):
+            raise error
+        raise RuntimeError(f"无法查询 {spec.name} 的下载地址，且没有内置回退地址。")
+    _report_progress(on_progress, "无法查询最新版本，使用内置回退下载地址", None)
+    return download_url, companion_url
 
 
 def install_tool(

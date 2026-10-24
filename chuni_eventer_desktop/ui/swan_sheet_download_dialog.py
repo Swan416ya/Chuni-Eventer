@@ -37,7 +37,7 @@ from .fluent_dialogs import (
     safe_dismiss_modal_progress_dialog,
     show_archive_readme_dialog,
 )
-from .qthread_lifecycle import await_qthreads, defer_finalize_qthread
+from .qthread_lifecycle import defer_dialog_close, defer_finalize_qthread
 
 
 def _readonly_item(text: str) -> QStandardItem:
@@ -190,15 +190,18 @@ class SwanSheetDownloadDialog(FluentCaptionDialog):
 
         QTimer.singleShot(0, self._on_refresh)
 
-    def _await_bg_threads(self) -> None:
-        await_qthreads(self._fetch_thread, self._download_thread, self._install_thread)
+    def _bg_threads(self) -> tuple[QThread | None, ...]:
+        return (self._fetch_thread, self._download_thread, self._install_thread)
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        self._await_bg_threads()
+        if defer_dialog_close(self, *self._bg_threads()):
+            event.ignore()
+            return
         super().closeEvent(event)
 
     def reject(self) -> None:
-        self._await_bg_threads()
+        if defer_dialog_close(self, *self._bg_threads()):
+            return
         super().reject()
 
     def _open_progress(self, title: str, text: str) -> QProgressDialog:

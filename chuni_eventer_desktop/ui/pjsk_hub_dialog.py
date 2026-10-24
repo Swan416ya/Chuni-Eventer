@@ -49,7 +49,7 @@ from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_m
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
 from .fluent_table import apply_fluent_sheet_table
 from .pjsk_sus_download_dialog import PjskSusDownloadDialog
-from .qthread_lifecycle import await_qthreads, finalize_qthread, qthread_running_safe
+from .qthread_lifecycle import defer_dialog_close, finalize_qthread, qthread_running_safe
 from .rich_hint import hint_row
 
 _SLOT_LABELS: dict[str, str] = {
@@ -390,11 +390,14 @@ class PjskConvertToAcusDialog(FluentCaptionDialog):
             self.accept()
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        await_qthreads(self._thread)
+        if defer_dialog_close(self, self._thread):
+            event.ignore()
+            return
         super().closeEvent(event)
 
     def reject(self) -> None:
-        await_qthreads(self._thread)
+        if defer_dialog_close(self, self._thread):
+            return
         super().reject()
 
 
@@ -531,11 +534,14 @@ class PjskHubDialog(FluentCaptionDialog):
             finalize_qthread(th)
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        await_qthreads(self._level_thread)
+        if defer_dialog_close(self, self._level_thread):
+            event.ignore()
+            return
         super().closeEvent(event)
 
     def reject(self) -> None:
-        await_qthreads(self._level_thread)
+        if defer_dialog_close(self, self._level_thread):
+            return
         super().reject()
 
     def _reload_local(self) -> None:

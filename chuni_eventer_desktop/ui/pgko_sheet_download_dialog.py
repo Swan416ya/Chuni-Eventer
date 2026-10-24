@@ -79,7 +79,7 @@ from .fluent_table import (
     mark_sheet_item_readonly,
     sheet_list_card_layout_margins,
 )
-from .qthread_lifecycle import await_qthreads, defer_finalize_qthread, finalize_qthread, qthread_running_safe
+from .qthread_lifecycle import defer_dialog_close, defer_finalize_qthread, finalize_qthread, qthread_running_safe
 from .rich_hint import hint_row
 
 _PGKO_TABLE_COL_DETAIL = 2
@@ -795,21 +795,23 @@ class PgkoSheetDownloadDialog(FluentCaptionDialog):
                 return e
         return None
 
-    def _await_bg_threads(self, timeout_ms: int = 300_000) -> None:
-        await_qthreads(
+    def _bg_threads(self) -> tuple[QThread | None, ...]:
+        return (
             self._fetch_thread,
             self._download_thread,
             self._convert_thread,
             self._ugc_exp_thread,
-            timeout_ms=timeout_ms,
         )
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        self._await_bg_threads()
+        if defer_dialog_close(self, *self._bg_threads()):
+            event.ignore()
+            return
         super().closeEvent(event)
 
     def reject(self) -> None:
-        self._await_bg_threads()
+        if defer_dialog_close(self, *self._bg_threads()):
+            return
         super().reject()
 
     def _attach_fetch_thread(self, th: _FetchPgkoThread) -> None:

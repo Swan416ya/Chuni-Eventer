@@ -34,7 +34,7 @@ from qfluentwidgets import (
 from .fluent_scroll import apply_fluent_transparent_panel
 from .fluent_dialogs import fly_critical
 from .fluent_table import apply_fluent_sheet_table
-from .qthread_lifecycle import await_qthreads, finalize_qthread
+from .qthread_lifecycle import defer_until_threads_done, finalize_qthread
 from ..resource_pack_import import (
     ConflictReport,
     ImportResult,
@@ -638,9 +638,20 @@ class ResourcePackSettingsPanel(QWidget):
     # ---- Cancel / Reset ----
 
     def _on_cancel(self) -> None:
-        """用户点取消时处理。"""
-        await_qthreads(self._plan_thread, self._apply_thread)
+        """用户点取消：不阻塞 GUI，等后台线程收尾后再清理暂存区。"""
+        self._cancel_btn.setEnabled(False)
+        if defer_until_threads_done(
+            self,
+            *self._bg_threads(),
+            on_done=self._finish_cancel,
+        ):
+            return
+        self._finish_cancel()
 
+    def _bg_threads(self) -> tuple[QThread | None, ...]:
+        return (self._plan_thread, self._apply_thread)
+
+    def _finish_cancel(self) -> None:
         # 清理暂存区
         if self._staging_root is not None:
             cleanup_staging(self._staging_root)
