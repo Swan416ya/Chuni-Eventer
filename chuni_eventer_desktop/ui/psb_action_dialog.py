@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QScrollArea,
     QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
@@ -30,6 +31,7 @@ from qfluentwidgets import (
     PushButton,
     SegmentedWidget,
     SpinBox,
+    SwitchButton,
 )
 
 from ..acus_scan import scan_charas, scan_system_voices
@@ -49,6 +51,12 @@ from ..mate_layout import (
     mate_content_rect,
     mate_position_from_screen,
     recommended_scale_for_height,
+)
+from ..mate_action_slots import (
+    DETAILED_ACTION_GROUPS,
+    SIMPLE_ACTION_GROUPS,
+    MateActionGroup,
+    expand_action_assignments,
 )
 from ..psb_action_assigner import (
     PsbActionAssigner,
@@ -704,37 +712,44 @@ class PsbActionDialog(FluentCaptionDialog):
         self.preview = MatePositionPreview(self)
         self.preview.set_calibration(self._calibration)
 
-        # 4 个核心动作选择（按官方规律自动展开成 18 个槽）
-        self.core_combos: dict[str, FluentComboBox] = {}
+        # 游戏始终读取 18 个槽；编辑器在这个 seam 上提供六组简略映射或
+        # 18 槽覆盖。PSB 和 GIF 共享同一组语义，只有输入控件不同。
+        self.simple_psb_combos: dict[str, FluentComboBox] = {}
+        self.detail_psb_combos: dict[int, FluentComboBox] = {}
+        self.simple_gif_edits: dict[str, LineEdit] = {}
+        self.detail_gif_edits: dict[int, LineEdit] = {}
         core_group = CardWidget(self)
         core_group_lay = QVBoxLayout(core_group)
         core_group_lay.setContentsMargins(16, 12, 16, 12)
         core_group_lay.setSpacing(8)
-        core_group_lay.addWidget(BodyLabel("动作匹配：从模型动画列表里选出 4 个", core_group))
-        core_form = QFormLayout()
-        core_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        core_group_lay.addLayout(core_form)
-        core_defs: tuple[tuple[str, str, str], ...] = (
-            ("idle", "待机 idle", "平时站立循环（呼吸/眨眼），出场默认动作"),
-            ("angry", "生气", "游戏内生气场景"),
-            ("sad", "悲伤", "游戏内难过场景"),
-            ("happy", "开心", "其余大部分场景（欢呼/高兴）都会用这个"),
+        mode_row = QHBoxLayout()
+        mode_row.addWidget(BodyLabel("动作配置", core_group), stretch=1)
+        mode_row.addWidget(CaptionLabel("简略配置", core_group))
+        self._action_mode_switch = SwitchButton(core_group)
+        self._action_mode_switch.setChecked(False)
+        mode_row.addWidget(self._action_mode_switch)
+        mode_row.addWidget(CaptionLabel("详细配置", core_group))
+        core_group_lay.addLayout(mode_row)
+        self._action_explanation = CaptionLabel("", core_group)
+        self._action_explanation.setWordWrap(True)
+        core_group_lay.addWidget(self._action_explanation)
+
+        self._action_stack = QStackedWidget(core_group)
+        self._action_stack.addWidget(
+            self._make_psb_action_page(SIMPLE_ACTION_GROUPS, detailed=False)
         )
-        for key, title, desc in core_defs:
-            combo = FluentComboBox(self)
-            combo.addItem("（未选择）", userData="")
-            self.core_combos[key] = combo
-            cap = QLabel(self)
-            cap.setText(f"<b>{title}</b><br><span style='color:#6B7280'>{desc}</span>")
-            core_form.addRow(cap, combo)
-        core_tip = CaptionLabel(
-            "生成时按官方 mate 规律展开：Type1=待机，Type2=生气，Type3=悲伤，"
-            "Type4~18 全部=开心（官方原版也是这样复用，无需逐槽挑选）。", self)
-        core_tip.setWordWrap(True)
+        self._action_stack.addWidget(
+            self._make_psb_action_page(DETAILED_ACTION_GROUPS, detailed=True)
+        )
+        self._action_stack.addWidget(
+            self._make_gif_action_page(SIMPLE_ACTION_GROUPS, detailed=False)
+        )
+        self._action_stack.addWidget(
+            self._make_gif_action_page(DETAILED_ACTION_GROUPS, detailed=True)
+        )
+        core_group_lay.addWidget(self._action_stack, stretch=1)
         core_lay = QVBoxLayout()
         core_lay.addWidget(core_group)
-        core_lay.addWidget(core_tip)
-        core_lay.addStretch(1)
         core_host = QWidget(self)
         core_host.setLayout(core_lay)
 
@@ -778,7 +793,8 @@ class PsbActionDialog(FluentCaptionDialog):
         gif_options.addStretch(1)
         gif_lay.addLayout(gif_options)
         gif_tip = CaptionLabel(
-            "请选择透明背景 GIF；系统会自动寻找兼容骨架、裁边、生成图标，并把全部 18 个动作映射为循环（最多 120 帧）。",
+            "先选择一张透明背景主 GIF。进入下一步后可按 6 个场景组替换 GIF，或打开详细配置为 18 个槽分别选择；"
+            "留空的项目自动复用主 GIF。多条 GIF 会作为独立 timeline 打包进同一个 E-mote PSB（每条最多 120 帧）。",
             gif_panel,
         )
         gif_tip.setWordWrap(True)
@@ -919,11 +935,13 @@ class PsbActionDialog(FluentCaptionDialog):
         layout.addLayout(btns)
 
         self._bind_slots()
+        self._action_mode_switch.checkedChanged.connect(self._update_action_mode)
         self._source_segment.currentItemChanged.connect(self._on_source_mode_changed)
         self.gif_height_combo.currentIndexChanged.connect(self._gif_options_changed)
         self.gif_fps_spin.valueChanged.connect(self._gif_options_changed)
         self.gif_path_edit.editingFinished.connect(self._prepare_gif_preview)
         self._on_source_mode_changed("gif")
+        self._update_action_mode()
         QTimer.singleShot(0, self._load_game_background)
 
     def _on_preview_scene_changed(self, scene_key: str) -> None:
@@ -947,8 +965,96 @@ class PsbActionDialog(FluentCaptionDialog):
 
     # ---- 槽分配联动 --------------------------------------------------------
 
+    @staticmethod
+    def _action_caption(group: MateActionGroup, parent: QWidget) -> QLabel:
+        caption = QLabel(parent)
+        caption.setText(
+            f"<b>{group.title}</b><br>"
+            f"<span style='color:#6B7280'>{group.description}</span>"
+        )
+        caption.setWordWrap(True)
+        return caption
+
+    def _make_action_page(self, groups, make_input) -> QWidget:
+        page = QWidget(self)
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea(page)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        content = QWidget(scroll)
+        form = QFormLayout(content)
+        form.setContentsMargins(0, 0, 4, 0)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form.setVerticalSpacing(8)
+        for group in groups:
+            form.addRow(self._action_caption(group, content), make_input(group, content))
+        scroll.setWidget(content)
+        page_layout.addWidget(scroll)
+        return page
+
+    def _make_psb_action_page(self, groups, *, detailed: bool) -> QWidget:
+        def make_input(group: MateActionGroup, parent: QWidget):
+            combo = FluentComboBox(parent)
+            combo.addItem("（继承简略模式）" if detailed else "（未选择）", userData="")
+            if detailed:
+                self.detail_psb_combos[group.slots[0]] = combo
+            else:
+                self.simple_psb_combos[group.key] = combo
+            return combo
+
+        return self._make_action_page(groups, make_input)
+
+    def _make_gif_action_page(self, groups, *, detailed: bool) -> QWidget:
+        def make_input(group: MateActionGroup, parent: QWidget):
+            row = QWidget(parent)
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(6)
+            edit = LineEdit(row)
+            edit.setReadOnly(True)
+            edit.setPlaceholderText(
+                "留空则继承对应简略组" if detailed else "留空则复用步骤①的主 GIF"
+            )
+            button = PushButton("选择…", row)
+            button.clicked.connect(lambda _checked=False, target=edit: self._browse_action_gif(target))
+            clear = PushButton("清除", row)
+            clear.clicked.connect(edit.clear)
+            row_layout.addWidget(edit, stretch=1)
+            row_layout.addWidget(button)
+            row_layout.addWidget(clear)
+            if detailed:
+                self.detail_gif_edits[group.slots[0]] = edit
+            else:
+                self.simple_gif_edits[group.key] = edit
+            return row
+
+        return self._make_action_page(groups, make_input)
+
+    def _browse_action_gif(self, edit: LineEdit) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "选择此动作的透明 GIF", "", "GIF 动画 (*.gif)")
+        if path:
+            edit.setText(path)
+
+    def _update_action_mode(self, _checked=None) -> None:
+        detailed = self._action_mode_switch.isChecked()
+        is_gif = self._source_mode() == "gif"
+        self._action_stack.setCurrentIndex((2 if is_gif else 0) + (1 if detailed else 0))
+        if detailed:
+            self._action_explanation.setText(
+                "详细配置直接对应 Mate.xml 的 18 个 actionType。未单独选择的槽位会继承简略模式，"
+                "所以只需要覆盖确实要使用不同动作的项目。Type 2～15 依次对应 D～SSS+；"
+                "Type 16/17/18 分别是 Mate ROOM 开场、游戏中循环和收尾。"
+            )
+        else:
+            self._action_explanation.setText(
+                "简略模式把 18 个底层槽合并成 6 组：D～BBB、A～AAA、S～SS、SS+～SSS+、"
+                "默认/ROOM 开场/收尾，以及 Mate ROOM 游戏中循环。这样保留真实触发语义，"
+                "又不需要逐项配置 18 次。"
+            )
+
     def _bind_slots(self) -> None:
-        for combo in self.core_combos.values():
+        for combo in (*self.simple_psb_combos.values(), *self.detail_psb_combos.values()):
             combo.currentIndexChanged.connect(self._on_slot_changed)
 
     def _source_mode(self) -> str:
@@ -957,7 +1063,8 @@ class PsbActionDialog(FluentCaptionDialog):
     def _on_source_mode_changed(self, route_key: str) -> None:
         is_gif = route_key == "gif"
         self._source_stack.setCurrentIndex(0 if is_gif else 1)
-        self._core_host.setVisible(not is_gif)
+        self._core_host.setVisible(True)
+        self._update_action_mode()
         self._preview_btn.setVisible(not is_gif)
         self._preview_status.setText(
             "图标：自动使用 GIF 首帧生成"
@@ -1112,14 +1219,12 @@ class PsbActionDialog(FluentCaptionDialog):
         worker.start()
 
     def _on_slot_changed(self, _idx: int) -> None:
-        chosen = "、".join(
-            f"{title}={cb.currentData() or '？'}"
-            for (key, title, _d), cb in zip(
-                (("idle", "待机", ""), ("angry", "生气", ""), ("sad", "悲伤", ""), ("happy", "开心", "")),
-                self.core_combos.values(),
-            )
-        )
-        self._status.setText(chosen)
+        if self._action_mode_switch.isChecked():
+            overrides = sum(bool(combo.currentData()) for combo in self.detail_psb_combos.values())
+            self._status.setText(f"详细配置：已覆盖 {overrides} / 18 个槽，其余继承简略模式")
+        else:
+            selected = sum(bool(combo.currentData()) for combo in self.simple_psb_combos.values())
+            self._status.setText(f"简略配置：已选择 {selected} / 6 个场景组")
 
     # ---- 关联角色 ----------------------------------------------------------
 
@@ -1326,7 +1431,7 @@ class PsbActionDialog(FluentCaptionDialog):
             return
         self.psb_path_edit.setText(str(self._psb_path))
 
-        for combo in self.core_combos.values():
+        for combo in (*self.simple_psb_combos.values(), *self.detail_psb_combos.values()):
             while combo.count() > 1:
                 combo.removeItem(1)
             for tl in self._psb_data.timelines:
@@ -1348,18 +1453,20 @@ class PsbActionDialog(FluentCaptionDialog):
                 self.resize(max(self.width(), 1120), 820)
         self._status.setText(
             f"平台 {self._psb_data.platform} · 主 {len(self._psb_data.main_timelines)} 条 / "
-            f"差分 {len(self._psb_data.diff_timelines)} 条 — 已按官方模板预分配，可手动微调")
+            f"差分 {len(self._psb_data.diff_timelines)} 条 — 已按场景组预分配，可切换详细配置")
 
     def _apply_template(self) -> None:
-        """按关键词给 4 个核心槽预填默认值。"""
+        """按关键词给场景槽预填默认值。"""
         if not self._psb_data:
             return
         labels = [t.label for t in self._psb_data.timelines]
         rules: dict[str, list[str]] = {
-            "idle": ["平常", "初期化", "通常待機", "待機ループ", "waiting"],
-            "angry": ["怒る00", "怒0", "怒り", "sample_怒"],
-            "sad": ["哀しい00", "哀0", "哀しみ", "sample_哀"],
-            "happy": ["喜ぶ00", "喜0", "喜び", "sample_喜"],
+            "rank_d_bbb": ["哀しい00", "哀0", "哀しみ", "怒る00", "怒0", "怒り", "sample_哀", "sample_怒"],
+            "rank_a_aaa": ["喜ぶ00", "喜0", "喜び", "sample_喜"],
+            "rank_s_ss": ["喜ぶ02", "喜02", "喜ぶ00", "喜0", "sample_喜"],
+            "rank_ssp_sssp": ["喜ぶ01", "喜01", "喜ぶ02", "喜02", "sample_喜"],
+            "default_room_edges": ["平常", "初期化", "通常待機", "待機ループ", "waiting"],
+            "room_loop": ["喜ぶ02", "喜02", "喜ぶ00", "喜0", "sample_喜"],
         }
         for key, kws in rules.items():
             found = ""
@@ -1370,8 +1477,10 @@ class PsbActionDialog(FluentCaptionDialog):
                         break
                 if found:
                     break
-            combo = self.core_combos[key]
+            combo = self.simple_psb_combos[key]
             combo.setCurrentIndex(combo.findData(found) if found else 0)
+        for combo in self.detail_psb_combos.values():
+            combo.setCurrentIndex(0)
 
     # ---- 参数联动 ----------------------------------------------------------
 
@@ -1431,6 +1540,26 @@ class PsbActionDialog(FluentCaptionDialog):
         if not gif_path.is_file():
             fly_critical(self.window(), "错误", "请先选择一张动态 GIF")
             return
+        simple_paths: dict[str, Path] = {}
+        for group in SIMPLE_ACTION_GROUPS:
+            text = self.simple_gif_edits[group.key].text().strip()
+            path = Path(text) if text else gif_path
+            if not path.is_file():
+                fly_critical(self.window(), "错误", f"{group.title} 的 GIF 不存在：{path}")
+                return
+            simple_paths[group.key] = path
+        detailed_paths: dict[int, Path] = {}
+        if self._action_mode_switch.isChecked():
+            for slot, edit in self.detail_gif_edits.items():
+                text = edit.text().strip()
+                if not text:
+                    continue
+                path = Path(text)
+                if not path.is_file():
+                    fly_critical(self.window(), "错误", f"Type {slot} 的 GIF 不存在：{path}")
+                    return
+                detailed_paths[slot] = path
+        slot_gif_paths = expand_action_assignments(simple_paths, detailed_paths)
         template_path = find_gif_mate_template(self._acus_root)
         if template_path is None:
             fly_critical(
@@ -1457,6 +1586,7 @@ class PsbActionDialog(FluentCaptionDialog):
             target_fps=self.gif_fps_spin.value(),
             target_height=int(self.gif_height_combo.currentData() or 384),
             dds_tool_path=self._get_tool_path() if self._get_tool_path else None,
+            slot_gif_paths=tuple(sorted(slot_gif_paths.items())),
         )
 
         def task(progress):
@@ -1465,7 +1595,8 @@ class PsbActionDialog(FluentCaptionDialog):
         def message(result):
             return (
                 f"已写入 {result.mate_dir}\n\n"
-                f"GIF：{result.frame_count} 帧 · {result.frame_size[0]}×{result.frame_size[1]} · "
+                f"GIF 动作：{result.animation_count} 条 · 共 {result.frame_count} 帧 · "
+                f"最大画布 {result.frame_size[0]}×{result.frame_size[1]} · "
                 f"{result.effective_fps:.1f} FPS\n"
                 "已生成 E-mote、Mate.xml 与 BC3 图标。"
             )
@@ -1480,19 +1611,17 @@ class PsbActionDialog(FluentCaptionDialog):
         if identity is None:
             return
         mate_id, name, chara_id, chara_name, dds_illust_key = identity
-        core = {k: cb.currentData() for k, cb in self.core_combos.items()}
-        missing = [k for k, v in core.items() if not v]
+        simple = {key: combo.currentData() for key, combo in self.simple_psb_combos.items()}
+        missing = [group.title for group in SIMPLE_ACTION_GROUPS if not simple.get(group.key)]
         if missing:
-            fly_critical(self.window(), "错误", f"还有动作没选：{missing}（4 个都要从列表里选）")
+            fly_critical(self.window(), "错误", f"简略模式还有动作没选：{'、'.join(missing)}")
             return
-        # 按官方 mate000101 规律展开成 18 槽
-        slot_assignments: dict[int, str] = {
-            1: core["idle"],
-            2: core["angry"],
-            3: core["sad"],
-        }
-        for s in range(4, 19):
-            slot_assignments[s] = core["happy"]
+        detailed = (
+            {slot: combo.currentData() for slot, combo in self.detail_psb_combos.items()}
+            if self._action_mode_switch.isChecked()
+            else None
+        )
+        slot_assignments = expand_action_assignments(simple, detailed)
 
         xml_str = generate_mate_xml(
             mate_id=mate_id,

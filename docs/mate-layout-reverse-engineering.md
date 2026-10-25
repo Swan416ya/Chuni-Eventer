@@ -3,6 +3,11 @@
 This note records the runtime facts used by the editor. It intentionally does
 not include or redistribute game assets.
 
+Mate action dispatch is documented separately in
+[`mate-action-types-reverse-engineering.md`](mate-action-types-reverse-engineering.md):
+Types 2–15 correspond to the D–SSS+ score ranks, while Types 16–18 belong to
+the Mate ROOM / MateGarden flow.
+
 ## Runtime transform
 
 In the local CHUNITHM 2.50 executable, the `Mate.xml` parser stores `texSizeX`,

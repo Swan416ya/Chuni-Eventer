@@ -12,6 +12,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from chuni_eventer_desktop.gif_mate import MAX_OUTPUT_FRAMES, inspect_gif
+from chuni_eventer_desktop.mate_action_slots import (
+    SIMPLE_ACTION_GROUPS,
+    expand_action_assignments,
+)
 from chuni_eventer_desktop.mate_layout import (
     DEFAULT_MATE_ROOM_CALIBRATION,
     DEFAULT_RESULT_CALIBRATION,
@@ -40,6 +44,17 @@ def _make_variable_gif(path: Path, frame_count: int = 20) -> None:
 
 
 def main() -> None:
+    simple = {group.key: group.key for group in SIMPLE_ACTION_GROUPS}
+    slots = expand_action_assignments(simple)
+    assert len(slots) == 18
+    assert slots[1] == slots[16] == slots[18] == "default_room_edges"
+    assert slots[17] == "room_loop"
+    assert all(slots[slot] == "rank_d_bbb" for slot in range(2, 7))
+    assert all(slots[slot] == "rank_a_aaa" for slot in range(7, 10))
+    assert all(slots[slot] == "rank_s_ss" for slot in range(10, 13))
+    assert all(slots[slot] == "rank_ssp_sssp" for slot in range(13, 16))
+    assert expand_action_assignments(simple, {17: "override"})[17] == "override"
+
     game_root = Path(r"D:\Chunithm_Mate")
     calibration = (
         calibration_from_game(game_root)

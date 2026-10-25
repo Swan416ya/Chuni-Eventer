@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
 
-
 def _hidden_process_kwargs() -> dict[str, int]:
     if sys.platform == "win32":
         return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
@@ -162,29 +161,6 @@ class PsbActionAssigner:
                 shutil.copyfile(psb_path, output_emtbytes)
             else:
                 raise RuntimeError(f"port 后未生成文件: {output_emtbytes}")
-
-
-# CHUNITHM 动作槽语义说明（对照 mate000101 官方规范）
-ACTION_SLOT_HINTS: dict[int, str] = {
-    1: "初始化/待机（idle 循环）",
-    2: "生气",
-    3: "悲伤",
-    4: "开心（基础版）",
-    5: "开心（基础版）",
-    6: "开心（基础版）",
-    7: "开心（基础版）",
-    8: "开心（基础版）",
-    9: "开心（基础版）",
-    10: "开心（强化版）",
-    11: "开心（强化版）",
-    12: "开心（强化版）",
-    13: "开心（强化版）",
-    14: "开心（特殊版，isSpecialMotion=true）",
-    15: "开心（特殊版，isSpecialMotion=true）",
-    16: "开心（语音版，但我们 isVoice=false）",
-    17: "开心（语音版，但我们 isVoice=false）",
-    18: "开心（语音特殊版，但我们 isVoice=false）",
-}
 
 
 def generate_mate_xml(

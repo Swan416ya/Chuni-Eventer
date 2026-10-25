@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from copy import deepcopy
 from bisect import bisect_right
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -50,6 +51,9 @@ class GifMateCreateRequest:
     target_fps: int = 10
     target_height: int = 384
     dds_tool_path: Path | None = None
+    # Optional game-facing slot overrides.  Unspecified slots reuse gif_path.
+    # A tuple keeps this frozen request deterministic and worker-thread safe.
+    slot_gif_paths: tuple[tuple[int, Path], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -87,6 +91,7 @@ class GifMateCreateResult:
     effective_fps: float
     scale_x10000: int
     emtbytes_size: int
+    animation_count: int = 1
 
 
 @dataclass(frozen=True)
@@ -107,6 +112,14 @@ class GifFramePlan:
         return self.output_frame_count >= MAX_OUTPUT_FRAMES and max(
             2, round(self.duration_seconds * self.requested_fps)
         ) > MAX_OUTPUT_FRAMES
+
+
+@dataclass(frozen=True)
+class _PreparedAnimation:
+    label: str
+    frame_paths: tuple[Path, ...]
+    duration_seconds: float
+    frame_size: tuple[int, int]
 
 
 ProgressFn = Callable[[str], None]
@@ -277,7 +290,7 @@ def _load_skeleton(skeleton_dir: Path) -> tuple[dict, dict]:
         raise GifMateError(f"无法读取模板骨架：{exc}") from exc
 
 
-def _build_emtbytes(
+def _build_single_emtbytes(
     *,
     skeleton_dir: Path,
     frame_paths: list[Path],
@@ -458,6 +471,321 @@ def _build_emtbytes(
     shutil.copyfile(produced, output_path)
 
 
+def _compile_built_model(
+    *,
+    skeleton_dir: Path,
+    model: dict,
+    resx: dict,
+    output_path: Path,
+    freemote_dir: Path,
+) -> None:
+    """Compile an already-mutated PSB model and copy the common PSB output."""
+    model["label"] = output_path.stem
+    built_json = skeleton_dir / "built.json"
+    built_json.write_text(json.dumps(model, ensure_ascii=False), encoding="utf-8")
+    (skeleton_dir / "built.resx.json").write_text(
+        json.dumps(resx, ensure_ascii=False), encoding="utf-8"
+    )
+    psbuild = Path(freemote_dir) / "PsBuild.exe"
+    if not psbuild.is_file():
+        raise GifMateError(f"缺少 PsBuild.exe：{psbuild}")
+    try:
+        proc = subprocess.run(
+            [str(psbuild), built_json.name],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=str(skeleton_dir),
+            timeout=600,
+            **(
+                {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+                if sys.platform == "win32"
+                else {}
+            ),
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise GifMateError("PsBuild 编译多动作 GIF Mate 超时（10 分钟）") from exc
+    if proc.returncode != 0:
+        raise GifMateError(f"PsBuild 编译失败：\n{proc.stdout}\n{proc.stderr}")
+    produced = skeleton_dir / "built.pure.psb"
+    if not produced.is_file():
+        raise GifMateError("PsBuild 未生成 built.pure.psb")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(produced, output_path)
+
+
+def _build_multi_emtbytes(
+    *,
+    skeleton_dir: Path,
+    animations: tuple[_PreparedAnimation, ...],
+    output_path: Path,
+    freemote_dir: Path,
+) -> None:
+    """Build one PSB containing independently selectable GIF timelines.
+
+    Each GIF becomes a looping child motion.  A discrete ``gif_action``
+    parameter selects one child, while metadata.timelineControl exposes the
+    animation labels consumed by Mate.xml's ``emote`` field.
+    """
+    if len(animations) < 2:
+        raise GifMateError("多动作构建至少需要两条不同 GIF 动画")
+    model, resx = _load_skeleton(skeleton_dir)
+    try:
+        base = model["metadata"]["base"]
+        motions = model["object"][base["chara"]]["motion"]
+        base_motion = motions[base["motion"]]
+        composition_name = base_motion["layer"][0]["frameList"][0]["content"]["icon"]
+        composition_template = motions[composition_name]
+        source = model["source"]
+        resources = resx["Resources"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise GifMateError("所选模板不是可识别的完整 Mate 骨架") from exc
+
+    used_resource_ids = {int(key) for key in resources if str(key).isdigit()}
+    next_resource_id = max(used_resource_ids | {999}) + 1
+    used_texture_ids = {
+        int(key.removeprefix("tex#"))
+        for key in source
+        if key.startswith("tex#") and key.removeprefix("tex#").isdigit()
+    }
+    next_texture_id = max(used_texture_ids | {999}) + 1
+    copied_root = skeleton_dir / "gif_frames"
+    copied_root.mkdir(exist_ok=True)
+    motion_names: list[str] = []
+    last_times: list[int] = []
+    max_width = max(animation.frame_size[0] for animation in animations)
+    max_height = max(animation.frame_size[1] for animation in animations)
+
+    model["screenSize"] = {
+        "height": max_height,
+        "originX": 0,
+        "originY": 0,
+        "width": max_width,
+    }
+    pixel_marker = model.get("metadata", {}).get("charaProfile", {}).get("pixelMarker")
+    if isinstance(pixel_marker, dict):
+        pixel_marker.update(
+            {
+                "boundsBottom": max_height / 2,
+                "boundsLeft": -max_width / 2,
+                "boundsRight": max_width / 2,
+                "boundsTop": -max_height / 2,
+            }
+        )
+
+    for animation_index, animation in enumerate(animations):
+        motion_name = f"__gif_action_{animation_index + 1:02d}"
+        motion_names.append(motion_name)
+        last_time = max(1, round(animation.duration_seconds * TICK_RATE))
+        last_times.append(last_time)
+        times = [
+            round(index * last_time / len(animation.frame_paths))
+            for index in range(len(animation.frame_paths))
+        ]
+        action_dir = copied_root / f"a{animation_index + 1:02d}"
+        action_dir.mkdir(exist_ok=True)
+        frame_list: list[dict] = []
+        frame_width, frame_height = animation.frame_size
+        for frame_index, path in enumerate(animation.frame_paths):
+            copied = action_dir / path.name
+            shutil.copyfile(path, copied)
+            texture_name = f"tex#{next_texture_id}"
+            source[texture_name] = {
+                "icon": {
+                    "0000": {
+                        "attr": 0,
+                        "height": frame_height,
+                        "width": frame_width,
+                        "left": 0,
+                        "top": 0,
+                        "originX": frame_width // 2,
+                        "originY": frame_height // 2,
+                        "metadata": None,
+                    }
+                },
+                "metadata": None,
+                "texture": {
+                    "height": frame_height,
+                    "width": frame_width,
+                    "pixel": f"#resource#{next_resource_id}",
+                    "type": "RGBA8",
+                    "truncated_height": frame_height,
+                    "truncated_width": frame_width,
+                },
+                "type": 0,
+            }
+            resources[str(next_resource_id)] = (
+                f"gif_frames/a{animation_index + 1:02d}/{copied.name}"
+            )
+            next_resource_id += 1
+            next_texture_id += 1
+            frame_list.append(
+                {
+                    "content": {
+                        "icon": "0000",
+                        "src": texture_name,
+                        "mask": 33554432,
+                        "mesh": {"bp": None, "cc": None},
+                    },
+                    "time": times[frame_index],
+                    "type": 2,
+                }
+            )
+        frame_list.append({"time": last_time, "type": 0})
+        layer = {
+            "children": [],
+            "coordinate": 0,
+            "exportSelf": 1,
+            "frameList": frame_list,
+            "groundCorrection": 0,
+            "inheritMask": 33556476,
+            "joinTarget": 1,
+            "label": f"gif_layer_{animation_index + 1:02d}",
+            "meshCombine": 0,
+            "meshDivision": 20,
+            "meshSyncChildMask": 0,
+            "meshTransform": 1,
+            "metadata": None,
+            "objTriPriority": 2,
+            "parameterize": None,
+            "stencilType": 0,
+            "transformOrder": [0, 3, 2, 1],
+            "type": 0,
+        }
+        priority = [
+            {"content": [0], "time": 0, "type": 1},
+            {"content": None, "time": last_time, "type": 1},
+        ]
+        motion = deepcopy(composition_template)
+        motion.update(
+            {
+                "layer": [layer],
+                "lastTime": last_time,
+                "loopTime": 0,
+                "layerIndexMap": {layer["label"]: 0},
+                "parameter": [],
+                "parameterize": None,
+                "priority": priority,
+                "variable": [],
+            }
+        )
+        motions[motion_name] = motion
+
+    selector_end = max(1, len(animations) - 1)
+    selector_frames = []
+    for index, motion_name in enumerate(motion_names):
+        selector_frames.append(
+            {
+                "content": {
+                    "icon": motion_name,
+                    "mask": 524288,
+                    "motion": {"mask": 0, "timeOffset": 0},
+                    "src": base["chara"],
+                },
+                "time": index,
+                "type": 2 if index in {0, len(motion_names) - 1} else 3,
+            }
+        )
+    selector_frames.append({"time": selector_end + 1, "type": 0})
+    selector_layer = {
+        "children": [],
+        "coordinate": 0,
+        "exportSelf": 1,
+        "frameList": selector_frames,
+        "groundCorrection": 0,
+        "inheritMask": 33556476,
+        "joinTarget": 1,
+        "label": "gif_action_selector",
+        "meshCombine": 0,
+        "meshTransform": 0,
+        "metadata": None,
+        "motionIndependentLayerInherit": 0,
+        "parameterize": 0,
+        "stencilType": 0,
+        "transformOrder": [0, 3, 2, 1],
+        "type": 3,
+    }
+    composition_template.update(
+        {
+            "layer": [selector_layer],
+            "lastTime": selector_end + 1,
+            "loopTime": -1,
+            "layerIndexMap": {"gif_action_selector": 0},
+            "parameter": [
+                {
+                    "discretization": 0,
+                    "division": selector_end,
+                    "enabled": 1,
+                    "id": "gif_action",
+                    "rangeBegin": 0,
+                    "rangeEnd": len(animations) - 1,
+                }
+            ],
+            "parameterize": 0,
+            "priority": [
+                {"content": [0], "time": 0, "type": 1},
+                {"content": None, "time": selector_end + 1, "type": 1},
+            ],
+            "variable": [],
+        }
+    )
+
+    max_last_time = max(last_times)
+    base_motion["lastTime"] = max_last_time
+    base_motion["loopTime"] = 0
+    for frame in base_motion["layer"][0]["frameList"]:
+        if frame.get("type") == 0:
+            frame["time"] = max_last_time
+    base_motion["priority"] = [
+        {"content": [0], "time": 0, "type": 1},
+        {"content": None, "time": max_last_time, "type": 1},
+    ]
+
+    metadata = model["metadata"]
+    metadata["timelineControl"] = [
+        {
+            "diff": 0,
+            "label": animation.label,
+            "lastTime": -1,
+            "loopBegin": -1,
+            "loopEnd": -1,
+            "variableList": [
+                {
+                    "frameList": [
+                        {
+                            "content": {"easing": 0, "value": index},
+                            "time": 0,
+                            "type": 2,
+                        },
+                        {"content": None, "time": last_times[index], "type": 0},
+                    ],
+                    "label": "gif_action",
+                }
+            ],
+        }
+        for index, animation in enumerate(animations)
+    ]
+    variable_list = metadata.setdefault("variableList", [])
+    variable_list[:] = [item for item in variable_list if item.get("label") != "gif_action"]
+    variable_list.append(
+        {
+            "frameList": [
+                {"frame": index, "label": animation.label}
+                for index, animation in enumerate(animations)
+            ],
+            "label": "gif_action",
+        }
+    )
+    _compile_built_model(
+        skeleton_dir=skeleton_dir,
+        model=model,
+        resx=resx,
+        output_path=output_path,
+        freemote_dir=freemote_dir,
+    )
+
+
 def _make_icon(first_frame: Path, output_path: Path) -> None:
     with Image.open(first_frame) as source:
         source = source.convert("RGBA")
@@ -521,6 +849,8 @@ def _publish_frame_mate(
     frame_size: tuple[int, int],
     temp_root: Path,
     progress: ProgressFn | None,
+    animations: tuple[_PreparedAnimation, ...] | None = None,
+    slot_assignments: dict[int, str] | None = None,
 ) -> GifMateCreateResult:
     template = Path(request.template_emtbytes).expanduser().resolve()
     if not template.is_file():
@@ -543,13 +873,21 @@ def _publish_frame_mate(
     emt_name = f"emote{request.mate_id:06d}.emtbytes"
     emt_path = staged / emt_name
     _emit(progress, "正在构建 E-mote 动画…")
-    _build_emtbytes(
-        skeleton_dir=decompiled,
-        frame_paths=frame_paths,
-        duration_seconds=duration,
-        output_path=emt_path,
-        freemote_dir=Path(request.freemote_dir),
-    )
+    if animations and len(animations) > 1:
+        _build_multi_emtbytes(
+            skeleton_dir=decompiled,
+            animations=animations,
+            output_path=emt_path,
+            freemote_dir=Path(request.freemote_dir),
+        )
+    else:
+        _build_single_emtbytes(
+            skeleton_dir=decompiled,
+            frame_paths=frame_paths,
+            duration_seconds=duration,
+            output_path=emt_path,
+            freemote_dir=Path(request.freemote_dir),
+        )
 
     icon_png = temp_root / "mate_icon.png"
     _make_icon(frame_paths[0], icon_png)
@@ -563,7 +901,7 @@ def _publish_frame_mate(
 
     recommended_scale = recommended_scale_for_height(frame_size[1])
     scale = request.scale_x10000 or recommended_scale
-    slots = {slot: _GIF_TIMELINE_LABEL for slot in range(1, 19)}
+    slots = slot_assignments or {slot: _GIF_TIMELINE_LABEL for slot in range(1, 19)}
     xml = generate_mate_xml(
         mate_id=request.mate_id,
         name=request.name,
@@ -584,12 +922,22 @@ def _publish_frame_mate(
     os.replace(staged, mate_dir)
     return GifMateCreateResult(
         mate_dir=mate_dir,
-        frame_count=len(frame_paths),
+        frame_count=(
+            sum(len(animation.frame_paths) for animation in animations)
+            if animations
+            else len(frame_paths)
+        ),
         frame_size=frame_size,
         duration_seconds=duration,
-        effective_fps=len(frame_paths) / duration,
+        effective_fps=(
+            sum(len(animation.frame_paths) for animation in animations)
+            / sum(animation.duration_seconds for animation in animations)
+            if animations
+            else len(frame_paths) / duration
+        ),
         scale_x10000=scale,
         emtbytes_size=(mate_dir / emt_name).stat().st_size,
+        animation_count=len(animations) if animations else 1,
     )
 
 
@@ -629,20 +977,57 @@ def create_gif_mate(
 
     with tempfile.TemporaryDirectory(prefix=".gif_mate_", dir=mate_root) as temp_name:
         temp_root = Path(temp_name)
-        frames_dir = temp_root / "frames"
-        _emit(progress, "正在读取并优化 GIF 帧…")
-        plan = inspect_gif(
-            gif_path,
-            target_fps=request.target_fps,
-            target_height=request.target_height,
+        slot_paths = {slot: gif_path for slot in range(1, 19)}
+        for raw_slot, raw_path in request.slot_gif_paths:
+            slot = int(raw_slot)
+            if slot not in slot_paths:
+                raise GifMateError(f"GIF 动作槽必须在 1～18 之间：{slot}")
+            resolved = Path(raw_path).expanduser().resolve()
+            if not resolved.is_file():
+                raise GifMateError(f"动作 Type {slot} 的 GIF 不存在：{resolved}")
+            slot_paths[slot] = resolved
+
+        unique_paths: list[Path] = []
+        for slot in range(1, 19):
+            path = slot_paths[slot]
+            if path not in unique_paths:
+                unique_paths.append(path)
+
+        prepared: list[_PreparedAnimation] = []
+        path_labels: dict[Path, str] = {}
+        _emit(progress, f"正在读取并优化 {len(unique_paths)} 条 GIF 动作…")
+        for index, path in enumerate(unique_paths):
+            label = _GIF_TIMELINE_LABEL if len(unique_paths) == 1 else f"GIF_ACTION_{index + 1:02d}"
+            plan = inspect_gif(
+                path,
+                target_fps=request.target_fps,
+                target_height=request.target_height,
+            )
+            extracted, action_duration, action_size = _extract_frames(
+                path,
+                temp_root / "frames" / f"a{index + 1:02d}",
+                target_fps=request.target_fps,
+                target_height=request.target_height,
+                plan=plan,
+            )
+            path_labels[path] = label
+            prepared.append(
+                _PreparedAnimation(
+                    label=label,
+                    frame_paths=tuple(extracted),
+                    duration_seconds=action_duration,
+                    frame_size=action_size,
+                )
+            )
+
+        first = prepared[0]
+        frames = list(first.frame_paths)
+        duration = max(animation.duration_seconds for animation in prepared)
+        frame_size = (
+            max(animation.frame_size[0] for animation in prepared),
+            max(animation.frame_size[1] for animation in prepared),
         )
-        frames, duration, frame_size = _extract_frames(
-            gif_path,
-            frames_dir,
-            target_fps=request.target_fps,
-            target_height=request.target_height,
-            plan=plan,
-        )
+        slots = {slot: path_labels[path] for slot, path in slot_paths.items()}
         return _publish_frame_mate(
             request,
             frame_paths=frames,
@@ -650,4 +1035,6 @@ def create_gif_mate(
             frame_size=frame_size,
             temp_root=temp_root,
             progress=progress,
+            animations=tuple(prepared),
+            slot_assignments=slots,
         )
