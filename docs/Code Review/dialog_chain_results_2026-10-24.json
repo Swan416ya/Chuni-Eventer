@@ -1,0 +1,98 @@
+[
+  {
+    "status": "fail",
+    "failures": [
+      "无结果输出（可能崩溃）",
+      "Traceback (most recent call last):\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 282, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 275, in main\n    payload = _run_chain(args.one)\n              ^^^^^^^^^^^^^^^^^^^^\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 108, in _run_chain\n    from PyQt6 import sip\nModuleNotFoundError: No module named 'PyQt6'\n"
+    ],
+    "elapsed": 0.19
+  },
+  {
+    "status": "fail",
+    "failures": [
+      "无结果输出（可能崩溃）",
+      "Traceback (most recent call last):\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 282, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 275, in main\n    payload = _run_chain(args.one)\n              ^^^^^^^^^^^^^^^^^^^^\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 108, in _run_chain\n    from PyQt6 import sip\nModuleNotFoundError: No module named 'PyQt6'\n"
+    ],
+    "elapsed": 0.16
+  },
+  {
+    "status": "fail",
+    "failures": [
+      "无结果输出（可能崩溃）",
+      "Traceback (most recent call last):\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 282, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 275, in main\n    payload = _run_chain(args.one)\n              ^^^^^^^^^^^^^^^^^^^^\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 108, in _run_chain\n    from PyQt6 import sip\nModuleNotFoundError: No module named 'PyQt6'\n"
+    ],
+    "elapsed": 0.16
+  },
+  {
+    "status": "fail",
+    "failures": [
+      "无结果输出（可能崩溃）",
+      "Traceback (most recent call last):\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 282, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 275, in main\n    payload = _run_chain(args.one)\n              ^^^^^^^^^^^^^^^^^^^^\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 108, in _run_chain\n    from PyQt6 import sip\nModuleNotFoundError: No module named 'PyQt6'\n"
+    ],
+    "elapsed": 0.16
+  },
+  {
+    "status": "fail",
+    "failures": [
+      "无结果输出（可能崩溃）",
+      "Traceback (most recent call last):\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 282, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 275, in main\n    payload = _run_chain(args.one)\n              ^^^^^^^^^^^^^^^^^^^^\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 108, in _run_chain\n    from PyQt6 import sip\nModuleNotFoundError: No module named 'PyQt6'\n"
+    ],
+    "elapsed": 0.27
+  },
+  {
+    "status": "fail",
+    "failures": [
+      "无结果输出（可能崩溃）",
+      "Traceback (most recent call last):\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 282, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 275, in main\n    payload = _run_chain(args.one)\n              ^^^^^^^^^^^^^^^^^^^^\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 108, in _run_chain\n    from PyQt6 import sip\nModuleNotFoundError: No module named 'PyQt6'\n"
+    ],
+    "elapsed": 0.25
+  },
+  {
+    "status": "fail",
+    "failures": [
+      "无结果输出（可能崩溃）",
+      "Traceback (most recent call last):\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 282, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 275, in main\n    payload = _run_chain(args.one)\n              ^^^^^^^^^^^^^^^^^^^^\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 108, in _run_chain\n    from PyQt6 import sip\nModuleNotFoundError: No module named 'PyQt6'\n"
+    ],
+    "elapsed": 0.19
+  },
+  {
+    "status": "fail",
+    "failures": [
+      "无结果输出（可能崩溃）",
+      "Traceback (most recent call last):\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 282, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 275, in main\n    payload = _run_chain(args.one)\n              ^^^^^^^^^^^^^^^^^^^^\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 108, in _run_chain\n    from PyQt6 import sip\nModuleNotFoundError: No module named 'PyQt6'\n"
+    ],
+    "elapsed": 0.16
+  },
+  {
+    "status": "fail",
+    "failures": [
+      "无结果输出（可能崩溃）",
+      "Traceback (most recent call last):\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 282, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 275, in main\n    payload = _run_chain(args.one)\n              ^^^^^^^^^^^^^^^^^^^^\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 108, in _run_chain\n    from PyQt6 import sip\nModuleNotFoundError: No module named 'PyQt6'\n"
+    ],
+    "elapsed": 0.16
+  },
+  {
+    "status": "fail",
+    "failures": [
+      "无结果输出（可能崩溃）",
+      "Traceback (most recent call last):\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 282, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 275, in main\n    payload = _run_chain(args.one)\n              ^^^^^^^^^^^^^^^^^^^^\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 108, in _run_chain\n    from PyQt6 import sip\nModuleNotFoundError: No module named 'PyQt6'\n"
+    ],
+    "elapsed": 0.2
+  },
+  {
+    "status": "fail",
+    "failures": [
+      "无结果输出（可能崩溃）",
+      "Traceback (most recent call last):\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 282, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 275, in main\n    payload = _run_chain(args.one)\n              ^^^^^^^^^^^^^^^^^^^^\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 108, in _run_chain\n    from PyQt6 import sip\nModuleNotFoundError: No module named 'PyQt6'\n"
+    ],
+    "elapsed": 0.2
+  },
+  {
+    "status": "fail",
+    "failures": [
+      "无结果输出（可能崩溃）",
+      "Traceback (most recent call last):\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 282, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 275, in main\n    payload = _run_chain(args.one)\n              ^^^^^^^^^^^^^^^^^^^^\n  File \"E:\\Python Project\\Chuni-Eventer\\scripts\\test_dialog_chains.py\", line 108, in _run_chain\n    from PyQt6 import sip\nModuleNotFoundError: No module named 'PyQt6'\n"
+    ],
+    "elapsed": 0.14
+  }
+]

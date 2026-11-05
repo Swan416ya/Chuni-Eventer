@@ -1,0 +1,694 @@
+[
+  {
+    "module": "chuni_eventer_desktop.ui.avatar_back_compose_dialog",
+    "class": "AvatarBackComposeDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 7.02
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.avatar_hand_compose_dialog",
+    "class": "AvatarHandComposeDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 7.8
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.avatar_hat_compose_dialog",
+    "class": "AvatarHatComposeDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 8.44
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.avatar_mask_compose_dialog",
+    "class": "AvatarMaskComposeDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 8.33
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.avatar_wear_compose_dialog",
+    "class": "AvatarWearComposeDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 8.94
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.chara_add_dialog",
+    "class": "_CharaQuickComposeDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 7.02
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.chara_add_dialog",
+    "class": "CharaAddDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 7.23
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.course_rank_dialog",
+    "class": "CourseRankEditDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 7.3
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.event_add_dialog",
+    "class": "EventAddDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 6.92
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.field_wall_add_dialog",
+    "class": "FieldWallAddDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 8.52
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.game_data_browse_dialog",
+    "class": "GameDataBrowseDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 8.11
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.game_data_detail_dialog",
+    "class": "GameDdsImageDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 6.08
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.game_data_detail_dialog",
+    "class": "GameMusicDetailDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 6.81
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.game_data_detail_dialog",
+    "class": "GameCharaImageDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 7.0
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.game_music_browser_dialog",
+    "class": "GameMusicBrowserDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 5.72
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.github_sheet_dialog",
+    "class": "MusicIdInputDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 5.42
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.github_sheet_dialog",
+    "class": "GithubSheetDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 7.47
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.image_crop_editor_dialog",
+    "class": "ImageCropEditorDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 8.03
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.map_add_dialog",
+    "class": "CellEditDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 9.5
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.map_add_dialog",
+    "class": "AreaExtrasDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 9.31
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.map_add_dialog",
+    "class": "AreaPageMetaDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 6.92
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.map_add_dialog",
+    "class": "MapAreaProgressDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 9.19
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.map_add_dialog",
+    "class": "RewardCreateDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 8.66
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.map_add_dialog",
+    "class": "DdsMapCreateDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 8.2
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.map_add_dialog",
+    "class": "MapAddDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 9.88
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.map_icon_dialog",
+    "class": "MapIconAddEditDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 7.12
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.mapbonus_dialogs",
+    "class": "_MapBonusRuleEditDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 9.51
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.mapbonus_dialogs",
+    "class": "MapBonusEditDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 10.09
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.mate_preview_dialog",
+    "class": "MatePreviewDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 8.41
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.music_add_actions_dialog",
+    "class": "MusicSheetChannelsDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 7.39
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.music_picker_dialog",
+    "class": "MusicPickerDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 7.31
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.music_release_tag_dialog",
+    "class": "MusicReleaseTagDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 7.73
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.music_stage_dialog",
+    "class": "MusicStageSelectDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 8.67
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.music_trophy_dialog",
+    "class": "MusicTrophyDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 8.77
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.nameplate_add_dialog",
+    "class": "NamePlateAddDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 9.11
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.pgko_sheet_download_dialog",
+    "class": "_PgkoUgcGuideDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 10.09
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.pgko_sheet_download_dialog",
+    "class": "PgkoSheetDownloadDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个"
+    ],
+    "failures": [],
+    "elapsed": 11.44
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.pgko_sheet_download_dialog",
+    "class": "_PgkoInstallConfigDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个"
+    ],
+    "failures": [],
+    "elapsed": 11.3
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.pjsk_hub_dialog",
+    "class": "PjskConvertToAcusDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个"
+    ],
+    "failures": [],
+    "elapsed": 10.73
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.pjsk_hub_dialog",
+    "class": "PjskHubDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个"
+    ],
+    "failures": [],
+    "elapsed": 10.25
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.pjsk_sus_download_dialog",
+    "class": "PjskSusDownloadDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个"
+    ],
+    "failures": [],
+    "elapsed": 10.11
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.pjsk_vocal_pick_dialog",
+    "class": "PjskVocalPickDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 8.08
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.psb_action_dialog",
+    "class": "PsbActionDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "线程运行中关闭：已隐藏并等待线程（预期行为）"
+    ],
+    "failures": [],
+    "elapsed": 11.45
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.quest_add_dialog",
+    "class": "QuestAddDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 11.58
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.rich_hint",
+    "class": "DetailDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 8.62
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.save_patch_dialog",
+    "class": "SavePatchDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 8.02
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.settings_dialog",
+    "class": "SettingsDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 7.95
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.stage_add_dialog",
+    "class": "StageAddDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 9.27
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.swan_sheet_download_dialog",
+    "class": "SwanSheetDownloadDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个"
+    ],
+    "failures": [],
+    "elapsed": 8.62
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.system_voice_pack_dialog",
+    "class": "SystemVoicePackDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 8.42
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.sysvoice_preview_dialog",
+    "class": "SysvoicePreviewDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 9.73
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.tool_install_progress",
+    "class": "ToolInstallProgressDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round1: 运行中拒绝 Esc（设计如此），改用 dismiss 关闭",
+      "round2: 提示框 1 个",
+      "round2: 运行中拒绝 Esc（设计如此），改用 dismiss 关闭",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 9.22
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.trophy_add_dialog",
+    "class": "TrophyAddDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 8.86
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.trophy_pjsk_generator_dialog",
+    "class": "TrophyPjskGeneratorDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 9.3
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.trophy_texture_compose_dialog",
+    "class": "TrophyTextureComposeDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 8.89
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.works_dialogs",
+    "class": "WorkCreateDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 9.5
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.works_dialogs",
+    "class": "WorksLibraryManagerDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 7.75
+  },
+  {
+    "module": "chuni_eventer_desktop.ui.works_dialogs",
+    "class": "CharaEditWorksDialog",
+    "status": "pass",
+    "notes": [
+      "round1: 提示框 1 个",
+      "round2: 提示框 1 个",
+      "无后台线程属性"
+    ],
+    "failures": [],
+    "elapsed": 7.69
+  }
+]
