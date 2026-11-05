@@ -19,6 +19,30 @@ class MateActionGroup:
     slots: tuple[int, ...]
 
 
+@dataclass(frozen=True)
+class MateActionPlacement:
+    """Desired game-space transform for one action or action group."""
+
+    pos_x: int = 1
+    pos_y: int = -50
+    scale_x10000: int = 6000
+
+    def relative_to(self, base: "MateActionPlacement") -> tuple[float, float, float]:
+        """Return model-space x/y offsets and scale relative to XML transform.
+
+        The XML transform is applied after the E-mote model.  Baking these
+        relative values into an action motion is algebraically equivalent to
+        giving that action its own XML pos/scale, which Mate.xml cannot store.
+        """
+        if base.scale_x10000 <= 0 or self.scale_x10000 <= 0:
+            raise ValueError("Mate 动作缩放必须大于 0")
+        return (
+            (self.pos_x - base.pos_x) * 10_000.0 / base.scale_x10000,
+            (self.pos_y - base.pos_y) * 10_000.0 / base.scale_x10000,
+            self.scale_x10000 / base.scale_x10000,
+        )
+
+
 ACTION_SLOT_HINTS: dict[int, str] = {
     1: "初始化/复位（默认待机）",
     2: "歌曲结算：D",

@@ -22,6 +22,7 @@ from PIL import Image
 
 from .dds_convert import ingest_to_bc3_dds
 from .mate_layout import recommended_scale_for_height
+from .mate_action_slots import MateActionPlacement
 from .psb_action_assigner import PsbActionAssigner, generate_mate_xml
 
 TICK_RATE = 60
@@ -54,6 +55,9 @@ class GifMateCreateRequest:
     # Optional game-facing slot overrides.  Unspecified slots reuse gif_path.
     # A tuple keeps this frozen request deterministic and worker-thread safe.
     slot_gif_paths: tuple[tuple[int, Path], ...] = ()
+    # Optional per-slot game-space transforms: (slot, posX, posY, scaleX10000).
+    # Missing slots inherit the request-level XML transform.
+    slot_placements: tuple[tuple[int, int, int, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -120,6 +124,9 @@ class _PreparedAnimation:
     frame_paths: tuple[Path, ...]
     duration_seconds: float
     frame_size: tuple[int, int]
+    model_offset_x: float = 0.0
+    model_offset_y: float = 0.0
+    model_scale: float = 1.0
 
 
 ProgressFn = Callable[[str], None]
@@ -554,25 +561,8 @@ def _build_multi_emtbytes(
     copied_root.mkdir(exist_ok=True)
     motion_names: list[str] = []
     last_times: list[int] = []
-    max_width = max(animation.frame_size[0] for animation in animations)
-    max_height = max(animation.frame_size[1] for animation in animations)
-
-    model["screenSize"] = {
-        "height": max_height,
-        "originX": 0,
-        "originY": 0,
-        "width": max_width,
-    }
-    pixel_marker = model.get("metadata", {}).get("charaProfile", {}).get("pixelMarker")
-    if isinstance(pixel_marker, dict):
-        pixel_marker.update(
-            {
-                "boundsBottom": max_height / 2,
-                "boundsLeft": -max_width / 2,
-                "boundsRight": max_width / 2,
-                "boundsTop": -max_height / 2,
-            }
-        )
+    bounds_left = bounds_top = 0.0
+    bounds_right = bounds_bottom = 0.0
 
     for animation_index, animation in enumerate(animations):
         motion_name = f"__gif_action_{animation_index + 1:02d}"
@@ -586,10 +576,23 @@ def _build_multi_emtbytes(
         action_dir = copied_root / f"a{animation_index + 1:02d}"
         action_dir.mkdir(exist_ok=True)
         frame_list: list[dict] = []
-        frame_width, frame_height = animation.frame_size
+        frame_width = max(1, round(animation.frame_size[0] * animation.model_scale))
+        frame_height = max(1, round(animation.frame_size[1] * animation.model_scale))
+        origin_x = frame_width / 2 - animation.model_offset_x
+        origin_y = frame_height / 2 - animation.model_offset_y
+        bounds_left = min(bounds_left, -origin_x)
+        bounds_top = min(bounds_top, -origin_y)
+        bounds_right = max(bounds_right, frame_width - origin_x)
+        bounds_bottom = max(bounds_bottom, frame_height - origin_y)
         for frame_index, path in enumerate(animation.frame_paths):
             copied = action_dir / path.name
-            shutil.copyfile(path, copied)
+            if abs(animation.model_scale - 1.0) < 0.000001:
+                shutil.copyfile(path, copied)
+            else:
+                with Image.open(path) as source_frame:
+                    source_frame.convert("RGBA").resize(
+                        (frame_width, frame_height), Image.Resampling.LANCZOS
+                    ).save(copied, "PNG")
             texture_name = f"tex#{next_texture_id}"
             source[texture_name] = {
                 "icon": {
@@ -599,8 +602,8 @@ def _build_multi_emtbytes(
                         "width": frame_width,
                         "left": 0,
                         "top": 0,
-                        "originX": frame_width // 2,
-                        "originY": frame_height // 2,
+                        "originX": round(origin_x),
+                        "originY": round(origin_y),
                         "metadata": None,
                     }
                 },
@@ -671,6 +674,25 @@ def _build_multi_emtbytes(
             }
         )
         motions[motion_name] = motion
+
+    model_width = max(1, round(bounds_right - bounds_left))
+    model_height = max(1, round(bounds_bottom - bounds_top))
+    model["screenSize"] = {
+        "height": model_height,
+        "originX": 0,
+        "originY": 0,
+        "width": model_width,
+    }
+    pixel_marker = model.get("metadata", {}).get("charaProfile", {}).get("pixelMarker")
+    if isinstance(pixel_marker, dict):
+        pixel_marker.update(
+            {
+                "boundsBottom": bounds_bottom,
+                "boundsLeft": bounds_left,
+                "boundsRight": bounds_right,
+                "boundsTop": bounds_top,
+            }
+        )
 
     selector_end = max(1, len(animations) - 1)
     selector_frames = []
@@ -987,17 +1009,40 @@ def create_gif_mate(
                 raise GifMateError(f"动作 Type {slot} 的 GIF 不存在：{resolved}")
             slot_paths[slot] = resolved
 
-        unique_paths: list[Path] = []
+        base_placement = MateActionPlacement(
+            pos_x=request.pos_x,
+            pos_y=request.pos_y,
+            scale_x10000=(
+                request.scale_x10000
+                or recommended_scale_for_height(request.target_height)
+            ),
+        )
+        slot_placements = {slot: base_placement for slot in range(1, 19)}
+        for raw_slot, pos_x, pos_y, scale_x10000 in request.slot_placements:
+            slot = int(raw_slot)
+            if slot not in slot_placements:
+                raise GifMateError(f"GIF 动作槽必须在 1～18 之间：{slot}")
+            slot_placements[slot] = MateActionPlacement(
+                pos_x=int(pos_x),
+                pos_y=int(pos_y),
+                scale_x10000=int(scale_x10000),
+            )
+
+        unique_variants: list[tuple[Path, MateActionPlacement]] = []
         for slot in range(1, 19):
-            path = slot_paths[slot]
-            if path not in unique_paths:
-                unique_paths.append(path)
+            variant = slot_paths[slot], slot_placements[slot]
+            if variant not in unique_variants:
+                unique_variants.append(variant)
 
         prepared: list[_PreparedAnimation] = []
-        path_labels: dict[Path, str] = {}
-        _emit(progress, f"正在读取并优化 {len(unique_paths)} 条 GIF 动作…")
-        for index, path in enumerate(unique_paths):
-            label = _GIF_TIMELINE_LABEL if len(unique_paths) == 1 else f"GIF_ACTION_{index + 1:02d}"
+        variant_labels: dict[tuple[Path, MateActionPlacement], str] = {}
+        _emit(progress, f"正在读取并优化 {len(unique_variants)} 条 GIF 动作…")
+        for index, (path, placement) in enumerate(unique_variants):
+            label = (
+                _GIF_TIMELINE_LABEL
+                if len(unique_variants) == 1
+                else f"GIF_ACTION_{index + 1:02d}"
+            )
             plan = inspect_gif(
                 path,
                 target_fps=request.target_fps,
@@ -1010,13 +1055,17 @@ def create_gif_mate(
                 target_height=request.target_height,
                 plan=plan,
             )
-            path_labels[path] = label
+            variant_labels[(path, placement)] = label
+            offset_x, offset_y, model_scale = placement.relative_to(base_placement)
             prepared.append(
                 _PreparedAnimation(
                     label=label,
                     frame_paths=tuple(extracted),
                     duration_seconds=action_duration,
                     frame_size=action_size,
+                    model_offset_x=offset_x,
+                    model_offset_y=offset_y,
+                    model_scale=model_scale,
                 )
             )
 
@@ -1027,7 +1076,10 @@ def create_gif_mate(
             max(animation.frame_size[0] for animation in prepared),
             max(animation.frame_size[1] for animation in prepared),
         )
-        slots = {slot: path_labels[path] for slot, path in slot_paths.items()}
+        slots = {
+            slot: variant_labels[(slot_paths[slot], slot_placements[slot])]
+            for slot in range(1, 19)
+        }
         return _publish_frame_mate(
             request,
             frame_paths=frames,

@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT))
 from chuni_eventer_desktop.gif_mate import MAX_OUTPUT_FRAMES, inspect_gif
 from chuni_eventer_desktop.mate_action_slots import (
     SIMPLE_ACTION_GROUPS,
+    MateActionPlacement,
     expand_action_assignments,
 )
 from chuni_eventer_desktop.mate_layout import (
@@ -54,6 +55,14 @@ def main() -> None:
     assert all(slots[slot] == "rank_s_ss" for slot in range(10, 13))
     assert all(slots[slot] == "rank_ssp_sssp" for slot in range(13, 16))
     assert expand_action_assignments(simple, {17: "override"})[17] == "override"
+
+    base = MateActionPlacement(pos_x=1, pos_y=-50, scale_x10000=6000)
+    assert base.relative_to(base) == (0.0, 0.0, 1.0)
+    shifted = MateActionPlacement(pos_x=121, pos_y=-80, scale_x10000=7200)
+    offset_x, offset_y, relative_scale = shifted.relative_to(base)
+    assert abs(offset_x - 200) < 0.000001
+    assert abs(offset_y + 50) < 0.000001
+    assert abs(relative_scale - 1.2) < 0.000001
 
     game_root = Path(r"D:\Chunithm_Mate")
     calibration = (

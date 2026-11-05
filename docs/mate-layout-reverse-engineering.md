@@ -50,8 +50,22 @@ scale `6000`, and an E-mote `screenSize` of `800 x 1080`. Its authored canvas
 therefore appears at about `(1395.74, 300.71, 430.31, 580.92)`. The top is near
 `y=301`, below the top HUD, rather than hidden behind it as in the old preview.
 
-The application parses the installed SRD at runtime and falls back to these
-values if the installed game has no compatible result layout.
+The editor now uses these verified 2.50 values as built-in constants. It no
+longer parses the installed game at preview time. Other game versions remain
+unverified until their SRD/CIMG transforms are compared.
+
+### Reliability boundary
+
+- High confidence for local CHUNITHM 2.50: the result anchor, cast scale,
+  render-target ratio and clipping rectangle come from SRD/CIMG records rather
+  than cabinet-photo alignment.
+- High confidence for generated GIF Mate models: the converter owns the
+  union-alpha crop, authored origin and frame size used by both preview and PSB.
+- Estimated for arbitrary native PSB models: animation/bone motion can move
+  visible parts beyond the declared canvas without an E-mote runtime render.
+- Reference only: the anonymised result HUD bitmap follows the supplied cabinet
+  screenshot's full-canvas geometry, but it is generated artwork and is not
+  part of the XML transform.
 
 ## Mate ROOM / MateGarden
 
@@ -102,9 +116,10 @@ and runtime use the same model envelope instead of inheriting the donor's.
 The complete result is composed from more than the Mate background scene.
 `CHU_UI_Result_01_v10.srd` declares separate layers for score, combo, chain,
 clear state, judgement data, awards, rating, rank, player information and note
-details. The preview loads the corresponding installed-game DDS atlases and
-draws the relevant foreground after the Mate, matching the game's occlusion
-order.
+details. The current preview draws a generated, anonymised reference overlay
+after the Mate, so the occlusion order is correct. The overlay artwork itself
+is only a visual size/placement reference, not a pixel-exact reconstruction of
+the installed-game DDS atlases.
 
 SurfRide's `NODE` records form a first-child / next-sibling tree (`0x3c` and
 `0x3d`). The matching `TRS2` records are local transforms in node order. The
