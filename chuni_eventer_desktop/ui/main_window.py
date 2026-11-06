@@ -179,6 +179,9 @@ class MainWindow(MSFluentWindow):
                 tools.cancel_bg_download()
         abort_tool_install_on_parent(self)
         self._hide_index_progress_dialog()
+        manager = getattr(self, "_manager", None)
+        if manager is not None and hasattr(manager, "await_bg_threads"):
+            manager.await_bg_threads()
         shutdown_qthreads_for_exit(self._index_thread, self._bootstrap_thread)
         self._index_thread = None
         self._bootstrap_thread = None

@@ -5,7 +5,7 @@ from pathlib import Path
 import shutil
 import xml.etree.ElementTree as ET
 
-from PyQt6.QtCore import QPoint, QSize, Qt, QModelIndex, QSortFilterProxyModel, QTimer
+from PyQt6.QtCore import QPoint, QSize, Qt, QModelIndex, QSortFilterProxyModel, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QPixmap, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -116,6 +116,38 @@ _KIND_DEFS: tuple[tuple[str, str], ...] = (
 )
 
 
+class _MapBundleExportThread(QThread):
+    """后台导出地图资源包：大图（含 mate/曲绘）动辄几百 MB，放 UI 线程会冻界面。"""
+
+    exported = pyqtSignal(int, str)
+    failed = pyqtSignal(str)
+
+    def __init__(
+        self,
+        *,
+        acus_root: Path,
+        map_xml_path: Path,
+        output_zip: Path,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self._acus_root = acus_root
+        self._map_xml_path = map_xml_path
+        self._output_zip = output_zip
+
+    def run(self) -> None:
+        try:
+            n = export_map_bundle_to_zip(
+                acus_root=self._acus_root,
+                map_xml_path=self._map_xml_path,
+                output_zip=self._output_zip,
+            )
+        except Exception as e:
+            self.failed.emit(str(e))
+            return
+        self.exported.emit(n, str(self._output_zip))
+
+
 class ManagerWidget(QWidget):
     """
     ACUS 浏览器组件（表格 + DDS 预览 + 属性表）。
@@ -140,6 +172,7 @@ class ManagerWidget(QWidget):
         self._get_game_root = get_game_root or (lambda: "")
         self._embedded = embedded
         self._avatar_acc_category: int | None = None
+        self._bundle_export_thread: QThread | None = None
 
         self.kind = FluentComboBox()
         self.kind.blockSignals(True)
@@ -1328,6 +1361,13 @@ class ManagerWidget(QWidget):
             menu.exec(gpos, ani=True, aniType=MenuAnimationType.DROP_DOWN)
             return
 
+    def await_bg_threads(self) -> None:
+        """退出前等待后台导出结束，避免 QThread 在销毁时仍在运行。"""
+        th = self._bundle_export_thread
+        if th is not None and th.isRunning():
+            th.wait(30000)
+        self._bundle_export_thread = None
+
     def _export_map_bundle_zip(self, it: MapItem) -> None:
         default_name = f"map{it.name.id:08d}_acus_bundle.zip"
         path, _ = QFileDialog.getSaveFileName(
@@ -1341,20 +1381,34 @@ class ManagerWidget(QWidget):
         outp = Path(path).expanduser()
         if outp.suffix.lower() != ".zip":
             outp = outp.with_suffix(".zip")
-        try:
-            n = export_map_bundle_to_zip(
-                acus_root=self._acus_root,
-                map_xml_path=it.xml_path,
-                output_zip=outp,
-            )
-        except Exception as e:
-            fly_critical(self.window(), "导出失败", str(e))
+        th = self._bundle_export_thread
+        if th is not None and th.isRunning():
+            fly_message(self.window(), "正在导出", "上一次导出尚未完成，请稍候。")
             return
+        worker = _MapBundleExportThread(
+            acus_root=self._acus_root,
+            map_xml_path=it.xml_path,
+            output_zip=outp,
+            parent=self,
+        )
+        self._bundle_export_thread = worker
+        worker.exported.connect(self._on_map_bundle_exported)
+        worker.failed.connect(self._on_map_bundle_export_failed)
+        worker.finished.connect(self._on_map_bundle_export_finished)
+        worker.start()
+
+    def _on_map_bundle_exported(self, count: int, output_path: str) -> None:
         fly_message(
             self.window(),
             "导出完成",
-            f"已写入 {n} 个文件。\n包内为相对 ACUS 根的目录结构（如 map/、mapArea/、reward/、chara/ 等）。\n{outp}",
+            f"已写入 {count} 个文件。\n包内为相对 ACUS 根的目录结构（如 map/、mapArea/、reward/、chara/ 等）。\n{output_path}",
         )
+
+    def _on_map_bundle_export_failed(self, message: str) -> None:
+        fly_critical(self.window(), "导出失败", message)
+
+    def _on_map_bundle_export_finished(self) -> None:
+        self._bundle_export_thread = None
 
     def _delete_avatar_accessory_item(self, it: AvatarAccessoryItem) -> None:
         acc_dir = it.xml_path.parent

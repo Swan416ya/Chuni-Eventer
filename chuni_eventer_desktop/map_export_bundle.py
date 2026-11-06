@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import os
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
@@ -607,6 +608,17 @@ def collect_map_bundle_files(*, acus_root: Path, map_xml_path: Path) -> list[Pat
     return sorted(into)
 
 
+def _verify_zip(path: Path, expected_entries: int) -> None:
+    """重新打开刚写出的 zip，校验条目数与 CRC，防止把截断/损坏的包当成成功。"""
+    with zipfile.ZipFile(path, "r") as zf:
+        names = zf.namelist()
+        if len(names) != expected_entries:
+            raise ValueError(f"压缩包条目数不符（{len(names)}/{expected_entries}），可能未写完。")
+        bad = zf.testzip()
+        if bad is not None:
+            raise ValueError(f"压缩包 CRC 校验失败：{bad}")
+
+
 def export_map_bundle_to_zip(
     *,
     acus_root: Path,
@@ -618,6 +630,9 @@ def export_map_bundle_to_zip(
     将 ``collect_map_bundle_files`` 收集到的文件写入 zip，条目中路径为相对 ACUS 根的正斜杠路径。
     若传入 ``paths`` 则使用该列表（便于测试）；否则现场收集。
     返回写入的文件数。
+
+    先写到同目录的 ``.part`` 临时文件，校验通过后再原子替换为 ``output_zip``：
+    这样中途失败或磁盘写入不完整时，不会留下一个能被当成有效包打开的残缺 zip。
     """
     acus_root = acus_root.resolve()
     output_zip = Path(output_zip).expanduser().resolve()
@@ -625,22 +640,34 @@ def export_map_bundle_to_zip(
     if not files:
         raise ValueError("未收集到任何可导出的文件（请确认地图与关联资源均在 ACUS 内）。")
     output_zip.parent.mkdir(parents=True, exist_ok=True)
+    tmp_zip = output_zip.with_name(output_zip.name + ".part")
     written = 0
-    with zipfile.ZipFile(output_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for fp in files:
-            fp = fp.resolve()
-            if not fp.is_file():
-                continue
+    try:
+        with zipfile.ZipFile(tmp_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for fp in files:
+                fp = fp.resolve()
+                if not fp.is_file():
+                    continue
+                try:
+                    arc = fp.relative_to(acus_root).as_posix()
+                except ValueError:
+                    continue
+                zf.write(fp, arcname=arc)
+                written += 1
             try:
-                arc = fp.relative_to(acus_root).as_posix()
-            except ValueError:
-                continue
-            zf.write(fp, arcname=arc)
-            written += 1
-    if written == 0:
+                if zf.fp is not None:
+                    zf.fp.flush()
+                    os.fsync(zf.fp.fileno())
+            except OSError:
+                pass
+        if written == 0:
+            raise ValueError("zip 内未写入任何文件。")
+        _verify_zip(tmp_zip, written)
+        os.replace(tmp_zip, output_zip)
+    except BaseException:
         try:
-            output_zip.unlink(missing_ok=True)
+            tmp_zip.unlink(missing_ok=True)
         except OSError:
             pass
-        raise ValueError("zip 内未写入任何文件。")
+        raise
     return written
