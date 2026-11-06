@@ -1,5 +1,5 @@
 # 将 ChuniPingu/PenguinTools 放到仓库根目录 ./PenguinTools，供打包时发布 PenguinTools.CLI。
-# 发布还依赖 External/mua 与 PenguinTools.CRI，详见 scripts/build_windows.ps1。
+# Native AOT 发布与媒体资源检查见 scripts/build_windows.ps1。
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 $Target = Join-Path $Root "PenguinTools"
@@ -37,7 +37,6 @@ if ($LASTEXITCODE -ne 0) {
     throw "submodule update 失败（exit $LASTEXITCODE）。请检查网络/代理后重试。"
 }
 
-Write-Host "完成。下一步可用 scripts\build_windows.ps1（发布 NativeAOT CLI + CRI），或手动："
-Write-Host "  cd External\mua; .\scripts\build.ps1"
-Write-Host "  dotnet publish PenguinTools.CRI\PenguinTools.CRI.csproj -c Release -p:PublishProfile=WinX64-NativeAOT"
+Write-Host "完成。下一步可用 scripts\build_windows.ps1（发布 Native AOT CLI），或手动："
+Write-Host "  cd PenguinTools"
 Write-Host "  dotnet publish PenguinTools.CLI\PenguinTools.CLI.csproj -c Release -p:PublishProfile=WinX64-NativeAOT"

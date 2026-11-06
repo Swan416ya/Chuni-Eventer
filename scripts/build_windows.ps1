@@ -57,9 +57,10 @@ function Assert-PenguinToolsCliRuntime([string]$publishDir) {
     $required = @(
         (Join-Path $publishDir "PenguinTools.CLI.exe"),
         (Join-Path $publishDir "assets\assets.json"),
-        (Join-Path $publishDir "assets\cri\PenguinTools.CRI.exe"),
-        (Join-Path $publishDir "assets\mua\mua_wav.exe"),
-        (Join-Path $publishDir "assets\mua\mua_img.exe")
+        (Join-Path $publishDir "assets\ffmpeg\ffmpeg.exe"),
+        (Join-Path $publishDir "assets\texconv\texconv.exe"),
+        (Join-Path $publishDir "assets\image-tools\image-tools.exe"),
+        (Join-Path $publishDir "assets\image-tools\libvips-42.dll")
     )
     $missing = @()
     foreach ($p in $required) {
@@ -68,30 +69,6 @@ function Assert-PenguinToolsCliRuntime([string]$publishDir) {
     if ($missing.Count -gt 0) {
         throw ("PenguinTools.CLI runtime incomplete (need AOT exe + full assets):`n" + ($missing -join "`n"))
     }
-}
-
-function Initialize-PenguinToolsMua([string]$penguinToolsRoot, [string]$projectRoot) {
-    if (-not $penguinToolsRoot) { return }
-
-    # External/mua: Rust media tools (mua_wav / mua_img) embedded into CLI publish assets.
-    $muaPublish = Join-Path $penguinToolsRoot "External\mua\target\release\mua"
-    $muaWav = Join-Path $muaPublish "mua_wav.exe"
-    if (Test-Path $muaWav) { return }
-
-    $muaBuild = Join-Path $penguinToolsRoot "External\mua\scripts\build.ps1"
-    if (Test-Path $muaBuild) {
-        Write-Host "  Building PenguinTools External/mua ..."
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $muaBuild
-        if ($LASTEXITCODE -ne 0) {
-            throw "PenguinTools mua build failed (exit $LASTEXITCODE). Install Rust/vcpkg/LLVM, or pass -SkipPenguinToolsCli."
-        }
-        if (-not (Test-Path $muaWav)) {
-            throw "mua_wav.exe missing after build: $muaWav"
-        }
-        return
-    }
-
-    Write-Host "  Warning: External/mua not found; CLI publish may fail without mua assets."
 }
 
 $VenvPy = Join-Path $Root ".venv-build\Scripts\python.exe"
@@ -116,10 +93,8 @@ if (-not $SkipPenguinToolsCli) {
     if (-not $PenguinToolsRoot) {
         throw "PenguinTools source not found. Run scripts\setup_penguin_tools.ps1, or set CHUNI_PENGUINTOOLS_ROOT to a ChuniPingu/PenguinTools checkout."
     }
-    Initialize-PenguinToolsMua -penguinToolsRoot $PenguinToolsRoot -projectRoot $Root
     $PublishProfile = Resolve-PenguinToolsPublishProfile -penguinToolsRoot $PenguinToolsRoot
     $PenguinToolsCliProject = Join-Path $PenguinToolsRoot "PenguinTools.CLI\PenguinTools.CLI.csproj"
-    $PenguinToolsCriProject = Join-Path $PenguinToolsRoot "PenguinTools.CRI\PenguinTools.CRI.csproj"
     $PenguinToolsCliOut = Join-Path $PenguinToolsRoot "PenguinTools.CLI\bin\Release\net10.0\publish\$PublishProfile"
 
     Write-Host "[3/6] Restore/publish PenguinTools Native AOT ($PublishProfile) ..."
@@ -128,16 +103,8 @@ if (-not $SkipPenguinToolsCli) {
         throw "dotnet restore PenguinTools failed (exit $LASTEXITCODE)."
     }
 
-    if (Test-Path $PenguinToolsCriProject) {
-        Write-Host "  Publishing PenguinTools.CRI (Native AOT) ..."
-        & dotnet publish $PenguinToolsCriProject -c Release -p:PublishProfile=$PublishProfile /p:DebugType=None /p:DebugSymbols=false
-        if ($LASTEXITCODE -ne 0) {
-            throw "dotnet publish PenguinTools.CRI failed (exit $LASTEXITCODE). Pass -SkipPenguinToolsCli to use a prebuilt CLI."
-        }
-    }
-
     Write-Host "  Publishing PenguinTools.CLI (Native AOT + full assets) ..."
-    & dotnet publish $PenguinToolsCliProject -c Release -p:PublishProfile=$PublishProfile /p:PenguinToolsCriPublishProfile=$PublishProfile /p:DebugType=None /p:DebugSymbols=false
+    & dotnet publish $PenguinToolsCliProject -c Release -p:PublishProfile=$PublishProfile /p:DebugType=None /p:DebugSymbols=false
     if ($LASTEXITCODE -ne 0) {
         throw "dotnet publish PenguinTools.CLI failed (exit $LASTEXITCODE). Run scripts\setup_penguin_tools.ps1, or pass -SkipPenguinToolsCli."
     }

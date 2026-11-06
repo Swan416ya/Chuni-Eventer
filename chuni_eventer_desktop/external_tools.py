@@ -87,14 +87,12 @@ TOOL_COMPRESSONATOR = ExternalToolSpec(
 )
 
 # API 不可用时回退到该 tag 的 Release 资源（须与上游命名一致）。
-# 注意：GitHub 只有 v2.3.11 与 v2.4.0 两个 Release，旧的 v2.0.0 资源**不存在**（404），
-# 故兜底 tag 固定为当前最新且支持 `option build` 的版本。
-_PENGUIN_TOOLS_CLI_FALLBACK_TAG = "v2.4.0"
+_PENGUIN_TOOLS_CLI_FALLBACK_TAG = "v2.5.3"
 
 TOOL_PENGUINTOOLS_CLI = ExternalToolSpec(
     id="penguin_tools_cli",
     name="PenguinTools.CLI",
-    description="SUS / mgxc → c2s、PGKO 相关谱面转换。",
+    description="SUS / UGC v9 / MGXC v4 → c2s、PGKO 相关谱面转换。",
     used_for="谱面转换",
     optional=True,
     config_field="penguin_tools_cli_path",
