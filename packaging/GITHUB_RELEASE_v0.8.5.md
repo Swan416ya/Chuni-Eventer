@@ -46,8 +46,6 @@
 
 ### 其它
 
-- 自制装扮的 id 改为和官方同构的 7 位编码（`series × 1000000 + category × 100000 + 序号`），
-  与官方 `AvatarAccessorySort.xml` 的分配方式一致。
 - 预览类弹窗的滑块统一成 Fluent Slider；各页说明收敛为一行正文 + ⓘ 细则弹窗；
   错误提示统一走 `fly_critical`；进度弹窗运行中禁止关闭，结束后正常回收。
 - 修复 PsBuild 遇到已经是 common 平台的 PSB 时会把它重新编译坏的问题，现在保留原文件。
