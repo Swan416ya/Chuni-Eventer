@@ -51,6 +51,8 @@
 - 预览类弹窗的滑块统一成 Fluent Slider；各页说明收敛为一行正文 + ⓘ 细则弹窗；
   错误提示统一走 `fly_critical`；进度弹窗运行中禁止关闭，结束后正常回收。
 - 修复 PsBuild 遇到已经是 common 平台的 PSB 时会把它重新编译坏的问题，现在保留原文件。
+- 外部工具 PenguinTools.CLI 升级到 2.5.3：谱面转换新增 UGC v9 与 MGXC v4 支持，
+  懒人包内自带新的 ffmpeg / texconv / image-tools 资源（不再依赖旧的 mua）。
 
 ## 环境要求
 
