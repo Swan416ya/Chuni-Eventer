@@ -58,6 +58,9 @@ class GifMateCreateRequest:
     # Optional per-slot game-space transforms: (slot, posX, posY, scaleX10000).
     # Missing slots inherit the request-level XML transform.
     slot_placements: tuple[tuple[int, int, int, int], ...] = ()
+    # Optional ready-made Mate icon (400x256 composite from a portrait).
+    # When absent the first animation frame is used instead.
+    icon_source: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -84,6 +87,8 @@ class FrameMateCreateRequest:
     pos_y: int = -50
     scale_x10000: int | None = None
     dds_tool_path: Path | None = None
+    # Optional ready-made Mate icon; otherwise the first frame is used.
+    icon_source: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -808,6 +813,14 @@ def _build_multi_emtbytes(
     )
 
 
+def _resolve_custom_icon(icon_source: Path | None) -> Path | None:
+    """Return the caller-supplied Mate icon, or ``None`` to use frame 0."""
+    if icon_source is None:
+        return None
+    path = Path(icon_source).expanduser()
+    return path if path.is_file() else None
+
+
 def _make_icon(first_frame: Path, output_path: Path) -> None:
     with Image.open(first_frame) as source:
         source = source.convert("RGBA")
@@ -911,8 +924,14 @@ def _publish_frame_mate(
             freemote_dir=Path(request.freemote_dir),
         )
 
-    icon_png = temp_root / "mate_icon.png"
-    _make_icon(frame_paths[0], icon_png)
+    custom_icon = _resolve_custom_icon(request.icon_source)
+    if custom_icon is not None:
+        # A composed 400x256 Mate card is already final artwork: ship it as-is
+        # instead of re-centring the first animation frame on a 1024 canvas.
+        icon_png = custom_icon
+    else:
+        icon_png = temp_root / "mate_icon.png"
+        _make_icon(frame_paths[0], icon_png)
     dds_name = f"CHU_UI_Mate_{request.mate_id:06d}.dds"
     _emit(progress, "正在生成 Mate 图标…")
     ingest_to_bc3_dds(

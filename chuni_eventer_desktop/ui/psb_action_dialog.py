@@ -1012,12 +1012,17 @@ class PsbActionDialog(FluentCaptionDialog):
         self._source_stack.setCurrentIndex(0 if is_gif else 1)
         self._core_host.setVisible(True)
         self._update_action_mode()
-        self._preview_btn.setVisible(not is_gif)
-        self._preview_status.setText(
-            "图标：自动使用 GIF 首帧生成"
-            if is_gif
-            else "图标：未生成（可选；也可稍后手动补入）"
-        )
+        # 图标两种模式都能自定义：上传立绘合成 400×256 的 Mate 卡片，
+        # GIF 模式不指定时仍自动用首帧。
+        self._preview_btn.setVisible(True)
+        if self._preview_png is not None and self._preview_png.is_file():
+            self._preview_status.setText(f"图标：已生成 {self._preview_png.name}")
+        else:
+            self._preview_status.setText(
+                "图标：默认用 GIF 首帧；也可点「生成图标…」上传立绘合成"
+                if is_gif
+                else "图标：未生成（可选；也可稍后手动补入）"
+            )
         self._placement_accuracy.setText(
             "GIF 已按所有帧的透明边界裁切；每个动作可单独调整位置，预览素材仅表示相对关系。"
             if is_gif
@@ -1529,18 +1534,24 @@ class PsbActionDialog(FluentCaptionDialog):
                 )
                 for slot, placement in sorted(slot_placements.items())
             ),
+            icon_source=self._preview_png,
         )
 
         def task(progress):
             return create_gif_mate(request, progress=progress)
 
         def message(result):
+            icon_note = (
+                "图标：使用立绘合成的卡片"
+                if request.icon_source is not None
+                else "图标：自动取 GIF 首帧"
+            )
             return (
                 f"已写入 {result.mate_dir}\n\n"
                 f"GIF 动作：{result.animation_count} 条 · 共 {result.frame_count} 帧 · "
                 f"最大画布 {result.frame_size[0]}×{result.frame_size[1]} · "
                 f"{result.effective_fps:.1f} FPS\n"
-                "已生成 E-mote、Mate.xml 与 BC3 图标。"
+                f"已生成 E-mote、Mate.xml 与 BC3 图标。{icon_note}"
             )
 
         self._run_build(task, message)
