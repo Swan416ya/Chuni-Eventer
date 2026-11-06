@@ -54,7 +54,7 @@ from .music_stage_dialog import MusicStageSelectDialog
 
 from ..chara_delete import delete_chara_from_acus
 from ..music_delete import execute_music_deletion, plan_music_deletion
-from ..map_export_bundle import export_map_bundle_to_zip
+from ..map_export_bundle import export_map_bundle_to_zip, summarize_zip_bundle
 from ..trophy_delete import execute_trophy_deletion, plan_trophy_deletion
 from ..course_rank import RankCourseItem, scan_rank_courses
 from ..acus_scan import (
@@ -1398,10 +1398,18 @@ class ManagerWidget(QWidget):
         worker.start()
 
     def _on_map_bundle_exported(self, count: int, output_path: str) -> None:
+        detail = ""
+        try:
+            parts = summarize_zip_bundle(Path(output_path))
+        except Exception:
+            parts = []
+        if parts:
+            detail = "、".join(f"{label} {n}" for label, n in parts)
+            detail = f"\n包内分类：{detail}"
         fly_message(
             self.window(),
             "导出完成",
-            f"已写入 {count} 个文件。\n包内为相对 ACUS 根的目录结构（如 map/、mapArea/、reward/、chara/ 等）。\n{output_path}",
+            f"已写入 {count} 个文件。{detail}\n包内为相对 ACUS 根的目录结构（如 map/、mapArea/、reward/、chara/ 等）。\n{output_path}",
         )
 
     def _on_map_bundle_export_failed(self, message: str) -> None:

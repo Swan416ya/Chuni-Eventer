@@ -104,6 +104,79 @@ def _enqueue_music_for_substance(acus_root: Path, sub: ET.Element, into: set[Pat
             _add_dir_all_files(acus_root, d, into)
 
 
+def _enqueue_system_voice(acus_root: Path, vid: int, into: set[Path]) -> None:
+    if vid < 0:
+        return
+    d = _resource_dir_by_xml_glob(acus_root, "systemVoice/**/SystemVoice.xml", vid)
+    if d is not None:
+        _add_dir_all_files(acus_root, d, into)
+    else:
+        _add_dir_all_files(acus_root, acus_root / "systemVoice" / system_voice_dir_name(vid), into)
+    cue_id = cue_numeric_id_for_voice(vid)
+    _add_dir_all_files(acus_root, acus_root / "cueFile" / cue_folder_name(cue_id), into)
+
+
+def _expand_mate_xml_closure(acus_root: Path, mate_dir: Path, into: set[Path]) -> None:
+    """伴侣绑定的角色（chara + ddsImage + charaWorks）与系统语音也要一起进包。
+
+    Mate.xml 里 ``chara/charaName/id`` 指向企鹅在游戏里要显示的角色立绘，
+    ``systemVoiceId`` 指向语音；缺了它们地图奖励里的伴侣在游戏里会没有形象。
+    """
+    xml_path = mate_dir / "Mate.xml"
+    if not xml_path.is_file():
+        return
+    try:
+        root = ET.parse(xml_path).getroot()
+    except Exception:
+        return
+    cid = _safe_int(root.findtext("chara/id") or "")
+    if cid is not None and cid >= 0:
+        chara_dir = _resource_dir_by_xml_glob(acus_root, "chara/**/Chara.xml", cid)
+        if chara_dir is not None:
+            _add_dir_all_files(acus_root, chara_dir, into)
+            chara_xml = next((p for p in chara_dir.glob("*.xml") if p.is_file()), None)
+            chara_root = None
+            if chara_xml is not None:
+                try:
+                    chara_root = ET.parse(chara_xml).getroot()
+                except Exception:
+                    chara_root = None
+            if chara_root is not None and chara_xml is not None:
+                # 只补立绘与被引用的路径/子角色/charaWorks，不展开 CharaRankData 的奖励链，
+                # 否则一个伴侣会把整条角色成长奖励都拖进地图包。
+                _enqueue_path_texts_in_tree(acus_root, chara_xml.parent, chara_root, into)
+                for n in range(1, 10):
+                    sec = chara_root.find(f"addImages{n}")
+                    if sec is None:
+                        continue
+                    aid = _safe_int(sec.findtext("charaName/id") or "")
+                    if aid is not None and aid >= 0:
+                        d = _resource_dir_by_xml_glob(acus_root, "chara/**/Chara.xml", aid)
+                        if d is not None:
+                            _add_dir_all_files(acus_root, d, into)
+                wi = _safe_int(chara_root.findtext("works/id") or "")
+                if wi is not None and wi >= 0:
+                    _add_dir_all_files(acus_root, acus_root / "charaWorks" / f"charaWorks{wi:06d}", into)
+                _enqueue_release_tag_by_id(
+                    acus_root, _safe_int(chara_root.findtext("releaseTagName/id") or "") or -1, into
+                )
+                _enqueue_netopen_by_id(
+                    acus_root, _safe_int(chara_root.findtext("netOpenName/id") or "") or -1, into
+                )
+        try:
+            cid_fmt = ChuniCharaId(cid)
+            _add_dir_all_files(acus_root, acus_root / "ddsImage" / f"ddsImage{cid_fmt.raw6}", into)
+        except Exception:
+            pass
+    vid = _safe_int(root.findtext("systemVoiceId") or "")
+    if vid is not None:
+        _enqueue_system_voice(acus_root, vid, into)
+    illust = (root.findtext("ddsIllust/str") or "").strip()
+    if illust:
+        for cand in (acus_root / "ddsImage" / illust, acus_root / "ddsImage" / f"ddsImage{illust}"):
+            _add_dir_all_files(acus_root, cand, into)
+
+
 def _expand_reward_substances(acus_root: Path, reward_root: ET.Element, into: set[Path]) -> None:
     for sub in reward_root.findall(".//RewardSubstanceData"):
         t = _safe_int(sub.findtext("type") or "") or 0
@@ -185,6 +258,7 @@ def _expand_reward_substances(acus_root: Path, reward_root: ET.Element, into: se
                 d = _resource_dir_by_xml_glob(acus_root, "mate/**/Mate.xml", mate_id)
                 if d is not None:
                     _add_dir_all_files(acus_root, d, into)
+                    _expand_mate_xml_closure(acus_root, d, into)
 
 
 def _enqueue_reward_chain(acus_root: Path, rid: int, into: set[Path], seen: set[int]) -> None:
@@ -671,3 +745,50 @@ def export_map_bundle_to_zip(
             pass
         raise
     return written
+
+
+_BUNDLE_KIND_LABELS: dict[str, str] = {
+    "map": "地图",
+    "mapArea": "地图区域",
+    "mapBonus": "地图奖励格",
+    "reward": "奖励",
+    "music": "乐曲",
+    "chara": "角色",
+    "charaWorks": "角色作品",
+    "ddsImage": "立绘/贴图",
+    "ddsMap": "地图贴图",
+    "stage": "场景",
+    "cueFile": "音轨",
+    "event": "活动",
+    "mate": "伴侣",
+    "systemVoice": "系统语音",
+    "trophy": "称号",
+    "namePlate": "姓名牌",
+    "mapIcon": "地图图标",
+    "avatarAccessory": "装扮",
+    "ticket": "功能票",
+    "releaseTag": "发布标签",
+    "netOpen": "开放信息",
+    "gauge": "计量表",
+    "timeTable": "时间表",
+    "notesFieldLine": "谱面字段",
+    "emoteChara": "表情角色",
+    "emotedata": "表情数据",
+}
+
+
+def bundle_kind_label(kind: str) -> str:
+    """zip 顶层目录名 → 给用户看的中文类别名。"""
+    return _BUNDLE_KIND_LABELS.get(kind, kind)
+
+
+def summarize_zip_bundle(zip_path: Path) -> list[tuple[str, int]]:
+    """统计 zip 里每个顶层目录的文件数，按数量降序返回 ``[(类别名, 文件数), …]``。"""
+    counts: dict[str, int] = {}
+    with zipfile.ZipFile(Path(zip_path), "r") as zf:
+        for name in zf.namelist():
+            if name.endswith("/") or not name:
+                continue
+            top = name.split("/", 1)[0]
+            counts[top] = counts.get(top, 0) + 1
+    return sorted(((bundle_kind_label(k), v) for k, v in counts.items()), key=lambda kv: (-kv[1], kv[0]))
