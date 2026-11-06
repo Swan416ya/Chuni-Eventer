@@ -42,12 +42,9 @@ ICON_TEX_ON_ICON_H = 182
 NET_OPEN_ID = 2800
 NET_OPEN_STR = "v2_45 00_0"
 
-# 自制企鹅装扮 ID 沿用官方编码 ``series * 10^6 + category * 10^5 + serial``（官方全部 7 位，最大 9,799,999）。
-# 取官方未占用的 series=7：衣服 category=1 → 7,100,000～7,199,999；帽子 category=2 → 7,200,000～7,299,999；
-# 手部 category=5 → 7,500,000～7,599,999；目录名仍按官方写法 ``avatarAccessory`` + ``{id:08d}``（即前导 0 + 7 位 id）。
-# 历史遗留的 8 位 ID（71,000,000 等）超出官方 ID 空间，编辑旧条目时仍可打开，但新建一律用 7 位。
-_AVATAR_CUSTOM_SERIES = 7_000_000
-_AVATAR_CATEGORY_STEP = 100_000
+# 自制企鹅装扮 ID：>70000000；首位 7、第二位为 XML category（1～9），其后 6 位递增。
+# 例：衣服 category=1 → 71000000～71999999；手部 category=5 → 75000000～75999999；目录名为 ``avatarAccessory`` + ``{id:08d}``（与官方一致）。
+_AVATAR_CUSTOM_ROOT = 70_000_000
 
 
 def _package_static_avatar_dir() -> Path:
@@ -55,10 +52,10 @@ def _package_static_avatar_dir() -> Path:
 
 
 def avatar_accessory_custom_id_band(category: int) -> tuple[int, int]:
-    """返回某 category 下自制装饰的合法 ID 闭区间 [lo, hi]（官方 7 位编码：series=7，第二位为 category）。"""
+    """返回某 category 下自制装饰的合法 ID 闭区间 [lo, hi]（8 位数内第二位为 category）。"""
     c = max(1, min(9, int(category)))
-    lo = _AVATAR_CUSTOM_SERIES + c * _AVATAR_CATEGORY_STEP
-    hi = lo + _AVATAR_CATEGORY_STEP - 1
+    lo = _AVATAR_CUSTOM_ROOT + c * 1_000_000
+    hi = lo + 999_999
     return lo, hi
 
 
@@ -79,7 +76,7 @@ def suggest_next_avatar_accessory_id(acus_root: Path, category: int) -> int:
 
 
 def suggest_next_avatar_wear_id(acus_root: Path) -> int:
-    """企鹅衣服（category=1）下一个建议 ID：7,100,000 起。"""
+    """企鹅衣服（category=1）下一个建议 ID：71000000 起。"""
     return suggest_next_avatar_accessory_id(acus_root, 1)
 
 
@@ -364,7 +361,7 @@ class AvatarWearComposeDialog(FluentCaptionDialog):
         self.resize(920, 860)
 
         self.id_edit = LineEdit(self)
-        self.id_edit.setPlaceholderText("例如 7100001（自制衣服：7100000～7199999）")
+        self.id_edit.setPlaceholderText("例如 71000001（自制衣服：71000000～71999999）")
         if is_edit:
             self.id_edit.setReadOnly(True)
         else:
