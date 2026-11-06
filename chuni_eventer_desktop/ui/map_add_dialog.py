@@ -868,7 +868,7 @@ class CellEditDialog(FluentCaptionDialog):
                 self.reward_inner_id.setPlaceholderText("填写地图图标 ID（MapIconData.name.id）")
             elif rk == "头像配件(AvatarAccessory)":
                 self.reward_inner_id.setPlaceholderText(
-                    "填写装扮 ID（AvatarAccessoryData.name.id，如 71000000）"
+                    "填写装扮 ID（AvatarAccessoryData.name.id，如 7100001）"
                 )
             elif rk == "伴侣(Mate)":
                 self.reward_inner_id.setPlaceholderText(

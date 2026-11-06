@@ -47,7 +47,7 @@ _HAT_CROP = (HAT_CROP_X, HAT_CROP_Y, HAT_CROP_W, HAT_CROP_H)
 
 
 def suggest_next_avatar_hat_id(acus_root: Path) -> int:
-    """自制帽子（category=2）下一个建议 ID：72000000 起。"""
+    """自制帽子（category=2）下一个建议 ID：7,200,000 起。"""
     return suggest_next_avatar_accessory_id(acus_root, HAT_CATEGORY)
 
 
@@ -74,7 +74,7 @@ class AvatarHatComposeDialog(FluentCaptionDialog):
         self.resize(920, 860)
 
         self.id_edit = LineEdit(self)
-        self.id_edit.setPlaceholderText("例如 72000001（自制帽子：72000000～72999999）")
+        self.id_edit.setPlaceholderText("例如 7200001（自制帽子：7200000～7299999）")
         if is_edit:
             self.id_edit.setReadOnly(True)
         else:

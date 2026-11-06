@@ -302,8 +302,10 @@ _STRATEGIES: dict[str, Callable[[Path, int, dict[str, set[int]]], int | tuple[in
     "timeTable":    lambda ac, c, pa: _alloc_generic(ac, "timeTable", c, "TimeTable.xml", "name/id", 70_000, pa),
     "notesFieldLine": lambda ac, c, pa: _alloc_generic(ac, "notesFieldLine", c, "NotesFieldLine.xml", "name/id", 70_000, pa),
     "ticket":       lambda ac, c, pa: _alloc_generic(ac, "ticket", c, "Ticket.xml", "name/id", 70_000, pa),
-    # avatarAccessory：第二位为 category（1~9），7X000000~7X999999 分段（原版到 9799999）
-    "avatarAccessory": lambda ac, c, pa: _alloc_generic(ac, "avatarAccessory", c, "AvatarAccessory.xml", "name/id", 71_000_000, pa),
+    # avatarAccessory：官方 7 位编码 ``series*10^6 + category*10^5 + serial``（最大 9,799,999），
+    # 自制取未占用的 series=7，即 7,100,000～7,999,999。此通用分配器拿不到 category，
+    # 只在 ACUS 已用最大值之后顺延（创建新装扮请走合成弹窗，那里按 category 精确分段）。
+    "avatarAccessory": lambda ac, c, pa: _alloc_generic(ac, "avatarAccessory", c, "AvatarAccessory.xml", "name/id", 7_000_000, pa),
     "quest":        lambda ac, c, pa: _alloc_generic(ac, "quest", c, "Quest.xml", "name/id", 70_000, pa),
     "mate":         lambda ac, c, pa: _alloc_generic(ac, "mate", c, "Mate.xml", "name/id", 70_000, pa),
 }
