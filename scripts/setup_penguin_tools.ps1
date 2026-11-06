@@ -1,4 +1,4 @@
-# 将 ChuniPingu/PenguinTools 放到仓库根目录 ./PenguinTools，供打包时发布 PenguinTools.CLI。
+﻿# 将 ChuniPingu/PenguinTools 放到仓库根目录 ./PenguinTools，供打包时发布 PenguinTools.CLI。
 # Native AOT 发布与媒体资源检查见 scripts/build_windows.ps1。
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot

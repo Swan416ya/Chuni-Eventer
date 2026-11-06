@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Version = "0.8.0",
     [switch]$SkipPyInstaller,
     [Alias("SkipBridge")][switch]$SkipPenguinToolsCli,
@@ -293,9 +293,9 @@ if (Test-Path $ReleaseNote) {
 }
 
 $readmeTools = if ($BundleCompressonator) {
-    "FFmpeg、Compressonator CLI、PenguinToolsCLI、mua、c2s-sanitize"
+    "FFmpeg、Compressonator CLI、PenguinToolsCLI、c2s-sanitize"
 } else {
-    "FFmpeg、PenguinToolsCLI、mua、c2s-sanitize"
+    "FFmpeg、PenguinToolsCLI、c2s-sanitize"
 }
 $ReadmeBundle = @"
 Chuni Eventer v$Version（离线懒人包）
