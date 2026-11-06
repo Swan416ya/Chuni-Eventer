@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 
 from PIL import Image
@@ -48,6 +49,7 @@ from qfluentwidgets import (
 from ..acus_scan import scan_charas, scan_system_voices
 from ..dds_convert import ingest_to_bc3_dds
 from ..gif_mate import (
+    GIF_CLARITY_CHOICES,
     GifFramePlan,
     GifMateCreateRequest,
     create_gif_mate,
@@ -560,9 +562,11 @@ class PsbActionDialog(FluentCaptionDialog):
         self.gif_fps_spin.setRange(1, 30)
         self.gif_fps_spin.setValue(10)
         self.gif_height_combo = FluentComboBox(self)
-        for height in (256, 320, 384, 512):
-            self.gif_height_combo.addItem(f"{height} px", userData=height)
-        self.gif_height_combo.setCurrentIndex(2)
+        for long_side in GIF_CLARITY_CHOICES:
+            self.gif_height_combo.addItem(f"长边 {long_side} px", userData=long_side)
+        self.gif_height_combo.setCurrentIndex(
+            GIF_CLARITY_CHOICES.index(512) if 512 in GIF_CLARITY_CHOICES else 0
+        )
         self.name_edit = LineEdit(self)
         self.name_edit.setPlaceholderText("伴侣显示名，例如 アズキ")
         self.mate_id_edit = SpinBox(self)
@@ -678,6 +682,15 @@ class PsbActionDialog(FluentCaptionDialog):
         gif_options.addWidget(self.gif_height_combo)
         gif_options.addStretch(1)
         gif_lay.addLayout(gif_options)
+        clarity_tip = CaptionLabel(
+            "清晰度是长边像素上限，GIF 永远不会被放大。游戏里伴侣大约显示成 900 px 高："
+            "长边 384 会被放大约 2.3 倍所以偏糊，768 以上接近 1:1 才锐利；"
+            "但每一帧都是整帧 RGBA 纹理加 mip 链，选得越高生成的 emtbytes 越大"
+            "（估算值就显示在上方，越大越准）。",
+            gif_panel,
+        )
+        clarity_tip.setWordWrap(True)
+        gif_lay.addWidget(clarity_tip)
         gif_tip = CaptionLabel(
             "先选择一张透明背景主 GIF。进入下一步后可按 6 个场景组替换 GIF，或打开详细配置为 18 个槽分别选择；"
             "留空的项目自动复用主 GIF。多条 GIF 会作为独立 timeline 打包进同一个 E-mote PSB（每条最多 120 帧）。",
@@ -1059,6 +1072,7 @@ class PsbActionDialog(FluentCaptionDialog):
             return
         target_fps = self.gif_fps_spin.value()
         target_height = int(self.gif_height_combo.currentData() or 384)
+        previous_size = self._gif_plan.output_size if self._gif_plan is not None else None
         self._status.setText("正在后台分析 GIF 帧与透明边界…")
         self._gif_plan_label.setText("正在计算真实输出计划…")
         self.gif_path_edit.setEnabled(False)
@@ -1106,14 +1120,21 @@ class PsbActionDialog(FluentCaptionDialog):
                     for group in SIMPLE_ACTION_GROUPS
                 }
                 self._gif_placements_initialized = True
+            elif previous_size is not None and previous_size[1] != plan.output_size[1]:
+                # Changing the clarity changes the texture resolution, not the
+                # in-game size: keep every existing placement showing the same
+                # on-screen height by scaling it with the resolution ratio.
+                self._rescale_gif_placements(previous_size[1] / plan.output_size[1])
             self._set_position_controls(
                 self._placement_for_action(*self._active_gif_placement)
             )
             cap = "；已触发 120 帧上限，实际帧率会降低" if plan.capped else ""
+            estimate_mb = plan.estimated_emtbytes / (1024 * 1024)
             self._gif_plan_label.setText(
                 f"源 {plan.source_frame_count} 帧 / {plan.duration_seconds:.2f} 秒 → "
                 f"输出 {plan.output_frame_count} 帧 / {plan.effective_fps:.1f} FPS / "
-                f"{plan.output_size[0]}×{plan.output_size[1]}{cap}"
+                f"{plan.output_size[0]}×{plan.output_size[1]} / "
+                f"预计 emtbytes 约 {estimate_mb:.0f} MB{cap}"
             )
             if reveal_details:
                 self._source_card.hide()
@@ -1128,6 +1149,30 @@ class PsbActionDialog(FluentCaptionDialog):
     def _gif_options_changed(self, _value=None) -> None:
         if self.gif_path_edit.text().strip():
             self._prepare_gif_preview()
+
+    def _rescale_gif_placements(self, ratio: float) -> None:
+        """Keep the in-game size when the frame resolution changes.
+
+        Textures get sharper, not bigger: every action keeps the pixel height it
+        had on screen by scaling the XML transform with the resolution ratio.
+        """
+        if ratio <= 0:
+            return
+        low = self.scale_spin.minimum()
+        high = self.scale_spin.maximum()
+
+        def rescaled(placement: MateActionPlacement) -> MateActionPlacement:
+            scale = max(low, min(high, round(placement.scale_x10000 * ratio)))
+            return placement if scale == placement.scale_x10000 else replace(
+                placement, scale_x10000=scale
+            )
+
+        self.simple_gif_placements = {
+            key: rescaled(value) for key, value in self.simple_gif_placements.items()
+        }
+        self.detail_gif_placements = {
+            key: rescaled(value) for key, value in self.detail_gif_placements.items()
+        }
 
     def _on_slot_changed(self, _idx: int) -> None:
         if self._action_mode_switch.isChecked():
