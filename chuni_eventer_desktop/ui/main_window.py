@@ -898,6 +898,7 @@ class MainWindow(MSFluentWindow):
                 sysvoice_r,
                 mapicon_r,
                 avatar_r,
+                mate_r,
                 default_id,
             ) = reward_dialog_bundle(self._acus_root, game_index=gi)
             dlg = RewardCreateDialog(
@@ -910,6 +911,7 @@ class MainWindow(MSFluentWindow):
                 sysvoice_refs=sysvoice_r,
                 mapicon_refs=mapicon_r,
                 avatar_accessory_refs=avatar_r,
+                mate_refs=mate_r,
                 parent=self,
             )
             if dlg.exec() == dlg.DialogCode.Accepted and dlg.result_cell is not None:

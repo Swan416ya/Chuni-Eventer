@@ -168,8 +168,10 @@ class ManagerWidget(QWidget):
             ("姓名牌", 5),
             ("乐曲解锁", 6),
             ("地图图标", 7),
+            ("系统语音", 8),
             ("头像配件", 9),
             ("场景", 13),
+            ("伴侣", 14),
         ):
             self.reward_type_filter.addItem(text, None, data)
         self.reward_type_filter.currentIndexChanged.connect(self.reload)

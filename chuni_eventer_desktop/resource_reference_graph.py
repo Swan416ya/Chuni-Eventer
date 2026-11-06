@@ -354,6 +354,12 @@ REF_RULES: tuple[RefRule, ...] = (
         "stage",
         "type=13",
     ),
+    RefRule(
+        "reward",
+        ".//RewardSubstanceData/mate/mateName/id",
+        "mate",
+        "type=14",
+    ),
     # --- Event.xml ---
     RefRule("event", "netOpenName/id", "netOpen", None),
     RefRule("event", "ddsBannerName/id", "ddsBanner", None),

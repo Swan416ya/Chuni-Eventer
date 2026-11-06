@@ -72,6 +72,7 @@ from ..acus_scan import (
     scan_avatar_accessories,
     scan_map_bonuses,
     scan_map_icons,
+    scan_mates,
     scan_system_voices,
 )
 from ..system_voice_pack import system_voice_dir_name, system_voice_preview_ui_dds_basename
@@ -210,6 +211,7 @@ def _kind_label(kind: str) -> str:
         "乐曲解锁(Music)": "乐曲",
         "地图图标(MapIcon)": "地图图标",
         "头像配件(AvatarAccessory)": "头像配件",
+        "伴侣(Mate)": "伴侣",
         "场景(Stage)": "场景",
         "系统语音(SystemVoice)": "系统语音",
     }.get(kind, kind)
@@ -257,6 +259,8 @@ def _target_id_field_label(*, reward_mode: str, reward_kind: str) -> str:
         return "地图图标ID"
     if reward_mode == "头像配件(AvatarAccessory)":
         return "头像配件ID"
+    if reward_mode == "伴侣(Mate)":
+        return "伴侣ID"
     if reward_mode == "手填奖励ID":
         k = reward_kind or "外部奖励ID"
         if k == "角色":
@@ -273,6 +277,8 @@ def _target_id_field_label(*, reward_mode: str, reward_kind: str) -> str:
             return "地图图标ID"
         if k == "头像配件(AvatarAccessory)":
             return "头像配件ID"
+        if k == "伴侣(Mate)":
+            return "伴侣ID"
     return "目标ID"
 
 
@@ -291,6 +297,8 @@ def _acus_pick_label(reward_mode: str) -> str:
         return "从列表选择地图图标"
     if reward_mode == "头像配件(AvatarAccessory)":
         return "从列表选择头像配件"
+    if reward_mode == "伴侣(Mate)":
+        return "从列表选择伴侣"
     return "从列表选择"
 
 
@@ -305,6 +313,7 @@ def _reward_create_kind_target_label(kind: str) -> str:
         "系统语音(SystemVoice)": "系统语音ID",
         "地图图标(MapIcon)": "地图图标ID",
         "头像配件(AvatarAccessory)": "头像配件ID",
+        "伴侣(Mate)": "伴侣ID",
     }.get(kind, "目标ID")
 
 
@@ -318,6 +327,7 @@ def _reward_create_acus_label(kind: str) -> str:
         "系统语音(SystemVoice)": "从列表选择系统语音",
         "地图图标(MapIcon)": "从列表选择地图图标",
         "头像配件(AvatarAccessory)": "从列表选择头像配件",
+        "伴侣(Mate)": "从列表选择伴侣",
     }.get(kind, "")
 
 
@@ -463,6 +473,9 @@ def enrich_cell_from_reward_xml(
         elif t == 8:
             cell.reward_kind = "系统语音(SystemVoice)"
             cell.reward_inner_id = _safe_int(sub.findtext("systemVoice/systemVoiceName/id") or "")
+        elif t == 14:
+            cell.reward_kind = "伴侣(Mate)"
+            cell.reward_inner_id = _safe_int(sub.findtext("mate/mateName/id") or "")
         else:
             cell.reward_kind = "外部奖励ID"
             cell.reward_inner_id = None
@@ -563,6 +576,7 @@ class CellEditDialog(FluentCaptionDialog):
         sysvoice_refs: list[RewardRef],
         mapicon_refs: list[RewardRef],
         avatar_accessory_refs: list[RewardRef],
+        mate_refs: list[RewardRef],
         music_refs: list[MusicRef],
         data: CellData,
         game_index: GameDataIndex | None = None,
@@ -581,6 +595,7 @@ class CellEditDialog(FluentCaptionDialog):
         self._sysvoice_refs = sysvoice_refs
         self._mapicon_refs = mapicon_refs
         self._avatar_refs = avatar_accessory_refs
+        self._mate_refs = mate_refs
         self._music_refs = music_refs
         self._data = data
         self._pending_inner_match_id: int | None = None
@@ -597,6 +612,7 @@ class CellEditDialog(FluentCaptionDialog):
                 "系统语音(SystemVoice)",
                 "地图图标(MapIcon)",
                 "头像配件(AvatarAccessory)",
+                "伴侣(Mate)",
                 "手填奖励ID",
             ]
         )
@@ -624,6 +640,7 @@ class CellEditDialog(FluentCaptionDialog):
                 "系统语音(SystemVoice)",
                 "地图图标(MapIcon)",
                 "头像配件(AvatarAccessory)",
+                "伴侣(Mate)",
             ]
         )
         self.reward_kind.currentTextChanged.connect(self._sync_state)
@@ -702,6 +719,7 @@ class CellEditDialog(FluentCaptionDialog):
                 "系统语音(SystemVoice)",
                 "地图图标(MapIcon)",
                 "头像配件(AvatarAccessory)",
+                "伴侣(Mate)",
             ) and d.reward_inner_id is not None:
                 mode_map = {
                     "角色": "角色",
@@ -711,6 +729,7 @@ class CellEditDialog(FluentCaptionDialog):
                     "系统语音(SystemVoice)": "系统语音(SystemVoice)",
                     "地图图标(MapIcon)": "地图图标(MapIcon)",
                     "头像配件(AvatarAccessory)": "头像配件(AvatarAccessory)",
+                    "伴侣(Mate)": "伴侣(Mate)",
                 }
                 self.reward_mode.setCurrentText(mode_map.get(d.reward_kind, "手填奖励ID"))
                 self.reward_name.setText(d.reward_name or "")
@@ -753,6 +772,8 @@ class CellEditDialog(FluentCaptionDialog):
             return self._mapicon_refs
         if rm == "头像配件(AvatarAccessory)":
             return self._avatar_refs
+        if rm == "伴侣(Mate)":
+            return self._mate_refs
         return []
 
     def _on_acus_pick_activated(self, index: int) -> None:
@@ -788,6 +809,7 @@ class CellEditDialog(FluentCaptionDialog):
             "系统语音(SystemVoice)",
             "地图图标(MapIcon)",
             "头像配件(AvatarAccessory)",
+            "伴侣(Mate)",
         }
         prev_tid = _safe_int(self.reward_inner_id.text()) if prev_typed else None
         self.reward_pick.setEnabled(rm == "选择 ACUS 奖励")
@@ -800,6 +822,7 @@ class CellEditDialog(FluentCaptionDialog):
             "系统语音(SystemVoice)",
             "地图图标(MapIcon)",
             "头像配件(AvatarAccessory)",
+            "伴侣(Mate)",
         }
         self.reward_id.setEnabled(manual)
         self.reward_name.setEnabled(manual or typed)
@@ -847,6 +870,10 @@ class CellEditDialog(FluentCaptionDialog):
                 self.reward_inner_id.setPlaceholderText(
                     "填写装扮 ID（AvatarAccessoryData.name.id，如 71000000）"
                 )
+            elif rk == "伴侣(Mate)":
+                self.reward_inner_id.setPlaceholderText(
+                    "填写伴侣 ID（MateData.name.id，如 31005）"
+                )
             else:
                 self.reward_inner_id.setPlaceholderText("手填模式下选「外部奖励」时无需填写此项")
         else:
@@ -864,6 +891,7 @@ class CellEditDialog(FluentCaptionDialog):
             "系统语音(SystemVoice)",
             "地图图标(MapIcon)",
             "头像配件(AvatarAccessory)",
+            "伴侣(Mate)",
         }:
             self.warn_reward.setText(
                 "⚠ 手填奖励 ID 或关联对象若与游戏数据不一致可能导致异常；对象类奖励请优先用列表选择。"
@@ -978,6 +1006,24 @@ class CellEditDialog(FluentCaptionDialog):
                 out.reward_id = prev_rid
             else:
                 out.reward_id = self._default_reward_id(out.reward_kind, out.reward_inner_id)
+        elif rm == "伴侣(Mate)":
+            out.reward_kind = "伴侣(Mate)"
+            out.reward_inner_id = self._resolve_inner_typed_only(self._mate_refs)
+            if out.reward_inner_id is None:
+                fly_critical(self, "错误", "请从列表选择伴侣")
+                return
+            ref = next(
+                (x for x in self._mate_refs if x.id == out.reward_inner_id),
+                None,
+            )
+            if ref is None:
+                fly_critical(self, "错误", "伴侣列表异常，请重试")
+                return
+            out.reward_name = self.reward_name.text().strip() or ref.name
+            if self._data.reward_kind == "伴侣(Mate)" and prev_rid is not None:
+                out.reward_id = prev_rid
+            else:
+                out.reward_id = self._default_reward_id(out.reward_kind, out.reward_inner_id)
         else:
             if rm == "角色":
                 out.reward_kind = "角色"
@@ -1038,6 +1084,9 @@ class CellEditDialog(FluentCaptionDialog):
         if kind == "头像配件(AvatarAccessory)":
             # 官方规律：reward106104301 ↔ avatarAccessory 6104301
             return 100_000_000 + inner_id
+        if kind == "伴侣(Mate)":
+            # 官方规律：reward150000101 ↔ mate 101
+            return 150_000_000 + inner_id
         return inner_id
 
 
@@ -1398,6 +1447,7 @@ class RewardCreateDialog(FluentCaptionDialog):
             "系统语音(SystemVoice)",
             "地图图标(MapIcon)",
             "头像配件(AvatarAccessory)",
+            "伴侣(Mate)",
         }
     )
 
@@ -1414,6 +1464,7 @@ class RewardCreateDialog(FluentCaptionDialog):
         sysvoice_refs: list[RewardRef],
         mapicon_refs: list[RewardRef] | None = None,
         avatar_accessory_refs: list[RewardRef] | None = None,
+        mate_refs: list[RewardRef] | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent=parent)
@@ -1429,6 +1480,7 @@ class RewardCreateDialog(FluentCaptionDialog):
         self._sysvoice_refs = sysvoice_refs
         self._mapicon_refs = mapicon_refs or []
         self._avatar_refs = avatar_accessory_refs or []
+        self._mate_refs = mate_refs or []
         self._auto_name_enabled = True
         self._last_auto_name = ""
 
@@ -1450,6 +1502,7 @@ class RewardCreateDialog(FluentCaptionDialog):
                 "乐曲解锁(Music)",
                 "地图图标(MapIcon)",
                 "头像配件(AvatarAccessory)",
+                "伴侣(Mate)",
             ]
         )
         # 避免下拉只显示约 7 行导致「系统语音」被裁切，需滚动才看见
@@ -1526,6 +1579,8 @@ class RewardCreateDialog(FluentCaptionDialog):
             return self._mapicon_refs
         if kind == "头像配件(AvatarAccessory)":
             return self._avatar_refs
+        if kind == "伴侣(Mate)":
+            return self._mate_refs
         return []
 
     def _on_inner_pick_activated(self, index: int) -> None:
@@ -1591,6 +1646,8 @@ class RewardCreateDialog(FluentCaptionDialog):
             return f"mapicon+{target_name or 'Unknown'}"
         if kind == "头像配件(AvatarAccessory)":
             return f"avatarAccessory+{target_name or 'Unknown'}"
+        if kind == "伴侣(Mate)":
+            return f"mate+{target_name or 'Unknown'}"
         if kind == "功能票(Ticket)":
             return f"ticket+{target_name or 'Unknown'}"
         return f"reward+{target_name or 'Unknown'}"
@@ -1664,11 +1721,12 @@ class RewardCreateDialog(FluentCaptionDialog):
 
     def _on_ok(self) -> None:
         rid = _safe_int(self.reward_id.text())
-        if rid is None or rid < 0 or str(rid)[0] != "7":
-            fly_critical(self, "错误", "reward.id 必须是非负整数，且首位为 7")
+        kind = self.reward_kind.currentText()
+        mate_band = rid is not None and kind == "伴侣(Mate)" and 150_000_000 <= rid < 151_000_000
+        if rid is None or rid < 0 or (str(rid)[0] != "7" and not mate_band):
+            fly_critical(self, "错误", "reward.id 必须是非负整数且首位为 7（伴侣奖励用 150 段，如 150031005）")
             return
         name = self.reward_name.text().strip() or f"Reward{rid}"
-        kind = self.reward_kind.currentText()
         inner: int | None = None
         if kind == "外部奖励ID":
             inner = None
@@ -1759,6 +1817,7 @@ def load_reward_refs(
                         "系统语音(SystemVoice)": "系统语音ID",
                         "地图图标(MapIcon)": "地图图标ID",
                         "头像配件(AvatarAccessory)": "头像配件ID",
+                        "伴侣(Mate)": "伴侣ID",
                     }.get(c.reward_kind, "目标ID")
                     label += f" ({tid_lbl}:{c.reward_inner_id})"
                 refs.append(RewardRef(rid, c.reward_name or f"Reward{rid}", label))
@@ -1851,6 +1910,22 @@ def load_avatar_accessory_refs(
         out.append(
             RewardRef(aid, astr, f"{astr}（{_avatar_accessory_category_label(it.category)}）")
         )
+    return sorted(out, key=lambda x: x.id)
+
+
+def load_mate_refs(
+    acus_root: Path, idx: GameDataIndex | None = None
+) -> list[RewardRef]:
+    """ACUS ``mate/**/Mate.xml``（伴侣）列表。
+
+    伴侣奖励的 reward.id = 150_000_000 + MateData.name.id（官方 reward150000101 ↔ mate 101）。
+    """
+    _ = idx
+    out: list[RewardRef] = []
+    for it in scan_mates(acus_root):
+        mid = it.name.id
+        mstr = (it.name.str or "").strip() or f"Mate{mid}"
+        out.append(RewardRef(mid, mstr, ""))
     return sorted(out, key=lambda x: x.id)
 
 
@@ -2099,6 +2174,7 @@ def reward_dialog_bundle(
     list[RewardRef],
     list[RewardRef],
     list[RewardRef],
+    list[RewardRef],
     int,
 ]:
     return (
@@ -2110,6 +2186,7 @@ def reward_dialog_bundle(
         load_system_voice_refs(acus_root, game_index),
         load_map_icon_refs(acus_root, game_index),
         load_avatar_accessory_refs(acus_root, game_index),
+        load_mate_refs(acus_root, game_index),
         next_custom_reward_id(acus_root, game_index),
     )
 
@@ -2162,6 +2239,8 @@ def ensure_reward_xml(
     map_icon_str = "Invalid"
     avatar_accessory_id = -1
     avatar_accessory_str = "Invalid"
+    mate_id = -1
+    mate_str = "Invalid"
     if kind == "功能票(Ticket)":
         reward_type = 1
     elif kind == "角色":
@@ -2204,6 +2283,15 @@ def ensure_reward_xml(
         avatar_accessory_str = aac_str or (
             f"AvatarAccessory{avatar_accessory_id}" if avatar_accessory_id >= 0 else "Invalid"
         )
+    elif kind == "伴侣(Mate)":
+        reward_type = 14
+        mate_id = inner if inner >= 0 else -1
+        mate_name = ""
+        for it in scan_mates(acus_root):
+            if it.name.id == mate_id:
+                mate_name = (it.name.str or "").strip()
+                break
+        mate_str = mate_name or (f"Mate{mate_id}" if mate_id >= 0 else "Invalid")
 
     xml = f"""<?xml version="1.0" encoding="utf-8"?>
 <RewardData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
@@ -2227,6 +2315,7 @@ def ensure_reward_xml(
         <symbolChat><symbolChatName><id>-1</id><str>Invalid</str><data /></symbolChatName></symbolChat>
         <ultimaScore><musicName><id>-1</id><str>Invalid</str><data /></musicName></ultimaScore>
         <stage><stageName><id>{stage_id}</id><str>{stage_str}</str><data /></stageName></stage>
+        <mate><mateName><id>{mate_id}</id><str>{mate_str}</str><data /></mateName></mate>
       </RewardSubstanceData>
     </list>
   </substances>
@@ -2275,6 +2364,7 @@ def ensure_points_reward_xml(
         <symbolChat><symbolChatName><id>-1</id><str>Invalid</str><data /></symbolChatName></symbolChat>
         <ultimaScore><musicName><id>-1</id><str>Invalid</str><data /></musicName></ultimaScore>
         <stage><stageName><id>-1</id><str>Invalid</str><data /></stageName></stage>
+        <mate><mateName><id>-1</id><str>Invalid</str><data /></mateName></mate>
       </RewardSubstanceData>
     </list>
   </substances>
@@ -2316,6 +2406,12 @@ class MapAddDialog(FluentCaptionDialog):
             for it in scan_avatar_accessories(acus_root)
             if (it.image_path or "").strip()
         }
+        self._mate_refs = load_mate_refs(acus_root, game_index)
+        self._mate_img_path_by_id: dict[int, Path] = {
+            it.name.id: (it.xml_path.parent / it.image_path.strip())
+            for it in scan_mates(acus_root)
+            if (it.image_path or "").strip()
+        }
         self._dds_map_refs = _merged_dds_map_reward_refs(acus_root, game_index)
         self._page_area_slots: list[list[int | None]] = []
         self._chara_name_by_id = {x.id: x.name for x in self._chara_refs}
@@ -2325,6 +2421,7 @@ class MapAddDialog(FluentCaptionDialog):
         self._sysvoice_name_by_id = {x.id: x.name for x in self._sysvoice_refs}
         self._mapicon_name_by_id = {x.id: x.name for x in self._mapicon_refs}
         self._avatar_name_by_id = {x.id: x.name for x in self._avatar_refs}
+        self._mate_name_by_id = {x.id: x.name for x in self._mate_refs}
         self._music_name_by_id = {x.id: x.name for x in self._music_refs}
         # UI thumbs (只读展示用，不影响保存逻辑)
         self._static_ui_root = Path(__file__).resolve().parents[1] / "static" / "UI"
@@ -2344,6 +2441,7 @@ class MapAddDialog(FluentCaptionDialog):
         self._map_icon_img_path_by_id = MapAddDialog._merged_map_icon_paths(acus_root, game_index)
         self._map_icon_pm_cache: dict[int, QPixmap] = {}
         self._avatar_pm_cache: dict[int, QPixmap] = {}
+        self._mate_pm_cache: dict[int, QPixmap] = {}
         self._sysvoice_pm_cache: dict[int, QPixmap] = {}
         self._area_cells: list[list[CellData]] = []
         self._area_ids: list[int] = []
@@ -2696,6 +2794,31 @@ class MapAddDialog(FluentCaptionDialog):
             self._avatar_pm_cache[accessory_id] = QPixmap()
             return None
         self._avatar_pm_cache[accessory_id] = pm
+        return pm
+
+    def _get_mate_pixmap(self, mate_id: int) -> QPixmap | None:
+        if mate_id in self._mate_pm_cache:
+            pm = self._mate_pm_cache.get(mate_id)
+            return None if pm is None or pm.isNull() else pm
+        p = self._mate_img_path_by_id.get(mate_id)
+        if p is None or not p.is_file():
+            self._mate_pm_cache[mate_id] = QPixmap()
+            return None
+        try:
+            pm = dds_to_pixmap(
+                acus_root=self._acus_root,
+                compressonatorcli_path=self._tool,
+                dds_path=p,
+                max_w=220,
+                max_h=220,
+                restrict=True,
+            )
+        except Exception:
+            pm = None
+        if pm is None or pm.isNull():
+            self._mate_pm_cache[mate_id] = QPixmap()
+            return None
+        self._mate_pm_cache[mate_id] = pm
         return pm
 
     def _candidate_ddsmap_dds_files(self, dds_map_id: int) -> list[Path]:
@@ -3282,6 +3405,19 @@ class MapAddDialog(FluentCaptionDialog):
                             img_lbl.show()
                             thumb_shown = True
 
+                    elif c.reward_kind == "伴侣(Mate)" and c.reward_inner_id is not None:
+                        pm = self._get_mate_pixmap(c.reward_inner_id)
+                        if pm is not None and not pm.isNull():
+                            img_pm = pm.scaled(
+                                tile_size,
+                                img_h,
+                                Qt.AspectRatioMode.KeepAspectRatio,
+                                Qt.TransformationMode.SmoothTransformation,
+                            )
+                            img_lbl.setPixmap(img_pm)
+                            img_lbl.show()
+                            thumb_shown = True
+
                     if not thumb_shown:
                         # 如果该类型没有对应缩略图资源，则显示名称（优先 reward_name）。
                         name_txt = (c.reward_name or "").strip() or str(c.reward_inner_id or c.reward_id)
@@ -3381,6 +3517,8 @@ class MapAddDialog(FluentCaptionDialog):
             return self._mapicon_name_by_id.get(iid, "")
         if c.reward_kind == "头像配件(AvatarAccessory)":
             return self._avatar_name_by_id.get(iid, "")
+        if c.reward_kind == "伴侣(Mate)":
+            return self._mate_name_by_id.get(iid, "")
         return ""
 
     def _edit_cell(self, area_idx: int, cell_idx: int) -> None:
@@ -3395,6 +3533,7 @@ class MapAddDialog(FluentCaptionDialog):
             sysvoice_refs=self._sysvoice_refs,
             mapicon_refs=self._mapicon_refs,
             avatar_accessory_refs=self._avatar_refs,
+            mate_refs=self._mate_refs,
             music_refs=self._music_refs,
             data=d,
             game_index=self._game_index,
@@ -3415,6 +3554,7 @@ class MapAddDialog(FluentCaptionDialog):
             sysvoice_refs=self._sysvoice_refs,
             mapicon_refs=self._mapicon_refs,
             avatar_accessory_refs=self._avatar_refs,
+            mate_refs=self._mate_refs,
             music_refs=self._music_refs,
             data=d,
             game_index=self._game_index,
@@ -3817,6 +3957,7 @@ class MapAddDialog(FluentCaptionDialog):
                 "系统语音(SystemVoice)": "系统语音",
                 "功能票(Ticket)": "功能票",
                 "头像配件(AvatarAccessory)": "头像配件",
+                "伴侣(Mate)": "伴侣",
             }.get(tmp.reward_kind, "外部/Points")
 
         def _sync_reward_display() -> None:
@@ -3851,6 +3992,7 @@ class MapAddDialog(FluentCaptionDialog):
                     "系统语音",
                     "功能票",
                     "头像配件",
+                    "伴侣",
                     "外部/Points",
                 ]
             )
@@ -4021,6 +4163,7 @@ class MapAddDialog(FluentCaptionDialog):
                 sysvoice_refs=self._sysvoice_refs,
                 mapicon_refs=self._mapicon_refs,
                 avatar_accessory_refs=self._avatar_refs,
+                mate_refs=self._mate_refs,
                 parent=dlg,
             )
             if rd.exec() == QDialog.DialogCode.Accepted and rd.result_cell is not None:

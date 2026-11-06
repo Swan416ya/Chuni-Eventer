@@ -178,6 +178,12 @@ def _expand_reward_substances(acus_root: Path, reward_root: ET.Element, into: se
                 d = _resource_dir_by_xml_glob(acus_root, "stage/**/Stage.xml", sid)
                 if d is not None:
                     _add_dir_all_files(acus_root, d, into)
+        elif t == 14:
+            mate_id = _safe_int(sub.findtext("mate/mateName/id") or "")
+            if mate_id is not None and mate_id >= 0:
+                d = _resource_dir_by_xml_glob(acus_root, "mate/**/Mate.xml", mate_id)
+                if d is not None:
+                    _add_dir_all_files(acus_root, d, into)
 
 
 def _enqueue_reward_chain(acus_root: Path, rid: int, into: set[Path], seen: set[int]) -> None:
