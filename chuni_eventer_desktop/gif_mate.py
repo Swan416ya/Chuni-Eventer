@@ -27,14 +27,6 @@ from .psb_action_assigner import PsbActionAssigner, generate_mate_xml
 
 TICK_RATE = 60
 MAX_OUTPUT_FRAMES = 120
-# The clarity choices are long-side caps, not forced heights: a GIF is never
-# upscaled beyond its own resolution, so a wide or small source keeps its own
-# detail instead of being blown up into a blurrier texture.
-GIF_CLARITY_CHOICES: tuple[int, ...] = (256, 320, 384, 512, 640, 768, 1024)
-# Mate emote textures are stored as RGBA8 with a mip chain, so a built emtbytes
-# pays four bytes per pixel of every mip level (see estimate_emtbytes_size).
-# Measured on generated Mates: 53 frames of 321x512 -> 50.7 MB.
-EMTBYTES_BYTES_PER_PIXEL = 4.0
 _GIF_TIMELINE_LABEL = "平常"
 
 
@@ -58,9 +50,6 @@ class GifMateCreateRequest:
     pos_y: int = -50
     scale_x10000: int | None = None
     target_fps: int = 10
-    # Long-side cap for the emitted frame textures (never an upscale).  Higher
-    # values keep the Mate sharp in game because the emote is drawn at roughly
-    # 900 screen pixels tall, but every extra pixel costs emtbytes space.
     target_height: int = 384
     dds_tool_path: Path | None = None
     # Optional game-facing slot overrides.  Unspecified slots reuse gif_path.
@@ -133,30 +122,6 @@ class GifFramePlan:
             2, round(self.duration_seconds * self.requested_fps)
         ) > MAX_OUTPUT_FRAMES
 
-    @property
-    def estimated_emtbytes(self) -> int:
-        """Rough built size of this animation's frames inside the emtbytes."""
-        return estimate_emtbytes_size(self.output_frame_count, self.output_size)
-
-
-def estimate_emtbytes_size(frame_count: int, frame_size: tuple[int, int]) -> int:
-    """Estimate the built emtbytes bytes for full-frame RGBA8 textures.
-
-    Every frame is stored as one RGBA8 texture together with its mip chain, so
-    the payload is the summed mip levels times four bytes per pixel.  Measured
-    builds land within roughly fifteen percent of this number.
-    """
-    width = max(1, frame_size[0])
-    height = max(1, frame_size[1])
-    mip_pixels = 0
-    while True:
-        mip_pixels += width * height
-        if width == 1 and height == 1:
-            break
-        width = max(1, width // 2)
-        height = max(1, height // 2)
-    return int(frame_count * mip_pixels * EMTBYTES_BYTES_PER_PIXEL)
-
 
 @dataclass(frozen=True)
 class _PreparedAnimation:
@@ -196,9 +161,8 @@ def inspect_gif(
     """Inspect a GIF and return the plan later used by :func:`create_gif_mate`."""
     if target_fps < 1 or target_fps > 30:
         raise GifMateError("GIF 帧率必须在 1～30 FPS 之间")
-    if target_height not in GIF_CLARITY_CHOICES:
-        choices = " / ".join(str(value) for value in GIF_CLARITY_CHOICES)
-        raise GifMateError(f"GIF 清晰度仅支持长边 {choices} 像素")
+    if target_height not in {256, 320, 384, 512}:
+        raise GifMateError("GIF 输出高度仅支持 256 / 320 / 384 / 512")
 
     try:
         source = Image.open(gif_path)
@@ -265,11 +229,7 @@ def inspect_gif(
     crop_h = crop_box[3] - crop_box[1]
     if crop_w <= 0 or crop_h <= 0:
         raise GifMateError("GIF 有效画面尺寸为零")
-    # Never upscale: the clarity choice caps the long side so a small or very
-    # wide GIF keeps its native detail instead of gaining interpolated pixels.
-    scale_factor = min(1.0, target_height / max(crop_w, crop_h))
-    output_width = max(1, round(crop_w * scale_factor))
-    output_height = max(1, round(crop_h * scale_factor))
+    output_width = max(1, round(crop_w * target_height / crop_h))
     return GifFramePlan(
         source_frame_count=frame_count,
         duration_seconds=duration_seconds,
@@ -277,7 +237,7 @@ def inspect_gif(
         output_frame_count=output_count,
         effective_fps=output_count / duration_seconds,
         crop_box=crop_box,
-        output_size=(output_width, output_height),
+        output_size=(output_width, target_height),
         sampled_indices=sampled_indices,
     )
 
@@ -1068,27 +1028,12 @@ def create_gif_mate(
                 raise GifMateError(f"动作 Type {slot} 的 GIF 不存在：{resolved}")
             slot_paths[slot] = resolved
 
-        # The clarity setting caps the long side, so the real frame height is
-        # only known after inspecting the primary GIF.
-        plan_cache: dict[tuple[Path, int, int], GifFramePlan] = {}
-
-        def plan_for(path: Path) -> GifFramePlan:
-            key = (path, request.target_fps, request.target_height)
-            if key not in plan_cache:
-                plan_cache[key] = inspect_gif(
-                    path,
-                    target_fps=request.target_fps,
-                    target_height=request.target_height,
-                )
-            return plan_cache[key]
-
-        primary_plan = plan_for(slot_paths[1])
         base_placement = MateActionPlacement(
             pos_x=request.pos_x,
             pos_y=request.pos_y,
             scale_x10000=(
                 request.scale_x10000
-                or recommended_scale_for_height(primary_plan.output_size[1])
+                or recommended_scale_for_height(request.target_height)
             ),
         )
         slot_placements = {slot: base_placement for slot in range(1, 19)}
@@ -1117,7 +1062,11 @@ def create_gif_mate(
                 if len(unique_variants) == 1
                 else f"GIF_ACTION_{index + 1:02d}"
             )
-            plan = plan_for(path)
+            plan = inspect_gif(
+                path,
+                target_fps=request.target_fps,
+                target_height=request.target_height,
+            )
             extracted, action_duration, action_size = _extract_frames(
                 path,
                 temp_root / "frames" / f"a{index + 1:02d}",

@@ -44,23 +44,6 @@ def _make_variable_gif(path: Path, frame_count: int = 20) -> None:
     )
 
 
-def _make_large_gif(path: Path, frame_count: int = 20) -> None:
-    frames: list[Image.Image] = []
-    for index in range(frame_count):
-        frame = Image.new("RGBA", (400, 300), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(frame)
-        draw.rectangle((50 + index % 7, 30, 350, 270), fill=(80, 200, 255, 255))
-        frames.append(frame)
-    frames[0].save(
-        path,
-        save_all=True,
-        append_images=frames[1:],
-        duration=[50, 150] * (frame_count // 2),
-        loop=0,
-        disposal=2,
-    )
-
-
 def main() -> None:
     simple = {group.key: group.key for group in SIMPLE_ACTION_GROUPS}
     slots = expand_action_assignments(simple)
@@ -148,21 +131,7 @@ def main() -> None:
         assert plan.output_frame_count == 60
         assert abs(plan.effective_fps - 30) < 0.01
         assert plan.crop_box == (10, 5, 70, 65)
-        # The clarity setting caps the long side; a small GIF is never upscaled
-        # into blurred textures.
-        assert plan.output_size == (60, 60)
-        assert plan.estimated_emtbytes > 0
-
-        large_gif = Path(temp_name) / "large.gif"
-        _make_large_gif(large_gif)
-        downscaled = inspect_gif(large_gif, target_fps=30, target_height=256)
-        crop_w = downscaled.crop_box[2] - downscaled.crop_box[0]
-        crop_h = downscaled.crop_box[3] - downscaled.crop_box[1]
-        assert max(downscaled.output_size) == 256
-        assert downscaled.output_size == (
-            256 if crop_w >= crop_h else max(1, round(crop_w * 256 / crop_h)),
-            256 if crop_h >= crop_w else max(1, round(crop_h * 256 / crop_w)),
-        )
+        assert plan.output_size == (384, 384)
 
         long_gif = Path(temp_name) / "long.gif"
         _make_variable_gif(long_gif, frame_count=60)
