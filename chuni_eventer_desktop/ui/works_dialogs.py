@@ -16,7 +16,6 @@ from qfluentwidgets import (
     PushButton,
     SpinBox,
     SubtitleLabel,
-    isDarkTheme,
 )
 
 from ..acus_workspace import AcusConfig, vanilla_works_sort_id_set
@@ -24,6 +23,7 @@ from ..works_library import add_work_entry, load_works_library, remove_work_entr
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_question, fly_warning
 from .name_glyph_preview import wrap_name_input_with_preview
+from .theme_colors import apply_muted_style, apply_warn_style
 from ..xml_writer import (
     CHARA_DEFAULT_NET_OPEN_ID,
     CHARA_DEFAULT_NET_OPEN_STR,
@@ -39,15 +39,10 @@ WORKS_WARNING_TEXT = (
 )
 
 
-def _meta_hint_style() -> str:
-    c = "#9CA3AF" if isDarkTheme() else "#6B7280"
-    return f"color:{c}; font-size:12px;"
-
-
 def works_warning_label(*, parent: QWidget | None = None) -> BodyLabel:
     lb = BodyLabel(WORKS_WARNING_TEXT, parent)
     lb.setWordWrap(True)
-    lb.setStyleSheet("color:#B45309; font-size:12px;")
+    apply_warn_style(lb, font_size=12)
     return lb
 
 
@@ -265,7 +260,7 @@ class WorksLibraryManagerDialog(FluentCaptionDialog):
         )
         hint = BodyLabel(hint_text, self)
         hint.setWordWrap(True)
-        hint.setStyleSheet(_meta_hint_style())
+        apply_muted_style(hint, font_size=12)
 
         list_card = CardWidget(self)
         lly = QVBoxLayout(list_card)
@@ -441,7 +436,7 @@ class CharaEditWorksDialog(FluentCaptionDialog):
         ensure_combo_select_works(self._cb, cur_id, cur_str)
 
         path_lbl = BodyLabel(str(xml_path.name), self)
-        path_lbl.setStyleSheet(_meta_hint_style())
+        apply_muted_style(path_lbl, font_size=12)
 
         pick_card = CardWidget(self)
         ply = QVBoxLayout(pick_card)

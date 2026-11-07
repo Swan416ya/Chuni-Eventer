@@ -18,6 +18,7 @@ from qfluentwidgets import Theme, setTheme
 
 from .acus_workspace import app_cache_dir
 from .startup_profile import startup_mark, startup_span, startup_summary
+from .ui.theme_palette import install_theme_palette
 
 
 def _app_icon_path() -> Path:
@@ -150,6 +151,8 @@ def main() -> int:
     if icon_path.is_file():
         app.setWindowIcon(QIcon(str(icon_path)))
     setTheme(Theme.AUTO)
+    # qfluentwidgets 只切自己的 QSS；原生 Qt 弹窗/控件要靠 palette 才会跟着变暗。
+    install_theme_palette(app)
 
     startup_mark("app.main:before_import_MainWindow")
     from .ui.main_window import MainWindow

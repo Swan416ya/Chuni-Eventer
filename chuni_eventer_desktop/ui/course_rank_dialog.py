@@ -28,6 +28,7 @@ from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_m
 from .fluent_dialogs import fly_critical
 from .music_picker_dialog import pick_music
 from .name_glyph_preview import wrap_name_input_with_preview
+from .theme_colors import apply_muted_style
 
 
 class _RuleParamsRow(QWidget):
@@ -73,7 +74,7 @@ class _RuleParamsRow(QWidget):
         outer.addLayout(grid)
         self._explain_preview = BodyLabel("", self)
         self._explain_preview.setWordWrap(True)
-        self._explain_preview.setStyleSheet("color:#6b7280;")
+        apply_muted_style(self._explain_preview)
         outer.addWidget(self._explain_preview)
         for edit in (
             self.life_edit,
@@ -418,7 +419,7 @@ class CourseRankEditDialog(FluentCaptionDialog):
             f"当前绑定 CourseRule ID：{draft.rule_id}" if is_edit and draft.rule_id > 0 else "CourseRule ID：保存时自动分配（≥7001）",
             self,
         )
-        self._rule_id_hint.setStyleSheet("color:#6b7280;")
+        apply_muted_style(self._rule_id_hint)
 
         form.addRow("课题 ID", self.id_edit)
         form.addRow("显示名", wrap_name_input_with_preview(self.name_edit))

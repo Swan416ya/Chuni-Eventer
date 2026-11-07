@@ -44,6 +44,7 @@ from ..xml_writer import (
 from .dds_progress import run_bc3_jobs_with_progress
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical
+from .theme_colors import apply_muted_style, apply_warn_style
 from .name_glyph_preview import wrap_name_input_with_preview
 from .works_dialogs import (
     WORKS_WARNING_TEXT,
@@ -71,10 +72,6 @@ def _skin_id_locked_field_style() -> str:
         "padding-left: 10px;"
         "}"
     )
-
-
-def _muted_label_style() -> str:
-    return f"color: {'#9CA3AF' if isDarkTheme() else '#6B7280'};"
 
 
 def _set_idstr(node: ET.Element, val_id: int, val_str: str) -> None:
@@ -540,7 +537,7 @@ class CharaAddDialog(FluentCaptionDialog):
         id_lay.addWidget(self._row("作品（works）", works_row))
         ww = BodyLabel(WORKS_WARNING_TEXT, self)
         ww.setWordWrap(True)
-        ww.setStyleSheet("color:#B45309; font-size:12px;")
+        apply_warn_style(ww, font_size=12)
         id_lay.addWidget(ww)
 
         tex_card = CardWidget(self)
@@ -581,7 +578,7 @@ class CharaAddDialog(FluentCaptionDialog):
             self,
         )
         warn.setWordWrap(True)
-        warn.setStyleSheet("color:#B45309;")
+        apply_warn_style(warn, font_size=12)
 
         ok = PrimaryPushButton("生成并写入 ACUS", self)
         ok.clicked.connect(self._run)
@@ -616,7 +613,7 @@ class CharaAddDialog(FluentCaptionDialog):
         lb = BodyLabel(label, self)
         lb.setMinimumWidth(108)
         if label_muted:
-            lb.setStyleSheet(_muted_label_style())
+            apply_muted_style(lb)
         h.addWidget(lb, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         h.addWidget(field, 1)
         return w

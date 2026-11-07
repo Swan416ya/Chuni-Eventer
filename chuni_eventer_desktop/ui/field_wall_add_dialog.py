@@ -11,6 +11,7 @@ from ..dds_convert import DdsToolError
 from ..field_wall_from_image import FieldWallCreateOptions, create_field_wall_from_image
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message
+from .theme_colors import apply_muted_style
 
 
 class FieldWallAddDialog(FluentCaptionDialog):
@@ -44,7 +45,7 @@ class FieldWallAddDialog(FluentCaptionDialog):
             "建议 640×480（4:3），其他尺寸会自动裁切/补齐。"
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet("color:#6b7280;font-size:13px;")
+        apply_muted_style(hint, font_size=13)
         cly.addWidget(hint)
 
         form = QFormLayout()

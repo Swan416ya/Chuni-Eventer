@@ -18,6 +18,7 @@ from ..dds_convert import DdsToolError, ingest_to_bc3_dds
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical
 from .name_glyph_preview import wrap_name_input_with_preview
+from .theme_colors import apply_warn_style
 
 
 def _safe_int(text: str) -> int | None:
@@ -87,7 +88,7 @@ class NamePlateAddDialog(FluentCaptionDialog):
         warn.setText(
             "提示：名称/排序名请尽量使用日语字库内可显示字符；超出字库的汉字在游戏内可能显示为方块。"
         )
-        warn.setStyleSheet("color:#B45309; font-size:12px;")
+        apply_warn_style(warn, font_size=12)
         layout.addWidget(warn)
         layout.addStretch(1)
         layout.addLayout(btns)

@@ -27,6 +27,7 @@ from .chara_add_dialog import chara_variant_display_name
 from .dds_preview_widgets import CharaDdsPreviewWidget, WidthScaledPreviewLabel
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message, fly_warning
+from .theme_colors import apply_muted_style
 
 
 def _load_dds_pixmap(
@@ -189,7 +190,7 @@ class GameMusicDetailDialog(FluentCaptionDialog):
         meta_lines = [x for x in (artist, tag, genres) if x]
         meta = BodyLabel(" · ".join(meta_lines) if meta_lines else "—", self)
         meta.setWordWrap(True)
-        meta.setStyleSheet("color:#6B7280;")
+        apply_muted_style(meta)
 
         levels = row.get("levels") or []
         if levels:
@@ -341,12 +342,12 @@ class GameCharaImageDialog(FluentCaptionDialog):
 
         self._subtitle = BodyLabel("", self)
         self._subtitle.setWordWrap(True)
-        self._subtitle.setStyleSheet("color:#6B7280;")
+        apply_muted_style(self._subtitle)
 
         self._chara_preview = CharaDdsPreviewWidget(self)
         self._hint = BodyLabel("", self)
         self._hint.setWordWrap(True)
-        self._hint.setStyleSheet("color:#9CA3AF;font-size:13px;")
+        apply_muted_style(self._hint, font_size=13)
         self._hint.hide()
 
         self._export_row = QHBoxLayout()

@@ -36,6 +36,7 @@ from .fluent_dialogs import fly_critical, fly_message
 from .name_glyph_preview import wrap_name_input_with_preview
 from .trophy_pjsk_generator_dialog import TrophyPjskGeneratorDialog
 from .trophy_texture_compose_dialog import compose_trophy_title_png
+from .theme_colors import apply_warn_style
 
 
 def _safe_int(text: str) -> int | None:
@@ -351,7 +352,7 @@ class TrophyAddDialog(FluentCaptionDialog):
         warn = BodyLabel(self)
         warn.setWordWrap(True)
         warn.setText("提示：说明文字同样建议使用日语字库内可显示字符。")
-        warn.setStyleSheet("color:#B45309; font-size:12px;")
+        apply_warn_style(warn, font_size=12)
         layout.addWidget(warn)
         layout.addLayout(btns)
 

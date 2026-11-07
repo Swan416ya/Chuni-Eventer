@@ -79,6 +79,7 @@ from .chara_add_dialog import CharaAddDialog
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
 from .fluent_dialogs import fly_critical, fly_message
 from .mate_preview_dialog import MatePreviewDialog
+from .theme_colors import muted_text_color
 
 
 # ---------------------------------------------------------------------------
@@ -855,7 +856,7 @@ class PsbActionDialog(FluentCaptionDialog):
         caption = QLabel(parent)
         caption.setText(
             f"<b>{group.title}</b><br>"
-            f"<span style='color:#6B7280'>{group.description}</span>"
+            f"<span style='color:{muted_text_color()}'>{group.description}</span>"
         )
         caption.setWordWrap(True)
         return caption

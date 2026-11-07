@@ -40,6 +40,7 @@ from qfluentwidgets import (
     TabWidget,
     TextEdit,
     isDarkTheme,
+    setCustomStyleSheet,
 )
 
 from .fluent_caption_dialog import FluentCaptionDialog, fluent_caption_content_margins
@@ -3187,9 +3188,12 @@ class MapAddDialog(FluentCaptionDialog):
             btn = PushButton("")
             btn.setFixedSize(tile_size, tile_size)
             btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            btn.setStyleSheet(
+            setCustomStyleSheet(
+                btn,
                 "QPushButton{background:#FFFFFF;border:1px solid #E5E7EB;border-radius:8px;}"
-                "QPushButton:hover{border:1px solid #D1D5DB;}"
+                "QPushButton:hover{background:#F9FAFB;border:1px solid #D1D5DB;}",
+                "QPushButton{background:#2D2D30;border:1px solid rgba(255,255,255,0.12);border-radius:8px;}"
+                "QPushButton:hover{background:#333336;border:1px solid rgba(255,255,255,0.24);}",
             )
             btn.setToolTip(self._slot_text(page_idx, i, aid))
 

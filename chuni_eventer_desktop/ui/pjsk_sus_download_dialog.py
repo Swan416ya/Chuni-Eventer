@@ -40,6 +40,7 @@ from .fluent_dialogs import fly_critical, fly_message, fly_warning
 from .qthread_lifecycle import defer_dialog_close, defer_finalize_qthread, qthread_running_safe
 from .fluent_table import apply_fluent_sheet_table
 from .pjsk_vocal_pick_dialog import PjskVocalPickDialog
+from .theme_colors import apply_warn_style
 
 
 class _LoadCatalogThread(QThread):
@@ -134,7 +135,7 @@ class PjskSusDownloadDialog(FluentCaptionDialog):
             "转成中二谱面请在「乐曲页 → 新增 → PJSK 烤谱」里执行。"
         )
         warn.setWordWrap(True)
-        warn.setStyleSheet("color: #b45309; font-size: 13px;")
+        apply_warn_style(warn, font_size=13)
 
         _cache_root = pjsk_cache_root(self._acus_root)
         hint = BodyLabel(

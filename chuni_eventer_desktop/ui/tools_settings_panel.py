@@ -27,6 +27,7 @@ from .fluent_dialogs import fly_critical, fly_message, fly_warning
 from .qthread_lifecycle import finalize_qthread, shutdown_qthreads_for_exit
 from .tool_install_progress import dismiss_tool_install_progress
 from .rich_hint import rich_hint_label
+from .theme_colors import apply_muted_style
 
 
 class _ToolInstallWorker(QObject):
@@ -81,7 +82,7 @@ class ToolsSettingsPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 8)
         layout.setSpacing(14)
-        layout.addWidget(rich_hint_label(tools_hint_text, self, color="#6B7280"))
+        layout.addWidget(rich_hint_label(tools_hint_text, self))
 
         for spec in ALL_TOOLS:
             layout.addWidget(self._make_tool_card(spec))
@@ -122,7 +123,7 @@ class ToolsSettingsPanel(QWidget):
 
         status_lbl = BodyLabel("", self)
         status_lbl.setWordWrap(True)
-        status_lbl.setStyleSheet("color:#6B7280;font-size:12px;")
+        apply_muted_style(status_lbl, font_size=12)
         lay.addWidget(status_lbl)
 
         path_edit = LineEdit(self)
